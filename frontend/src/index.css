@@ -1,0 +1,147 @@
+@import "tailwindcss";
+@import "@mysten/dapp-kit/dist/index.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Trader-dark palette — the v3 set the user liked */
+  --color-background: #0a0a0a;
+  --color-foreground: #fafafa;
+
+  --color-card: #161616;
+  --color-card-foreground: #fafafa;
+
+  --color-popover: #161616;
+  --color-popover-foreground: #fafafa;
+
+  --color-primary: #fafafa;
+  --color-primary-foreground: #0a0a0a;
+
+  --color-secondary: #1f1f1f;
+  --color-secondary-foreground: #fafafa;
+
+  --color-muted: #1f1f1f;
+  --color-muted-foreground: #a1a1aa;
+
+  --color-accent: #262626;
+  --color-accent-foreground: #fafafa;
+
+  --color-border: #262626;
+  --color-input: #262626;
+  --color-ring: #525252;
+
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #fafafa;
+
+  --color-success: #22c55e;
+  --color-success-foreground: #052e16;
+
+  --color-touch: #22c55e;
+  --color-no-touch: #ef4444;
+
+  --color-warning: #f59e0b;
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", "Menlo", monospace;
+
+  --radius: 0.375rem;
+}
+
+html {
+  color-scheme: dark;
+  background: var(--color-background);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tabular figures everywhere numerals show up */
+.tnum,
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-radix-popper-content-wrapper] {
+  z-index: 50;
+}
+
+:root {
+  --chart-1: oklch(0.32 0 none);
+  --chart-2: oklch(0.41 0 none);
+  --chart-3: oklch(0.54 0 none);
+  --chart-4: oklch(0.71 0 none);
+  --chart-5: oklch(0.89 0 none);
+  --chart-background: oklch(1 0 0);
+  --chart-foreground: oklch(0.145 0.004 285);
+  --chart-foreground-muted: oklch(0.55 0.014 260);
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-crosshair: oklch(0.4 0.1828 274.34);
+  --chart-grid: oklch(0.9 0 0);
+  --chart-tooltip-background: oklch(0.21 0.006 285 / 0.8);
+  --chart-tooltip-foreground: oklch(0.985 0 0);
+  --chart-tooltip-muted: oklch(0.65 0.01 260);
+  --chart-marker-background: oklch(0.97 0.005 260);
+  --chart-marker-border: oklch(0.85 0.01 260);
+  --chart-marker-foreground: oklch(0.3 0.01 260);
+  --chart-ring-background: oklch(0.9 0.005 260 / 0.25);
+  --chart-label: oklch(0.45 0.01 260);
+}
+
+.dark {
+  /* Wick palette overrides — bklit uses --chart-1 for positive candles
+     and --chart-5 for negative candles. Map them onto our touch/no-touch
+     colors so the chart speaks the same visual language as the rest of
+     the trader UI. */
+  --chart-1: #22c55e;   /* TOUCH-side green: bullish / positive close */
+  --chart-2: oklch(0.73 0 none);
+  --chart-3: oklch(0.51 0 none);
+  --chart-4: oklch(0.39 0 none);
+  --chart-5: #ef4444;   /* NO_TOUCH-side red: bearish / negative close */
+  --chart-background: oklch(0.145 0 0);
+  --chart-foreground: oklch(0.45 0 0);
+  --chart-foreground-muted: oklch(0.65 0.01 260);
+  --chart-crosshair: oklch(0.45 0 0);
+  --chart-grid: oklch(0.25 0 0);
+  --chart-marker-background: oklch(0.25 0.01 260);
+  --chart-marker-border: oklch(0.4 0.01 260);
+  --chart-marker-foreground: oklch(0.9 0 0);
+  --chart-ring-background: oklch(0.35 0.01 260 / 0.25);
+  --chart-label: oklch(0.75 0.01 260);
+}
+
+@theme inline {
+  --color-chart-1: var(----chart-1);
+  --color-chart-2: var(----chart-2);
+  --color-chart-3: var(----chart-3);
+  --color-chart-4: var(----chart-4);
+  --color-chart-5: var(----chart-5);
+  --color-chart-background: var(----chart-background);
+  --color-chart-foreground: var(----chart-foreground);
+  --color-chart-foreground-muted: var(----chart-foreground-muted);
+  --chart-line-primary: var(----chart-line-primary);
+  --chart-line-secondary: var(----chart-line-secondary);
+  --color-chart-crosshair: var(----chart-crosshair);
+  --color-chart-grid: var(----chart-grid);
+  --color-chart-tooltip-background: var(----chart-tooltip-background);
+  --color-chart-tooltip-foreground: var(----chart-tooltip-foreground);
+  --color-chart-tooltip-muted: var(----chart-tooltip-muted);
+  --color-chart-marker-background: var(----chart-marker-background);
+  --color-chart-marker-border: var(----chart-marker-border);
+  --color-chart-marker-foreground: var(----chart-marker-foreground);
+  --color-chart-ring-background: var(----chart-ring-background);
+  --color-chart-label: var(----chart-label);
+}

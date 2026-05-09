@@ -1,0 +1,15 @@
+{
+  "network": "testnet",
+  "actors": {
+    "alice": {
+      "alias": "wick-deployer",
+      "address": "0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455",
+      "role": "publisher / liquidity provider"
+    },
+    "bob": {
+      "alias": "wickbob",
+      "address": "0x510e60a9faf790c747a982cc39b6332c821d1f61a28ba71381864977c744cd57",
+      "role": "bettor"
+    }
+  }
+}

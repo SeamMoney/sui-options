@@ -1,0 +1,27 @@
+{
+  "name": "@wick/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Wick Markets — touch/no-touch options on Sui.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsc --watch"
+  },
+  "peerDependencies": {
+    "@mysten/sui": "^2.16.0"
+  },
+  "devDependencies": {
+    "@mysten/sui": "^2.16.0",
+    "typescript": "^5.7.2"
+  }
+}

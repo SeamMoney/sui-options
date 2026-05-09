@@ -1,0 +1,22 @@
+{
+  "name": "wick-keeper",
+  "version": "0.1.0",
+  "description": "Permissionless keeper for Wick Markets — calls mark_hit / settle_expired when conditions are met.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "tick": "tsx src/index.ts tick",
+    "watch": "tsx src/index.ts watch",
+    "setup-key": "tsx src/setup-key.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "^2.16.0",
+    "@wick/sdk": "file:../sdk"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

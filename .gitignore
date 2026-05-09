@@ -1,0 +1,56 @@
+# Dependencies & build outputs
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Env / secrets — never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+.npmrc
+
+# Wick: keeper service key (each operator generates their own)
+keeper/.keeper-key.json
+*.keeper-key.json
+
+# Vercel CLI artifacts (local link state, env pulled from cloud)
+.vercel/
+
+# IDE / editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Move build outputs
+move/build/
+move/Move.lock
+
+# Python
+__pycache__/
+*.pyc
+
+# Deployment archive (large rotating files; only deployments/testnet.json is tracked
+# alongside the wallet manifest. Each redeploy lands a new file under archive/.)
+deployments/archive/
+
+# Local scratch
+.claude/
+.scratch/
+*.local

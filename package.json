@@ -1,0 +1,23 @@
+{
+  "name": "wick-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wick Markets — Sui touch/no-touch options. Workspaces: sdk, api, keeper, frontend.",
+  "workspaces": [
+    "sdk",
+    "api",
+    "keeper",
+    "frontend"
+  ],
+  "scripts": {
+    "build:sdk": "npm -w @wick/sdk run build",
+    "build:api": "npm -w @wick/api run build",
+    "build:frontend": "npm -w frontend run build",
+    "build:keeper": "npm -w wick-keeper run build",
+    "build": "npm run build:sdk && npm run build:api && npm run build:keeper && npm run build:frontend",
+    "dev:api": "npm -w @wick/api run dev",
+    "dev:frontend": "npm -w frontend run dev",
+    "keeper:tick": "npm -w wick-keeper run tick",
+    "keeper:watch": "npm -w wick-keeper run watch"
+  }
+}

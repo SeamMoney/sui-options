@@ -1,0 +1,24 @@
+{
+  "name": "@wick/api",
+  "version": "0.1.0",
+  "description": "HTTP API for Wick Markets — read-only endpoints over the on-chain protocol.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@mysten/sui": "^2.16.0",
+    "@wick/sdk": "file:../sdk",
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
