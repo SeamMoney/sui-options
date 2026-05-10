@@ -67,4 +67,17 @@ if [ -f keeper/package.json ]; then
   fi
 fi
 
+# 6. Bots typecheck — same idea.
+if [ -f bots/package.json ]; then
+  note "preflight: typechecking bots..."
+  if (cd bots && npm run --silent typecheck) 2>/dev/null; then
+    :
+  elif (cd bots && npx -y tsc --noEmit); then
+    :
+  else
+    red "preflight: bots typecheck failed."
+    exit 5
+  fi
+fi
+
 green "preflight: ok"

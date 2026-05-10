@@ -84,6 +84,7 @@ move/            Sui Move package (40 tests pass)
 sdk/             @wick/sdk — TS SDK (WickClient + PTB builders)
 api/             @wick/api — Fastify HTTP service (read-only)
 keeper/          wick-keeper — permissionless TS settlement bot
+bots/            wick-bots — personality-driven testnet trading bots (organic activity)
 frontend/        Vite + React trading UI
 scripts/         Bash deploy + multi-actor demo + market seeder
 deployments/     Live testnet manifest + history of upgrades
@@ -122,6 +123,10 @@ curl http://localhost:8787/markets
 
 # 6. run the frontend
 npm run dev:frontend          # http://localhost:5173 — connect a Sui wallet
+
+# 7. (optional) spin up the trading bot fleet so the UI shows organic activity
+npm run bots:setup            # generate 4 bot keys + auto-fund 0.5 SUI each from the active CLI address
+npm run bots:run              # 4 personality bots — bull / bear / contrarian / drunk — ~1 trade/sec
 ```
 
 ## Deploy to Vercel (testnet launch)

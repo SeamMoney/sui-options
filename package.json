@@ -7,6 +7,7 @@
     "sdk",
     "api",
     "keeper",
+    "bots",
     "frontend"
   ],
   "scripts": {
@@ -14,10 +15,16 @@
     "build:api": "npm -w @wick/api run build",
     "build:frontend": "npm -w frontend run build",
     "build:keeper": "npm -w wick-keeper run build",
-    "build": "npm run build:sdk && npm run build:api && npm run build:keeper && npm run build:frontend",
+    "build:bots": "npm -w wick-bots run build",
+    "build": "npm run build:sdk && npm run build:api && npm run build:keeper && npm run build:bots && npm run build:frontend",
     "dev:api": "npm -w @wick/api run dev",
     "dev:frontend": "npm -w frontend run dev",
     "keeper:tick": "npm -w wick-keeper run tick",
-    "keeper:watch": "npm -w wick-keeper run watch"
+    "keeper:watch": "npm -w wick-keeper run watch",
+    "bots:setup": "npm -w wick-bots run setup",
+    "bots:fund": "npm -w wick-bots run fund",
+    "bots:balances": "npm -w wick-bots run balances",
+    "bots:run": "npm -w wick-bots run run",
+    "bots:tick": "npm -w wick-bots run tick"
   }
 }
