@@ -33,6 +33,7 @@ const ENotWinner: u64 = 7;
 const EAlreadyClaimed: u64 = 8;
 const EOracleNotSettled: u64 = 9;
 const EWrongMarket: u64 = 10;
+const ENotReadyToSettle: u64 = 11;
 
 const SIDE_TOUCH: u8 = 0;
 const SIDE_NO_TOUCH: u8 = 1;
@@ -191,9 +192,18 @@ public fun open<C>(
     position
 }
 
-/// Redeem a settled position. Burns the position; pays out from the vault if
-/// the side won. Anyone can call, but payout returns as a Coin to the caller
-/// — wallets should call from the position owner's address.
+/// Redeem a settled position. Burns the position; pays out from the vault.
+///
+/// v2 hardened settlement (per docs/design/v2/05_path_observation_v2_hardened
+/// §7): switches on `path_observation::settlement_state`:
+///   - Resolved: existing touch-vs-no-touch payout, but reads from snapshot
+///     (frozen at lock_settlement_snapshot time, not live state).
+///   - Aborted: refund 1:1 to BOTH sides, no winner. This is the safety
+///     property — a market that timed out without enough observations cannot
+///     silently collapse to "no-touch wins."
+///
+/// The path's settlement_snapshot must be locked first via
+/// `settle_market` (or any caller of `path_observation::lock_settlement_snapshot`).
 public fun redeem<C>(
     market: &mut Market<C>,
     position: Position,
@@ -206,16 +216,15 @@ public fun redeem<C>(
 
     let now = clock.timestamp_ms();
     assert!(now >= market.expiry_ms, ENotExpired);
-    let touched = path_observation::touch_outcome(path, clock);
 
-    let won = (position.side == SIDE_TOUCH && touched)
-              || (position.side == SIDE_NO_TOUCH && !touched);
+    let state = path_observation::settlement_state(path, clock);
+    assert!(state != path_observation::settlement_not_ready(), ENotReadyToSettle);
 
-    let Position { id, market_id: _, side, stake: _, payout_if_win } = position;
+    let Position { id, market_id: _, side, stake, payout_if_win } = position;
     let pos_id = id.to_inner();
     object::delete(id);
 
-    // Decrement exposure as the position is closed regardless of win/loss.
+    // Decrement exposure regardless of branch.
     if (side == SIDE_TOUCH) {
         if (market.touch_exposure >= payout_if_win) {
             market.touch_exposure = market.touch_exposure - payout_if_win;
@@ -230,7 +239,26 @@ public fun redeem<C>(
         };
     };
 
-    let payout = if (won) {
+    if (state == path_observation::settlement_aborted()) {
+        // Aborted: refund the original stake (1:1), not the leveraged payout.
+        let refund = vault::withdraw(&mut market.vault, stake, ctx);
+        sui::event::emit(PositionRedeemed {
+            market_id: object::id(market),
+            position_id: pos_id,
+            side,
+            payout: stake,
+            won: false,
+            owner: tx_context::sender(ctx),
+        });
+        return refund
+    };
+
+    // Resolved branch — read touch outcome from snapshot if available.
+    let touched = path_observation::touch_outcome(path, clock);
+    let won = (side == SIDE_TOUCH && touched)
+              || (side == SIDE_NO_TOUCH && !touched);
+
+    if (won) {
         let payout_coin = vault::withdraw(&mut market.vault, payout_if_win, ctx);
         sui::event::emit(PositionRedeemed {
             market_id: object::id(market),
@@ -251,11 +279,23 @@ public fun redeem<C>(
             owner: tx_context::sender(ctx),
         });
         sui::coin::zero<C>(ctx)
-    };
+    }
+}
 
-    let _ = touched; // silence unused
-    let _ = market.oracle_id;
-    payout
+/// Permissionless one-shot. Locks the path's settlement_snapshot — required
+/// before any `redeem` call. Idempotent: returns early if snapshot already
+/// locked. Caller is responsible for ensuring the path has had a chance to
+/// observe (and that ticks ≥ min_observations) before calling, otherwise the
+/// market resolves Aborted (refund both sides).
+public fun settle_market<C>(
+    market: &Market<C>,
+    path: &mut PathObservation,
+    clock: &Clock,
+) {
+    assert!(market.path_id == object::id(path), EWrongPath);
+    if (option::is_none(path_observation::settlement_snapshot(path))) {
+        path_observation::lock_settlement_snapshot(path, clock);
+    };
 }
 
 /// Lock the linked oracle's settlement before any redemptions. Permissionless;

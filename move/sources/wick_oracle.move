@@ -17,6 +17,7 @@ const EAlreadySettled: u64 = 1;
 const ENotPastExpiry: u64 = 2;
 const EStaleObservation: u64 = 3;
 const ENoObservation: u64 = 4;
+const ENoSettlementObservation: u64 = 5;
 
 /// Driver kinds. New driver = new value here + new `record_tick_<kind>`
 /// entrypoint. PathObservation consumes the resulting observations identically.
@@ -35,6 +36,11 @@ public struct WickOracle has key {
     /// (e.g. lazer feed_id u32, predict market_oracle_id ID, random_walk seed).
     driver_config: vector<u8>,
     latest: Option<PriceObservation>,
+    /// v2 hardened: latched the FIRST time `apply_observation` sees an
+    /// observation with timestamp_ms >= expiry_ms. Once latched it never
+    /// changes. `lock_settlement_from_latest` consumes this, not `latest` —
+    /// kills the stale-Lazer settlement game (redteam attack #3).
+    settlement_observation: Option<PriceObservation>,
     settlement_price: Option<u64>,
     expiry_ms: u64,
     /// Max staleness allowed when calling `lock_settlement_from_latest`.
@@ -77,6 +83,7 @@ public fun new(
         driver_kind,
         driver_config,
         latest: option::none(),
+        settlement_observation: option::none(),
         settlement_price: option::none(),
         expiry_ms,
         settlement_freshness_ms,
@@ -96,6 +103,11 @@ public fun share(oracle: WickOracle) {
 
 /// Driver-side helper — apply an observation produced by a driver. Asserts
 /// kind match so a Lazer driver can't write into a Predict-backed oracle.
+///
+/// v2 hardened: if `obs.timestamp_ms >= expiry_ms` and `settlement_observation`
+/// is still `None`, latches `obs` into `settlement_observation` atomically with
+/// writing `latest`. Subsequent post-expiry observations may continue to update
+/// `latest` (telemetry) but never overwrite the latched settlement obs.
 public(package) fun apply_observation(
     oracle: &mut WickOracle,
     expected_kind: u8,
@@ -103,24 +115,30 @@ public(package) fun apply_observation(
 ) {
     assert!(oracle.driver_kind == expected_kind, EWrongDriver);
     assert!(option::is_none(&oracle.settlement_price), EAlreadySettled);
+
+    let obs_ts = price_observation::timestamp_ms(&obs);
+    if (obs_ts >= oracle.expiry_ms && option::is_none(&oracle.settlement_observation)) {
+        oracle.settlement_observation = option::some(obs);
+    };
     oracle.latest = option::some(obs);
     sui::event::emit(ObservationRecorded {
         oracle_id: object::id(oracle),
         price: price_observation::price(&obs),
-        timestamp_ms: price_observation::timestamp_ms(&obs),
+        timestamp_ms: obs_ts,
     });
 }
 
-/// Lock settlement using the latest observation, provided it is past-expiry
-/// and fresh enough. Permissionless — anyone can crank.
+/// Lock settlement using the FIRST post-expiry observation we ever saw
+/// (latched in `settlement_observation`). v2 hardened: a slow cranker cannot
+/// burn through the freshness window after latching.
+/// Permissionless — anyone can crank.
 public fun lock_settlement_from_latest(oracle: &mut WickOracle, clock: &Clock) {
     assert!(option::is_none(&oracle.settlement_price), EAlreadySettled);
     let now = clock.timestamp_ms();
     assert!(now >= oracle.expiry_ms, ENotPastExpiry);
-    assert!(option::is_some(&oracle.latest), ENoObservation);
-    let obs = option::borrow(&oracle.latest);
+    assert!(option::is_some(&oracle.settlement_observation), ENoSettlementObservation);
+    let obs = option::borrow(&oracle.settlement_observation);
     let obs_ts = price_observation::timestamp_ms(obs);
-    assert!(obs_ts >= oracle.expiry_ms, ENotPastExpiry);
     assert!(now - obs_ts <= oracle.settlement_freshness_ms, EStaleObservation);
     let settle = price_observation::price(obs);
     oracle.settlement_price = option::some(settle);
@@ -134,6 +152,10 @@ public fun lock_settlement_from_latest(oracle: &mut WickOracle, clock: &Clock) {
 // === Reads ===
 
 public fun latest(oracle: &WickOracle): &Option<PriceObservation> { &oracle.latest }
+
+public fun settlement_observation(oracle: &WickOracle): &Option<PriceObservation> {
+    &oracle.settlement_observation
+}
 
 public fun latest_price(oracle: &WickOracle): u64 {
     assert!(option::is_some(&oracle.latest), ENoObservation);

@@ -56,10 +56,17 @@ fun touch_wins_when_barrier_crossed_then_settled() {
         &clk,
         sc.ctx(),
     );
-    let mut path = path_observation::new(
+    // Use v2 constructor with relaxed settings (min_obs=1, confirmations=1)
+    // so these market-mechanics tests don't need to push 3 confirmation ticks
+    // and 6 observations. Path-hardening behavior is tested in foundation_v2_tests.
+    let mut path = path_observation::new_v2(
         &oracle,
         BARRIER_ABOVE,
         path_observation::touch_above(),
+        0,  // buffer_bps
+        1,  // min_observations
+        1,  // touch_confirmations_required
+        60_000,  // grace_ms
         sc.ctx(),
     );
 
@@ -90,6 +97,7 @@ fun touch_wins_when_barrier_crossed_then_settled() {
     clk.set_for_testing(EXPIRY + 100);
     push_obs(&mut oracle, 110_000_000_000, EXPIRY + 50);
     market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
+    market::settle_market<SUI>(&mkt, &mut path, &clk);
     assert!(wick_oracle::is_settled(&oracle), 3);
 
     // Bob redeems → wins 1.8 SUI.
@@ -122,10 +130,17 @@ fun no_touch_wins_when_barrier_never_crossed() {
         &clk,
         sc.ctx(),
     );
-    let mut path = path_observation::new(
+    // Use v2 constructor with relaxed settings (min_obs=1, confirmations=1)
+    // so these market-mechanics tests don't need to push 3 confirmation ticks
+    // and 6 observations. Path-hardening behavior is tested in foundation_v2_tests.
+    let mut path = path_observation::new_v2(
         &oracle,
         BARRIER_ABOVE,
         path_observation::touch_above(),
+        0,  // buffer_bps
+        1,  // min_observations
+        1,  // touch_confirmations_required
+        60_000,  // grace_ms
         sc.ctx(),
     );
 
@@ -157,6 +172,7 @@ fun no_touch_wins_when_barrier_never_crossed() {
     clk.set_for_testing(EXPIRY + 100);
     push_obs(&mut oracle, 102_000_000_000, EXPIRY + 50);
     market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
+    market::settle_market<SUI>(&mkt, &mut path, &clk);
 
     let payout = market::redeem<SUI>(&mut mkt, pos, &path, &clk, sc.ctx());
     assert!(payout.value() == 1_800_000_000, 2);
@@ -183,10 +199,17 @@ fun loser_receives_zero_payout_and_position_burns() {
         &clk,
         sc.ctx(),
     );
-    let mut path = path_observation::new(
+    // Use v2 constructor with relaxed settings (min_obs=1, confirmations=1)
+    // so these market-mechanics tests don't need to push 3 confirmation ticks
+    // and 6 observations. Path-hardening behavior is tested in foundation_v2_tests.
+    let mut path = path_observation::new_v2(
         &oracle,
         BARRIER_ABOVE,
         path_observation::touch_above(),
+        0,  // buffer_bps
+        1,  // min_observations
+        1,  // touch_confirmations_required
+        60_000,  // grace_ms
         sc.ctx(),
     );
     let seed = mint_sui(POOL_SEED, sc.ctx());
@@ -206,6 +229,7 @@ fun loser_receives_zero_payout_and_position_burns() {
     clk.set_for_testing(EXPIRY + 100);
     push_obs(&mut oracle, 110_000_000_000, EXPIRY + 50);
     market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
+    market::settle_market<SUI>(&mkt, &mut path, &clk);
 
     let payout = market::redeem<SUI>(&mut mkt, bob, &path, &clk, sc.ctx());
     assert!(payout.value() == 0, 0);
@@ -310,10 +334,17 @@ fun two_sided_market_clears_correctly() {
         &clk,
         sc.ctx(),
     );
-    let mut path = path_observation::new(
+    // Use v2 constructor with relaxed settings (min_obs=1, confirmations=1)
+    // so these market-mechanics tests don't need to push 3 confirmation ticks
+    // and 6 observations. Path-hardening behavior is tested in foundation_v2_tests.
+    let mut path = path_observation::new_v2(
         &oracle,
         BARRIER_ABOVE,
         path_observation::touch_above(),
+        0,  // buffer_bps
+        1,  // min_observations
+        1,  // touch_confirmations_required
+        60_000,  // grace_ms
         sc.ctx(),
     );
     let seed = mint_sui(POOL_SEED, sc.ctx());
@@ -335,6 +366,7 @@ fun two_sided_market_clears_correctly() {
     clk.set_for_testing(EXPIRY + 100);
     push_obs(&mut oracle, 120_000_000_000, EXPIRY + 50);
     market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
+    market::settle_market<SUI>(&mkt, &mut path, &clk);
 
     let alice_payout = market::redeem<SUI>(&mut mkt, alice_pos, &path, &clk, sc.ctx());
     let bob_payout = market::redeem<SUI>(&mut mkt, bob_pos, &path, &clk, sc.ctx());

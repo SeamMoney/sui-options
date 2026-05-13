@@ -144,30 +144,39 @@ fun path_observation_records_min_max_and_touch() {
     assert!(path_observation::max_seen(&po) == 100_000_000_000, 1);
     assert!(path_observation::min_seen(&po) == 100_000_000_000, 2);
 
-    // Manually push an observation at 110.0 — should trigger the touch.
-    clk.increment_for_testing(500);
+    // v2: needs 3 consecutive confirmation ticks above the barrier before
+    // touched_at sticks. Push 3 obs at 110.0 with monotonically increasing ts.
     let oid = object::id(&oracle);
-    let obs = price_observation::new(110_000_000_000, 1_500, oid);
-    wick_oracle::apply_observation_for_testing(
-        &mut oracle,
-        wick_oracle::driver_random_walk(),
-        obs,
-    );
-    path_observation::record(&mut po, &oracle, &clk);
-    assert!(path_observation::is_touched(&po), 3);
-    assert!(path_observation::max_seen(&po) == 110_000_000_000, 4);
-
-    // Manually push 95.0 — touched_at must be sticky.
     clk.increment_for_testing(500);
-    let obs2 = price_observation::new(95_000_000_000, 2_000, oid);
+    let obs_a = price_observation::new(110_000_000_000, 1_500, oid);
+    wick_oracle::apply_observation_for_testing(&mut oracle, wick_oracle::driver_random_walk(), obs_a);
+    path_observation::record(&mut po, &oracle, &clk);
+    assert!(!path_observation::is_touched(&po), 3);  // 1 confirmation, not enough
+
+    clk.increment_for_testing(500);
+    let obs_b = price_observation::new(111_000_000_000, 2_000, oid);
+    wick_oracle::apply_observation_for_testing(&mut oracle, wick_oracle::driver_random_walk(), obs_b);
+    path_observation::record(&mut po, &oracle, &clk);
+    assert!(!path_observation::is_touched(&po), 4);  // 2 confirmations, not enough
+
+    clk.increment_for_testing(500);
+    let obs_c = price_observation::new(112_000_000_000, 2_500, oid);
+    wick_oracle::apply_observation_for_testing(&mut oracle, wick_oracle::driver_random_walk(), obs_c);
+    path_observation::record(&mut po, &oracle, &clk);
+    assert!(path_observation::is_touched(&po), 5);  // 3 confirmations → touch fires
+    assert!(path_observation::max_seen(&po) == 112_000_000_000, 6);
+
+    // Drop back below barrier — touched_at must remain sticky.
+    clk.increment_for_testing(500);
+    let obs2 = price_observation::new(95_000_000_000, 3_000, oid);
     wick_oracle::apply_observation_for_testing(
         &mut oracle,
         wick_oracle::driver_random_walk(),
         obs2,
     );
     path_observation::record(&mut po, &oracle, &clk);
-    assert!(path_observation::is_touched(&po), 5);
-    assert!(path_observation::min_seen(&po) == 95_000_000_000, 6);
+    assert!(path_observation::is_touched(&po), 7);
+    assert!(path_observation::min_seen(&po) == 95_000_000_000, 8);
 
     sui::test_utils::destroy(oracle);
     sui::test_utils::destroy(_rw);
