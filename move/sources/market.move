@@ -241,6 +241,18 @@ public fun redeem<C>(
 
     if (state == path_observation::settlement_aborted()) {
         // Aborted: refund the original stake (1:1), not the leveraged payout.
+        // Safety guard: vault MUST cover the refund. With v1 vault accounting
+        // this is true by construction (every open deposited `stake`), but the
+        // assert prevents future-vault-refactor footguns and guarantees
+        // ordering doesn't strand a refunder.
+        //
+        // SEED RESIDUE: vault retains seed + Σ(payout_i - stake_i) after all
+        // refunds, since exposure decrements by `payout` (>stake) but vault
+        // gives back only `stake`. That residue is currently unrecoverable on
+        // the v1 vault path. Phase C.3 wires martingaler_vault::route_lock_to_
+        // abort_refund_pool which routes the difference cleanly. Documented
+        // limitation for MVP.
+        assert!(vault::balance(&market.vault) >= stake, EInsufficientPool);
         let refund = vault::withdraw(&mut market.vault, stake, ctx);
         sui::event::emit(PositionRedeemed {
             market_id: object::id(market),

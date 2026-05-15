@@ -8,14 +8,28 @@
 ///
 /// Anti-loop layers (per spec):
 ///   1. 7-day unstake delay (initiate_unstake → wait → complete_unstake).
-///   2. Per-fund 30% cap on lifetime claims (max_total_claimed ≤ 30% of
-///      cumulative_network_losses).
-///   3. Per-address 30% lifetime-loss claim cap (claimed ≤ 30% of
-///      address's tracked lifetime loss).
-///   4. Forfeit-to-insurance: claims that exceed cap are forfeited to
-///      InsuranceVault (not back to staker pool — kills sybil amplification).
-///   5. (Future) 48h cliff — debt_per_wick snapshot at stake-time so new
-///      stakers can't retroactively claim historical fees.
+///   2. Per-fund 30% cap on lifetime claims (Σ kept ≤ 30% × cumulative
+///      network losses) — enforced on every claim, contract-level.
+///   3. Per-address 30% lifetime-loss claim cap (per-staker claimed ≤ 30%
+///      × that address's tracked lifetime loss) — enforced contract-level.
+///   4. Forfeit-to-insurance: claims that exceed either cap are auto-
+///      transferred to `insurance_recipient` (Coin<C> sent on-chain in the
+///      same tx). NOT returned to caller — kills the docs-only loophole
+///      where a sybil cluster could claim and keep the forfeit.
+///   5. Late-staker debt snapshot via `currencies_seen` registry — new
+///      stakers cannot retroactively claim pre-stake fees in already-
+///      observed currencies.
+///   6. (Future) 48h per-address cliff — defends against staggered-receipt
+///      laundering (Attack 3 in tokenomics_v2 §4.2). Deferred for MVP;
+///      `currencies_seen` covers Attack 1 only, not Attack 3.
+///
+/// Known MVP limitation: if `complete_unstake` is called without first
+/// claiming every currency the pool has accrued since the staker's stake,
+/// that staker's pro-rata share remains in `pool.pending<C>` unowned —
+/// not lost (no other current staker can claim it because their debt
+/// snapshots already exclude it), but stranded until an InsuranceVault-
+/// backed sweep is added (post-MVP). Recommend UI flow: claim_all then
+/// initiate_unstake.
 ///
 /// MasterChef-style accumulator math: each currency has an `acc_per_wick`
 /// that grows on every accrue_dividends. StakeReceipt records the
@@ -38,9 +52,7 @@ const EUnstakeStillLocked: u64 = 2;
 const ENotOwner: u64 = 3;
 const EAlreadyInitiated: u64 = 4;
 const ENoStake: u64 = 5;
-const EClaimExceedsAddressCap: u64 = 6;
-const EClaimExceedsFundCap: u64 = 7;
-const EBagAlreadySetup: u64 = 8;
+const ENotAdmin: u64 = 9;
 
 // === Constants ===
 const UNSTAKE_DELAY_MS: u64 = 7 * 86_400_000;  // 7 days
@@ -72,6 +84,10 @@ public struct WickStakingPool has key {
     cumulative_claimed_micro_usd: u128,
     /// Forfeited dividends pending route to insurance (micro-USD telemetry).
     cumulative_forfeit_to_insurance_micro_usd: u128,
+    /// On-chain destination for forfeited dividends. Settable by AdminCap.
+    /// Until a real InsuranceVault module exists, this is a plain address
+    /// (e.g. multisig or treasury). Cannot be set to @0x0.
+    insurance_recipient: address,
 }
 
 public struct AddrState has copy, drop, store {
@@ -160,7 +176,8 @@ public struct LossRecordedForCap has copy, drop {
 
 // === Init ===
 
-public fun init_pool(ctx: &mut TxContext): StakingAdminCap {
+public fun init_pool(insurance_recipient: address, ctx: &mut TxContext): StakingAdminCap {
+    assert!(insurance_recipient != @0x0, ENotAdmin);
     let pool = WickStakingPool {
         id: object::new(ctx),
         total_staked: 0,
@@ -172,12 +189,24 @@ public fun init_pool(ctx: &mut TxContext): StakingAdminCap {
         cumulative_network_losses_micro_usd: 0,
         cumulative_claimed_micro_usd: 0,
         cumulative_forfeit_to_insurance_micro_usd: 0,
+        insurance_recipient,
     };
     let pool_id = object::id(&pool);
     sui::event::emit(StakingPoolInitialized { pool_id });
     let cap = StakingAdminCap { id: object::new(ctx), pool_id };
     transfer::share_object(pool);
     cap
+}
+
+/// Admin: rotate the insurance recipient. Cannot be set to @0x0.
+public fun set_insurance_recipient(
+    cap: &StakingAdminCap,
+    pool: &mut WickStakingPool,
+    new_recipient: address,
+) {
+    assert!(cap.pool_id == object::id(pool), ENotAdmin);
+    assert!(new_recipient != @0x0, ENotAdmin);
+    pool.insurance_recipient = new_recipient;
 }
 
 // === Stake ===
@@ -273,6 +302,8 @@ public fun complete_unstake(
     let now = clock.timestamp_ms();
     assert!(now >= initiated_at + UNSTAKE_DELAY_MS, EUnstakeStillLocked);
 
+    // Capture the receipt ID BEFORE destructure so the event has the real value.
+    let receipt_id_pre = object::id(&receipt);
     let StakeReceipt {
         id,
         owner,
@@ -283,7 +314,9 @@ public fun complete_unstake(
         last_settlement_observed_ms: _,
     } = receipt;
 
-    // VecMap has drop — unclaimed dividends are abandoned with the receipt
+    // VecMap has drop — any unclaimed dividends remain in pool.pending<C>
+    // (see module-level "Known MVP limitation" docs). Recommend UI flow:
+    // claim_dividends<C> for every currency, then complete_unstake.
     object::delete(id);
 
     pool.total_staked = pool.total_staked - staked;
@@ -291,7 +324,7 @@ public fun complete_unstake(
 
     sui::event::emit(UnstakeCompleted {
         pool_id: object::id(pool),
-        receipt_id: object::id_from_address(@0x0),  // post-delete
+        receipt_id: receipt_id_pre,
         staker: owner,
         amount: staked,
     });
@@ -351,13 +384,23 @@ public fun accrue_dividends<C>(
 // === Claim ===
 
 /// Claim dividends in currency C. Pays out (staked × (acc - debt) / SCALE),
-/// updates the receipt's debt, and enforces the per-address 30% lifetime-loss
-/// claim cap. Returns the claimable Coin<C> and a burn balance for forfeits.
+/// updates the receipt's debt, and enforces BOTH caps:
+///   - Per-address: kept ≤ 30% × address's lifetime loss
+///   - Per-fund:    Σ kept (across all stakers) ≤ 30% × cumulative network losses
+/// Whichever cap is tighter wins. The forfeited remainder is auto-transferred
+/// to `pool.insurance_recipient` in the same tx — caller cannot intercept.
+///
+/// Returns only the kept `Coin<C>`.
+///
+/// MVP NOTE: cap basis is the raw `C` unit count (treating 1 unit ≈ 1 micro-
+/// USD). Multi-currency price normalization via Pyth is deferred — until then,
+/// claims in different currencies all consume the same cap pool 1:1. For
+/// MVP collateral set (SUI/USDC/WICK) this is acceptable; document loudly.
 public fun claim_dividends<C>(
     receipt: &mut StakeReceipt,
     pool: &mut WickStakingPool,
     ctx: &mut TxContext,
-): (Coin<C>, Balance<C>) {
+): Coin<C> {
     assert!(receipt.owner == ctx.sender(), ENotOwner);
     assert!(receipt.staked > 0, ENoStake);
 
@@ -367,37 +410,45 @@ public fun claim_dividends<C>(
     let delta_per_wick = if (acc_now > debt_prev) acc_now - debt_prev else 0;
     let pending_for_user = ((receipt.staked as u128) * delta_per_wick / ACC_SCALE) as u64;
 
+    // Always advance debt to acc_now so a no-op claim still snapshots the
+    // current accumulator (prevents future double-counting).
+    vec_map_set_u128(&mut receipt.debt_per_wick_by_currency, key, acc_now);
+
     if (pending_for_user == 0) {
-        vec_map_set_u128(&mut receipt.debt_per_wick_by_currency, key, acc_now);
-        return (coin::zero<C>(ctx), balance::zero<C>())
+        return coin::zero<C>(ctx)
     };
 
-    // Withdraw the full pending_for_user from the pool's pending bag
+    // Withdraw the full pending_for_user from the pool's pending bag.
     let pool_pending: &mut Balance<C> = bag::borrow_mut(&mut pool.pending, key);
     let mut withdrawn = balance::split(pool_pending, pending_for_user);
 
-    // Update receipt debt
-    vec_map_set_u128(&mut receipt.debt_per_wick_by_currency, key, acc_now);
-
-    // Per-address 30% cap. We approximate USD-equivalent claim with
-    // the raw amount for MVP (multi-currency caps require Pyth normalization
-    // — deferred). Treat 1:1 for now and document.
+    // Apply BOTH caps. The min wins.
     let staker = receipt.owner;
-    let s = table::borrow_mut(&mut pool.addr_state, staker);
-    let cap_remaining = compute_addr_cap_remaining(s);
+    let addr_remaining = {
+        let s = table::borrow(&pool.addr_state, staker);
+        compute_addr_cap_remaining(s)
+    };
+    let fund_remaining = compute_fund_cap_remaining(pool);
+    let cap_remaining = if (addr_remaining < fund_remaining) addr_remaining else fund_remaining;
+
     let (kept, forfeit) = if ((pending_for_user as u128) > cap_remaining) {
         let allowed = cap_remaining as u64;
         (allowed, pending_for_user - allowed)
     } else {
         (pending_for_user, 0)
     };
+
+    // Update accounting BEFORE transfer/emit (no reentrancy in Move, but
+    // good hygiene).
+    let s = table::borrow_mut(&mut pool.addr_state, staker);
     s.claimed_micro_usd = s.claimed_micro_usd + (kept as u128);
     pool.cumulative_claimed_micro_usd = pool.cumulative_claimed_micro_usd + (kept as u128);
-
-    let kept_balance = balance::split(&mut withdrawn, kept);
-    let forfeit_balance = withdrawn;
     pool.cumulative_forfeit_to_insurance_micro_usd =
         pool.cumulative_forfeit_to_insurance_micro_usd + (forfeit as u128);
+
+    // Split kept off; remainder is the forfeit that gets auto-routed.
+    let kept_balance = balance::split(&mut withdrawn, kept);
+    let forfeit_balance = withdrawn;
 
     sui::event::emit(DividendsClaimed {
         pool_id: object::id(pool),
@@ -408,14 +459,32 @@ public fun claim_dividends<C>(
         forfeited: forfeit,
     });
 
-    (coin::from_balance(kept_balance, ctx), forfeit_balance)
+    // Auto-transfer the forfeit. ZERO-balance fast path: destroy_zero
+    // doesn't need a transfer.
+    if (forfeit > 0) {
+        transfer::public_transfer(
+            coin::from_balance(forfeit_balance, ctx),
+            pool.insurance_recipient,
+        );
+    } else {
+        balance::destroy_zero(forfeit_balance);
+    };
+
+    coin::from_balance(kept_balance, ctx)
 }
 
 /// Compute remaining claim cap for an address.
-/// cap = 30% × lifetime_loss − already_claimed
+/// cap = 30% × address.lifetime_loss − address.already_claimed
 fun compute_addr_cap_remaining(s: &AddrState): u128 {
     let cap = (s.lifetime_loss_micro_usd * (CLAIM_CAP_BPS as u128)) / 10_000;
     if (cap > s.claimed_micro_usd) cap - s.claimed_micro_usd else 0
+}
+
+/// Compute remaining per-fund cap.
+/// cap = 30% × cumulative_network_losses − cumulative_claimed
+fun compute_fund_cap_remaining(pool: &WickStakingPool): u128 {
+    let cap = (pool.cumulative_network_losses_micro_usd * (CLAIM_CAP_BPS as u128)) / 10_000;
+    if (cap > pool.cumulative_claimed_micro_usd) cap - pool.cumulative_claimed_micro_usd else 0
 }
 
 // === Loss tracking (called by market/ride on losing settlement) ===
@@ -486,6 +555,14 @@ public fun addr_claimed_micro_usd(p: &WickStakingPool, addr: address): u128 {
 public fun unstake_delay_ms(): u64 { UNSTAKE_DELAY_MS }
 public fun claim_cap_bps(): u64 { CLAIM_CAP_BPS }
 public fun acc_scale(): u128 { ACC_SCALE }
+public fun insurance_recipient(p: &WickStakingPool): address { p.insurance_recipient }
+public fun fund_cap_remaining_micro_usd(p: &WickStakingPool): u128 {
+    compute_fund_cap_remaining(p)
+}
+public fun addr_cap_remaining_micro_usd(p: &WickStakingPool, addr: address): u128 {
+    if (!table::contains(&p.addr_state, addr)) return 0;
+    compute_addr_cap_remaining(table::borrow(&p.addr_state, addr))
+}
 
 // === Bag helpers (Sui Bag doesn't have a "get or default" so wrap it) ===
 
@@ -519,6 +596,14 @@ fun vec_map_set_u128(m: &mut VecMap<TypeName, u128>, key: TypeName, value: u128)
 
 #[test_only]
 public fun init_for_testing(ctx: &mut TxContext): (WickStakingPool, StakingAdminCap) {
+    init_for_testing_with_insurance(@0xDEAD, ctx)
+}
+
+#[test_only]
+public fun init_for_testing_with_insurance(
+    insurance_recipient: address,
+    ctx: &mut TxContext,
+): (WickStakingPool, StakingAdminCap) {
     let pool = WickStakingPool {
         id: object::new(ctx),
         total_staked: 0,
@@ -530,6 +615,7 @@ public fun init_for_testing(ctx: &mut TxContext): (WickStakingPool, StakingAdmin
         cumulative_network_losses_micro_usd: 0,
         cumulative_claimed_micro_usd: 0,
         cumulative_forfeit_to_insurance_micro_usd: 0,
+        insurance_recipient,
     };
     let cap = StakingAdminCap { id: object::new(ctx), pool_id: object::id(&pool) };
     (pool, cap)

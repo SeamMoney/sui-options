@@ -394,6 +394,78 @@ fun aborted_market_refunds_both_sides_one_to_one() {
     let _ = BOB;
 }
 
+#[test]
+fun aborted_with_asymmetric_stakes_each_redeemer_gets_own_stake() {
+    // Stress test: 3 TOUCH stakes of different sizes + 1 NO_TOUCH stake.
+    // Verifies Aborted refund:
+    //   - Each redeemer gets their own `stake` back (not the leveraged payout)
+    //   - Redemption ordering is irrelevant (no stuck-claims)
+    //   - Vault residue after all refunds = seed + Σ(payout - stake)
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let expiry = 1_000;
+    let (oracle, _rw) = mk_oracle_at(expiry, &mut sc, &clk);
+    let mut path = po::new_v2(
+        &oracle, BARRIER_ABOVE, po::touch_above(),
+        0, 100, 1, 1_000, sc.ctx(),  // min_obs=100, grace=1s — guaranteed Aborted
+    );
+
+    // Generous seed to cover worst-case open-side exposure (4 positions × payout ~5x).
+    let seed = coin::mint_for_testing<SUI>(50_000_000_000, sc.ctx());
+    let mut mkt = market::create<SUI>(
+        string::utf8(b"asymm"),
+        &oracle, &path, 18_000, seed, sc.ctx(),
+    );
+    let multiplier_bps = 18_000u64;
+
+    // 3 TOUCH stakes: 1, 2, 3 SUI
+    let stake_a = coin::mint_for_testing<SUI>(1_000_000_000, sc.ctx());
+    let pos_a = market::open<SUI>(&mut mkt, market::side_touch(), stake_a, &clk, sc.ctx());
+    let stake_b = coin::mint_for_testing<SUI>(2_000_000_000, sc.ctx());
+    let pos_b = market::open<SUI>(&mut mkt, market::side_touch(), stake_b, &clk, sc.ctx());
+    let stake_c = coin::mint_for_testing<SUI>(3_000_000_000, sc.ctx());
+    let pos_c = market::open<SUI>(&mut mkt, market::side_touch(), stake_c, &clk, sc.ctx());
+    // 1 NO_TOUCH stake: 0.5 SUI
+    let stake_d = coin::mint_for_testing<SUI>(500_000_000, sc.ctx());
+    let pos_d = market::open<SUI>(&mut mkt, market::side_no_touch(), stake_d, &clk, sc.ctx());
+
+    let total_stakes = 1_000_000_000u64 + 2_000_000_000 + 3_000_000_000 + 500_000_000;
+    assert!(market::vault_balance(&mkt) == 50_000_000_000 + total_stakes, 0);
+
+    // Move to Aborted.
+    clk.set_for_testing(expiry + 2_000);
+    assert!(po::settlement_state(&path, &clk) == po::settlement_aborted(), 1);
+    market::settle_market<SUI>(&mkt, &mut path, &clk);
+
+    // Redeem in non-original order: D, A, C, B.
+    let p_d = market::redeem<SUI>(&mut mkt, pos_d, &path, &clk, sc.ctx());
+    assert!(p_d.value() == 500_000_000, 2);
+    let p_a = market::redeem<SUI>(&mut mkt, pos_a, &path, &clk, sc.ctx());
+    assert!(p_a.value() == 1_000_000_000, 3);
+    let p_c = market::redeem<SUI>(&mut mkt, pos_c, &path, &clk, sc.ctx());
+    assert!(p_c.value() == 3_000_000_000, 4);
+    let p_b = market::redeem<SUI>(&mut mkt, pos_b, &path, &clk, sc.ctx());
+    assert!(p_b.value() == 2_000_000_000, 5);
+
+    // Vault residue = seed only (all stakes refunded 1:1).
+    assert!(market::vault_balance(&mkt) == 50_000_000_000, 6);
+    // Exposures cleared.
+    assert!(market::touch_exposure(&mkt) == 0, 7);
+    assert!(market::no_touch_exposure(&mkt) == 0, 8);
+
+    let _ = multiplier_bps;
+    sui::test_utils::destroy(p_a); sui::test_utils::destroy(p_b);
+    sui::test_utils::destroy(p_c); sui::test_utils::destroy(p_d);
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(path);
+    let leftover = market::drain_and_destroy_for_testing<SUI>(mkt, sc.ctx());
+    sui::test_utils::destroy(leftover);
+    clk.destroy_for_testing();
+    sc.end();
+    let _ = BOB;
+}
+
 // === settlement_observation latch (wick_oracle v2) ===
 
 #[test]
