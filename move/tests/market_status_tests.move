@@ -74,11 +74,13 @@ fun cannot_open_when_not_active() {
 
     market::set_status_for_testing(&mut mkt, market::status_hit());
     let stake = h::mint_sui(STAKE, &mut sc);
-    let pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let bundle = h::setup_c35_bundle(&mut sc, &clk);
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake, SPOT, &clk, sc.ctx(),
     );
 
+    h::destroy_c35_bundle(bundle);
     test_utils::destroy(pos);
     teardown(oracle, rw, path, mkt, vault, vcap, rconf, rcap, reg, regcap, frtr, frcap, clk);
     sc.end();
@@ -151,8 +153,9 @@ fun fee_snapshot_captured_at_lock() {
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
 
     let stake = h::mint_sui(STAKE, &mut sc);
-    let pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let bundle = h::setup_c35_bundle(&mut sc, &clk);
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake, SPOT, &clk, sc.ctx(),
     );
 
@@ -166,6 +169,7 @@ fun fee_snapshot_captured_at_lock() {
     assert!(option::is_some(market::fee_snapshot(&mkt)), 0);
 
     let _ = BOB;
+    h::destroy_c35_bundle(bundle);
     test_utils::destroy(pos);
     teardown(oracle, rw, path, mkt, vault, vcap, rconf, rcap, reg, regcap, frtr, frcap, clk);
     sc.end();

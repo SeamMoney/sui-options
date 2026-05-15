@@ -24,6 +24,7 @@ module wick::wick;
 use std::string::String;
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
+use wick::bot_registry::BotRegistry;
 use wick::fee_router::FeeRouter;
 use wick::global_exposure_registry::GlobalExposureRegistry;
 use wick::market::{Self, Market};
@@ -32,7 +33,10 @@ use wick::path_observation::{Self, PathObservation};
 use wick::pull_oracle_driver::{Self, KeeperCap, PullFeed};
 use wick::random_walk_driver::{Self, RandomWalk};
 use wick::risk_config::RiskConfig;
+use wick::usd_price_oracle::UsdPriceOracle;
 use wick::wick_oracle::WickOracle;
+use wick::wick_staking::WickStakingPool;
+use wick::wick_token::WickTokenState;
 
 // === Vault provisioning (one per collateral type C) ===
 
@@ -143,6 +147,7 @@ public fun open_touch<C>(
     vault: &mut MartingalerVault<C>,
     risk_config: &RiskConfig,
     registry: &mut GlobalExposureRegistry,
+    bot_registry: &BotRegistry,
     path: &PathObservation,
     stake: Coin<C>,
     spot: u64,
@@ -150,7 +155,8 @@ public fun open_touch<C>(
     ctx: &mut TxContext,
 ): wick::market::Position {
     market::open<C>(
-        market, vault, risk_config, registry, path, market::side_touch(), stake, spot, clock, ctx,
+        market, vault, risk_config, registry, bot_registry, path,
+        market::side_touch(), stake, spot, clock, ctx,
     )
 }
 
@@ -159,6 +165,7 @@ public fun open_no_touch<C>(
     vault: &mut MartingalerVault<C>,
     risk_config: &RiskConfig,
     registry: &mut GlobalExposureRegistry,
+    bot_registry: &BotRegistry,
     path: &PathObservation,
     stake: Coin<C>,
     spot: u64,
@@ -166,7 +173,8 @@ public fun open_no_touch<C>(
     ctx: &mut TxContext,
 ): wick::market::Position {
     market::open<C>(
-        market, vault, risk_config, registry, path, market::side_no_touch(), stake, spot, clock, ctx,
+        market, vault, risk_config, registry, bot_registry, path,
+        market::side_no_touch(), stake, spot, clock, ctx,
     )
 }
 
@@ -175,11 +183,17 @@ public fun redeem<C>(
     vault: &mut MartingalerVault<C>,
     risk_config: &RiskConfig,
     fee_router: &mut FeeRouter<C>,
+    wick_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    price_oracle: &UsdPriceOracle,
     position: wick::market::Position,
     clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<C> {
-    market::redeem<C>(market, vault, risk_config, fee_router, position, clock, ctx)
+    market::redeem<C>(
+        market, vault, risk_config, fee_router, wick_state, staking_pool,
+        price_oracle, position, clock, ctx,
+    )
 }
 
 /// Permissionless atomic settlement entry — anyone can crank past

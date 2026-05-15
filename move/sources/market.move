@@ -19,13 +19,17 @@ module wick::market;
 use std::string::String;
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
+use wick::bot_registry::{Self as br, BotRegistry};
 use wick::fee_router::{Self as router, FeeRouter};
 use wick::global_exposure_registry::{Self as ger, GlobalExposureRegistry};
 use wick::impact_fee::{Self as fee, FeeSnapshot};
 use wick::martingaler_vault::{Self as mv, MartingalerVault};
 use wick::path_observation::{Self, PathObservation};
 use wick::risk_config::{Self as rc, RiskConfig};
+use wick::usd_price_oracle::{Self as upo, UsdPriceOracle};
 use wick::wick_oracle::{Self, WickOracle};
+use wick::wick_staking::{Self as ws, WickStakingPool};
+use wick::wick_token::{Self as wt, WickTokenState};
 
 const EWrongPath: u64 = 1;
 const EBadMultiplier: u64 = 2;
@@ -254,6 +258,7 @@ public fun open<C>(
     vault: &mut MartingalerVault<C>,
     risk_config: &RiskConfig,
     registry: &mut GlobalExposureRegistry,
+    bot_registry: &BotRegistry,
     path: &PathObservation,
     side: u8,
     stake: Coin<C>,
@@ -327,13 +332,18 @@ public fun open<C>(
     // Register PWE into global registry (+).
     ger::update_exposure(registry, market.underlying, side, true, position_pwe, clock);
 
+    // Bot eligibility snapshotted at OPEN time (per adversarial #7). Reading
+    // at redeem-time would let a freshly-flagged bot's outstanding positions
+    // still mint WICK on close.
+    let is_bot_eligible = br::is_eligible_for_wick(bot_registry, tx_context::sender(ctx));
+
     let position = Position {
         id: object::new(ctx),
         market_id: object::id(market),
         side,
         stake: stake_amount,
         payout_if_win: payout,
-        is_bot_eligible: true,  // C.3.5 wires bot_registry lookup
+        is_bot_eligible,
         pwe_at_open: position_pwe,
         opened_at_ms: now,
     };
@@ -453,6 +463,9 @@ public fun redeem<C>(
     vault: &mut MartingalerVault<C>,
     risk_config: &RiskConfig,
     fee_router: &mut FeeRouter<C>,
+    wick_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    price_oracle: &UsdPriceOracle,
     position: Position,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -463,7 +476,7 @@ public fun redeem<C>(
 
     let Position {
         id, market_id: _, side, stake, payout_if_win,
-        is_bot_eligible: _, pwe_at_open: _, opened_at_ms: _,
+        is_bot_eligible, pwe_at_open: _, opened_at_ms: _,
     } = position;
     let pos_id = id.to_inner();
     object::delete(id);
@@ -505,6 +518,21 @@ public fun redeem<C>(
               || (side == SIDE_NO_TOUCH && !touched);
 
     if (!won) {
+        // LOSER BRANCH: mint WICK + record loss, atomically with the SAME
+        // loss_micro_usd value. Per the math agent + adversarial #40 + the
+        // user decision E2 + E3:
+        //   - Pyth-stale or unset → loss_micro_usd = 0 → both calls graceful no-op
+        //   - record_loss FIRST (cheap, never aborts on valid input)
+        //   - mint_to_loser SECOND (heavier; gated by is_bot_eligible
+        //     captured at OPEN time)
+        //   - Both consume the SAME let-bound value — never recomputed
+        let loss_micro_usd = upo::loss_micro_usd<C>(
+            price_oracle, stake, clock, upo::default_max_staleness_ms(),
+        );
+        ws::record_loss(staking_pool, owner, loss_micro_usd);
+        let _wick_minted = wt::mint_to_loser(
+            wick_state, owner, loss_micro_usd, is_bot_eligible, clock, ctx,
+        );
         sui::event::emit(PositionRedeemed {
             market_id, position_id: pos_id, side,
             payout: 0, fee_paid: 0, won: false, owner,

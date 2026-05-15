@@ -33,10 +33,11 @@ fun touch_wins_when_barrier_crossed_then_settled() {
     let (mut oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, mut frtr, frcap, mut clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     let stake = h::mint_sui(STAKE, &mut sc);
-    let bob_pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let bob_pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake, SPOT, &clk, sc.ctx(),
     );
     assert!(market::touch_exposure(&mkt) == 1_800_000_000, 0);
@@ -50,7 +51,7 @@ fun touch_wins_when_barrier_crossed_then_settled() {
     market::lock_and_settle<SUI>(&mut mkt, &mut vault, &mut path, &mut oracle, &mut reg, &clk, sc.ctx());
     assert!(market::status(&mkt) == market::status_hit(), 1);
 
-    let payout = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, bob_pos, &clk, sc.ctx());
+    let payout = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, bob_pos, &clk, sc.ctx());
     // Winner gets net payout = stake + (profit - fee). Fee comes off profit.
     assert!(payout.value() < 1_800_000_000, 2);   // some fee deducted
     assert!(payout.value() > 1_000_000_000, 3);   // but still > stake (winner profits)
@@ -62,6 +63,7 @@ fun touch_wins_when_barrier_crossed_then_settled() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -73,10 +75,11 @@ fun no_touch_wins_when_barrier_never_crossed() {
     let (mut oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, mut frtr, frcap, mut clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     let stake = h::mint_sui(STAKE, &mut sc);
-    let pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_no_touch(), stake, SPOT, &clk, sc.ctx(),
     );
 
@@ -88,7 +91,7 @@ fun no_touch_wins_when_barrier_never_crossed() {
     push_obs(&mut oracle, 102_000_000_000, EXPIRY + 50);
     market::lock_and_settle<SUI>(&mut mkt, &mut vault, &mut path, &mut oracle, &mut reg, &clk, sc.ctx());
 
-    let payout = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, pos, &clk, sc.ctx());
+    let payout = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, pos, &clk, sc.ctx());
     assert!(payout.value() < 1_800_000_000, 0);
     assert!(payout.value() > 1_000_000_000, 1);
     test_utils::destroy(payout);
@@ -98,6 +101,7 @@ fun no_touch_wins_when_barrier_never_crossed() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -109,10 +113,11 @@ fun loser_receives_zero() {
     let (mut oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, mut frtr, frcap, mut clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     let stake = h::mint_sui(STAKE, &mut sc);
-    let bob = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let bob = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_no_touch(), stake, SPOT, &clk, sc.ctx(),
     );
 
@@ -124,7 +129,7 @@ fun loser_receives_zero() {
     push_obs(&mut oracle, 110_000_000_000, EXPIRY + 50);
     market::lock_and_settle<SUI>(&mut mkt, &mut vault, &mut path, &mut oracle, &mut reg, &clk, sc.ctx());
 
-    let payout = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, bob, &clk, sc.ctx());
+    let payout = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, bob, &clk, sc.ctx());
     assert!(payout.value() == 0, 0);
     test_utils::destroy(payout);
 
@@ -134,6 +139,7 @@ fun loser_receives_zero() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -146,11 +152,12 @@ fun cannot_open_after_expiry() {
     let (oracle, rw, path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, mut clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     clk.set_for_testing(EXPIRY + 1);
     let stake = h::mint_sui(STAKE, &mut sc);
-    let pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake, SPOT, &clk, sc.ctx(),
     );
 
@@ -160,6 +167,7 @@ fun cannot_open_after_expiry() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -172,13 +180,14 @@ fun cannot_redeem_when_active() {
     let (oracle, rw, path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, mut frtr, frcap, clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     let stake = h::mint_sui(STAKE, &mut sc);
-    let pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake, SPOT, &clk, sc.ctx(),
     );
-    let payout = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, pos, &clk, sc.ctx());
+    let payout = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, pos, &clk, sc.ctx());
 
     test_utils::destroy(payout);
     test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
@@ -186,6 +195,7 @@ fun cannot_redeem_when_active() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -197,15 +207,16 @@ fun two_sided_market_clears_correctly() {
     let (mut oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, mut frtr, frcap, mut clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     let stake_a = h::mint_sui(STAKE, &mut sc);
-    let alice_pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let alice_pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake_a, SPOT, &clk, sc.ctx(),
     );
     let stake_b = h::mint_sui(STAKE, &mut sc);
-    let bob_pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let bob_pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_no_touch(), stake_b, SPOT, &clk, sc.ctx(),
     );
 
@@ -217,8 +228,8 @@ fun two_sided_market_clears_correctly() {
     push_obs(&mut oracle, 120_000_000_000, EXPIRY + 50);
     market::lock_and_settle<SUI>(&mut mkt, &mut vault, &mut path, &mut oracle, &mut reg, &clk, sc.ctx());
 
-    let alice_payout = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, alice_pos, &clk, sc.ctx());
-    let bob_payout = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, bob_pos, &clk, sc.ctx());
+    let alice_payout = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, alice_pos, &clk, sc.ctx());
+    let bob_payout = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, bob_pos, &clk, sc.ctx());
     assert!(alice_payout.value() > STAKE, 0);   // touch wins, profit > 0
     assert!(bob_payout.value() == 0, 1);
 
@@ -229,6 +240,7 @@ fun two_sided_market_clears_correctly() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -242,11 +254,12 @@ fun pwe_registered_on_open_and_cleared_on_settle() {
     let (mut oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, mut frtr, frcap, mut clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     // Open touch: PWE increases on touch side.
     let stake = h::mint_sui(STAKE, &mut sc);
-    let pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake, SPOT, &clk, sc.ctx(),
     );
     let pwe_after_open = market::touch_pwe(&mkt);
@@ -265,7 +278,7 @@ fun pwe_registered_on_open_and_cleared_on_settle() {
     // tracks what was attributed; the registry's tracking is what matters.
     assert!(market::status(&mkt) == market::status_expired(), 1);
 
-    let payout = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, pos, &clk, sc.ctx());
+    let payout = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, pos, &clk, sc.ctx());
     assert!(payout.value() == 0, 2);  // touch lost (no_touch won)
     test_utils::destroy(payout);
 
@@ -274,6 +287,7 @@ fun pwe_registered_on_open_and_cleared_on_settle() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -285,11 +299,12 @@ fun fee_routes_to_router_buckets_on_winner_redeem() {
     let (mut oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, mut frtr, frcap, mut clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     // Big stake → big profit → measurable fee.
     let stake = h::mint_sui(STAKE, &mut sc);
-    let pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake, SPOT, &clk, sc.ctx(),
     );
 
@@ -305,7 +320,7 @@ fun fee_routes_to_router_buckets_on_winner_redeem() {
     let insurance_before = wick::fee_router::insurance_pending(&frtr);
     let protocol_before = wick::fee_router::protocol_pending(&frtr);
 
-    let payout = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, pos, &clk, sc.ctx());
+    let payout = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, pos, &clk, sc.ctx());
 
     // Some fee was routed to non-LP buckets.
     let staker_delta = wick::fee_router::staker_pending(&frtr) - staker_before;
@@ -323,6 +338,7 @@ fun fee_routes_to_router_buckets_on_winner_redeem() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -334,11 +350,12 @@ fun aborted_path_routes_to_pool_no_fee() {
     let (oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, mut frtr, frcap, mut clk) =
         h::setup_full_world_with_path_params(&mut sc, EXPIRY, 50, 1, 5_000, 5_000);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
     let mut oracle_mut = oracle;
 
     let stake_a = h::mint_sui(STAKE, &mut sc);
-    let alice_pos = market::open<SUI>(
-        &mut mkt, &mut vault, &rconf, &mut reg, &path,
+    let alice_pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
         market::side_touch(), stake_a, SPOT, &clk, sc.ctx(),
     );
 
@@ -347,7 +364,7 @@ fun aborted_path_routes_to_pool_no_fee() {
     assert!(market::status(&mkt) == market::status_aborted(), 0);
 
     let staker_before = wick::fee_router::staker_pending(&frtr);
-    let p_a = market::redeem<SUI>(&mut mkt, &mut vault, &rconf, &mut frtr, alice_pos, &clk, sc.ctx());
+    let p_a = h::redeem_with_bundle(&mut mkt, &mut vault, &rconf, &mut frtr, &mut bundle, alice_pos, &clk, sc.ctx());
     assert!(p_a.value() == STAKE, 1);
     // No fee on aborted refund.
     assert!(wick::fee_router::staker_pending(&frtr) == staker_before, 2);
@@ -358,6 +375,7 @@ fun aborted_path_routes_to_pool_no_fee() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
@@ -369,6 +387,7 @@ fun lock_and_settle_idempotent() {
     let (mut oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, mut clk) =
         h::setup_full_world(&mut sc);
     h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let bundle = h::setup_c35_bundle(&mut sc, &clk);
 
     clk.increment_for_testing(100);
     push_obs(&mut oracle, 99_000_000_000, 100);
@@ -387,6 +406,7 @@ fun lock_and_settle_idempotent() {
     test_utils::destroy(rconf); test_utils::destroy(rcap);
     test_utils::destroy(reg); test_utils::destroy(regcap);
     test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
     market::destroy_for_testing(mkt);
     clk.destroy_for_testing();
     sc.end();
