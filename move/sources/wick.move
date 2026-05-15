@@ -24,11 +24,14 @@ module wick::wick;
 use std::string::String;
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
+use wick::fee_router::FeeRouter;
+use wick::global_exposure_registry::GlobalExposureRegistry;
 use wick::market::{Self, Market};
 use wick::martingaler_vault::{Self as mv, MartingalerVault, VaultAdminCap};
 use wick::path_observation::{Self, PathObservation};
 use wick::pull_oracle_driver::{Self, KeeperCap, PullFeed};
 use wick::random_walk_driver::{Self, RandomWalk};
+use wick::risk_config::RiskConfig;
 use wick::wick_oracle::WickOracle;
 
 // === Vault provisioning (one per collateral type C) ===
@@ -138,31 +141,45 @@ public entry fun bootstrap_pull_market<C>(
 public fun open_touch<C>(
     market: &mut Market<C>,
     vault: &mut MartingalerVault<C>,
+    risk_config: &RiskConfig,
+    registry: &mut GlobalExposureRegistry,
+    path: &PathObservation,
     stake: Coin<C>,
+    spot: u64,
     clock: &Clock,
     ctx: &mut TxContext,
 ): wick::market::Position {
-    market::open<C>(market, vault, market::side_touch(), stake, clock, ctx)
+    market::open<C>(
+        market, vault, risk_config, registry, path, market::side_touch(), stake, spot, clock, ctx,
+    )
 }
 
 public fun open_no_touch<C>(
     market: &mut Market<C>,
     vault: &mut MartingalerVault<C>,
+    risk_config: &RiskConfig,
+    registry: &mut GlobalExposureRegistry,
+    path: &PathObservation,
     stake: Coin<C>,
+    spot: u64,
     clock: &Clock,
     ctx: &mut TxContext,
 ): wick::market::Position {
-    market::open<C>(market, vault, market::side_no_touch(), stake, clock, ctx)
+    market::open<C>(
+        market, vault, risk_config, registry, path, market::side_no_touch(), stake, spot, clock, ctx,
+    )
 }
 
 public fun redeem<C>(
     market: &mut Market<C>,
     vault: &mut MartingalerVault<C>,
+    risk_config: &RiskConfig,
+    fee_router: &mut FeeRouter<C>,
     position: wick::market::Position,
     clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<C> {
-    market::redeem<C>(market, vault, position, clock, ctx)
+    market::redeem<C>(market, vault, risk_config, fee_router, position, clock, ctx)
 }
 
 /// Permissionless atomic settlement entry — anyone can crank past
@@ -172,10 +189,11 @@ public fun lock_and_settle<C>(
     vault: &mut MartingalerVault<C>,
     path: &mut PathObservation,
     oracle: &mut WickOracle,
+    registry: &mut GlobalExposureRegistry,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    market::lock_and_settle<C>(market, vault, path, oracle, clock, ctx)
+    market::lock_and_settle<C>(market, vault, path, oracle, registry, clock, ctx)
 }
 
 /// Admin: recover stranded seed from an Aborted market's refund pool.
