@@ -96,8 +96,7 @@ fun touch_wins_when_barrier_crossed_then_settled() {
     // Settle: jump past expiry, push a post-expiry obs, lock.
     clk.set_for_testing(EXPIRY + 6_000);  // past pre_lock_drain_ms (5s default)
     push_obs(&mut oracle, 110_000_000_000, EXPIRY + 50);
-    market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
-    market::settle_market<SUI>(&mkt, &mut path, &clk);
+    market::lock_and_settle_v1<SUI>(&mut mkt, &mut path, &mut oracle, &clk, sc.ctx());
     assert!(wick_oracle::is_settled(&oracle), 3);
 
     // Bob redeems → wins 1.8 SUI.
@@ -171,8 +170,7 @@ fun no_touch_wins_when_barrier_never_crossed() {
     // Settle.
     clk.set_for_testing(EXPIRY + 6_000);  // past pre_lock_drain_ms (5s default)
     push_obs(&mut oracle, 102_000_000_000, EXPIRY + 50);
-    market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
-    market::settle_market<SUI>(&mkt, &mut path, &clk);
+    market::lock_and_settle_v1<SUI>(&mut mkt, &mut path, &mut oracle, &clk, sc.ctx());
 
     let payout = market::redeem<SUI>(&mut mkt, pos, &path, &clk, sc.ctx());
     assert!(payout.value() == 1_800_000_000, 2);
@@ -228,8 +226,7 @@ fun loser_receives_zero_payout_and_position_burns() {
 
     clk.set_for_testing(EXPIRY + 6_000);  // past pre_lock_drain_ms (5s default)
     push_obs(&mut oracle, 110_000_000_000, EXPIRY + 50);
-    market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
-    market::settle_market<SUI>(&mkt, &mut path, &clk);
+    market::lock_and_settle_v1<SUI>(&mut mkt, &mut path, &mut oracle, &clk, sc.ctx());
 
     let payout = market::redeem<SUI>(&mut mkt, bob, &path, &clk, sc.ctx());
     assert!(payout.value() == 0, 0);
@@ -285,7 +282,7 @@ fun cannot_open_after_expiry() {
 }
 
 #[test]
-#[expected_failure(abort_code = market::ENotExpired)]
+#[expected_failure(abort_code = market::EStillActive)]
 fun cannot_redeem_before_expiry() {
     let mut sc = ts::begin(ALICE);
     let mut clk = clock::create_for_testing(sc.ctx());
@@ -365,8 +362,7 @@ fun two_sided_market_clears_correctly() {
 
     clk.set_for_testing(EXPIRY + 6_000);  // past pre_lock_drain_ms (5s default)
     push_obs(&mut oracle, 120_000_000_000, EXPIRY + 50);
-    market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
-    market::settle_market<SUI>(&mkt, &mut path, &clk);
+    market::lock_and_settle_v1<SUI>(&mut mkt, &mut path, &mut oracle, &clk, sc.ctx());
 
     let alice_payout = market::redeem<SUI>(&mut mkt, alice_pos, &path, &clk, sc.ctx());
     let bob_payout = market::redeem<SUI>(&mut mkt, bob_pos, &path, &clk, sc.ctx());

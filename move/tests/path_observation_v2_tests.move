@@ -342,7 +342,7 @@ fun aborted_market_refunds_both_sides_one_to_one() {
     let mut clk = clock::create_for_testing(sc.ctx());
 
     let expiry = 1_000;
-    let (oracle, _rw) = mk_oracle_at(expiry, &mut sc, &clk);
+    let (mut oracle, _rw) = mk_oracle_at(expiry, &mut sc, &clk);
     // min_obs=10 so even pushing some ticks won't satisfy it; market will Abort.
     let mut path = po::new_v2(
         &oracle, BARRIER_ABOVE, po::touch_above(),
@@ -372,8 +372,9 @@ fun aborted_market_refunds_both_sides_one_to_one() {
     clk.set_for_testing(expiry + 6_000);
     assert!(po::settlement_state(&path, &clk) == po::settlement_aborted(), 1);
 
-    // settle_market locks the snapshot
-    market::settle_market<SUI>(&mkt, &mut path, &clk);
+    // lock_and_settle_v1 locks snapshot AND transitions Market.status to Aborted.
+    market::lock_and_settle_v1<SUI>(&mut mkt, &mut path, &mut oracle, &clk, sc.ctx());
+    assert!(market::status(&mkt) == market::status_aborted(), 99);
 
     // Both holders redeem — each gets back their original stake (1 SUI), not the leveraged payout.
     let alice_payout = market::redeem<SUI>(&mut mkt, alice_pos, &path, &clk, sc.ctx());
@@ -406,7 +407,7 @@ fun aborted_with_asymmetric_stakes_each_redeemer_gets_own_stake() {
     let mut sc = ts::begin(ALICE);
     let mut clk = clock::create_for_testing(sc.ctx());
     let expiry = 1_000;
-    let (oracle, _rw) = mk_oracle_at(expiry, &mut sc, &clk);
+    let (mut oracle, _rw) = mk_oracle_at(expiry, &mut sc, &clk);
     let mut path = po::new_v2(
         &oracle, BARRIER_ABOVE, po::touch_above(),
         0, 100, 1, 1_000, sc.ctx(),  // min_obs=100, grace=1s — guaranteed Aborted
@@ -438,7 +439,7 @@ fun aborted_with_asymmetric_stakes_each_redeemer_gets_own_stake() {
     // Aborted state is well past resolved by then.
     clk.set_for_testing(expiry + 6_000);
     assert!(po::settlement_state(&path, &clk) == po::settlement_aborted(), 1);
-    market::settle_market<SUI>(&mkt, &mut path, &clk);
+    market::lock_and_settle_v1<SUI>(&mut mkt, &mut path, &mut oracle, &clk, sc.ctx());
 
     // Redeem in non-original order: D, A, C, B.
     let p_d = market::redeem<SUI>(&mut mkt, pos_d, &path, &clk, sc.ctx());
