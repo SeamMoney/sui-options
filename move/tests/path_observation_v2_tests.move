@@ -260,12 +260,12 @@ fun snapshot_lock_freezes_outcome() {
         0, 1, 1, 60_000, sc.ctx(),
     );
 
-    // Push one below-barrier obs, advance past expiry, lock.
+    // Push one below-barrier obs, advance past expiry + drain (5s default), lock.
     clk.increment_for_testing(100);
     push_obs(&mut oracle, 99_000_000_000, 100);
     po::record(&mut p, &oracle, &clk);
 
-    clk.set_for_testing(2_000);
+    clk.set_for_testing(7_000);  // expiry 1000 + drain 5000 + buffer
     po::lock_settlement_snapshot(&mut p, &clk);
 
     let snap_opt = po::settlement_snapshot(&p);
@@ -300,9 +300,9 @@ fun snapshot_double_lock_aborts() {
     push_obs(&mut oracle, 99_000_000_000, 100);
     po::record(&mut p, &oracle, &clk);
 
-    clk.set_for_testing(2_000);
+    clk.set_for_testing(7_000);  // past expiry+drain
     po::lock_settlement_snapshot(&mut p, &clk);
-    po::lock_settlement_snapshot(&mut p, &clk);  // abort
+    po::lock_settlement_snapshot(&mut p, &clk);  // abort: ESnapshotAlreadyLocked
 
     sui::test_utils::destroy(oracle);
     sui::test_utils::destroy(_rw);
@@ -312,17 +312,19 @@ fun snapshot_double_lock_aborts() {
 }
 
 #[test]
-#[expected_failure(abort_code = po::ENotReadyToSettle)]
-fun snapshot_lock_before_resolution_aborts() {
+#[expected_failure(abort_code = po::EDrainWindowOpen)]
+fun snapshot_lock_during_drain_window_aborts() {
+    // Pre-expiry-or-drain lock attempt now fails with EDrainWindowOpen first.
     let mut sc = ts::begin(ALICE);
-    let clk = clock::create_for_testing(sc.ctx());
+    let mut clk = clock::create_for_testing(sc.ctx());
     let (oracle, _rw) = mk_oracle_at(1_000, &mut sc, &clk);
     let mut p = po::new_v2(
         &oracle, BARRIER_ABOVE, po::touch_above(),
         0, 1, 1, 60_000, sc.ctx(),
     );
 
-    // Pre-expiry: cannot lock
+    // Past expiry but inside drain window: still cannot lock.
+    clk.set_for_testing(3_000);  // expiry 1000 + 2s, but drain window runs to 6000
     po::lock_settlement_snapshot(&mut p, &clk);
 
     sui::test_utils::destroy(oracle);
@@ -432,8 +434,9 @@ fun aborted_with_asymmetric_stakes_each_redeemer_gets_own_stake() {
     let total_stakes = 1_000_000_000u64 + 2_000_000_000 + 3_000_000_000 + 500_000_000;
     assert!(market::vault_balance(&mkt) == 50_000_000_000 + total_stakes, 0);
 
-    // Move to Aborted.
-    clk.set_for_testing(expiry + 2_000);
+    // Move past expiry + drain (5s default) so lock can fire; grace is 1s so
+    // Aborted state is well past resolved by then.
+    clk.set_for_testing(expiry + 6_000);
     assert!(po::settlement_state(&path, &clk) == po::settlement_aborted(), 1);
     market::settle_market<SUI>(&mkt, &mut path, &clk);
 
@@ -558,8 +561,8 @@ fun snapshot_freezes_outcome_against_post_lock_writes() {
     push_obs(&mut oracle, 99_000_000_000, 100);
     po::record(&mut p, &oracle, &clk);
 
-    // Past expiry, lock snapshot.
-    clk.set_for_testing(2_000);
+    // Past expiry+drain, lock snapshot.
+    clk.set_for_testing(7_000);
     po::lock_settlement_snapshot(&mut p, &clk);
 
     // Try to push 3 fake "touch" obs. record() must noop because of post-expiry

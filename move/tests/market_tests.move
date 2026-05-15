@@ -94,7 +94,7 @@ fun touch_wins_when_barrier_crossed_then_settled() {
     assert!(path_observation::is_touched(&path), 2);
 
     // Settle: jump past expiry, push a post-expiry obs, lock.
-    clk.set_for_testing(EXPIRY + 100);
+    clk.set_for_testing(EXPIRY + 6_000);  // past pre_lock_drain_ms (5s default)
     push_obs(&mut oracle, 110_000_000_000, EXPIRY + 50);
     market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
     market::settle_market<SUI>(&mkt, &mut path, &clk);
@@ -169,7 +169,7 @@ fun no_touch_wins_when_barrier_never_crossed() {
     assert!(!path_observation::is_touched(&path), 1);
 
     // Settle.
-    clk.set_for_testing(EXPIRY + 100);
+    clk.set_for_testing(EXPIRY + 6_000);  // past pre_lock_drain_ms (5s default)
     push_obs(&mut oracle, 102_000_000_000, EXPIRY + 50);
     market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
     market::settle_market<SUI>(&mkt, &mut path, &clk);
@@ -226,7 +226,7 @@ fun loser_receives_zero_payout_and_position_burns() {
     push_obs(&mut oracle, 110_000_000_000, 500);
     path_observation::record(&mut path, &oracle, &clk);
 
-    clk.set_for_testing(EXPIRY + 100);
+    clk.set_for_testing(EXPIRY + 6_000);  // past pre_lock_drain_ms (5s default)
     push_obs(&mut oracle, 110_000_000_000, EXPIRY + 50);
     market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
     market::settle_market<SUI>(&mkt, &mut path, &clk);
@@ -363,7 +363,7 @@ fun two_sided_market_clears_correctly() {
     push_obs(&mut oracle, 120_000_000_000, 500);
     path_observation::record(&mut path, &oracle, &clk);
 
-    clk.set_for_testing(EXPIRY + 100);
+    clk.set_for_testing(EXPIRY + 6_000);  // past pre_lock_drain_ms (5s default)
     push_obs(&mut oracle, 120_000_000_000, EXPIRY + 50);
     market::lock_settlement<SUI>(&mkt, &mut oracle, &clk);
     market::settle_market<SUI>(&mkt, &mut path, &clk);

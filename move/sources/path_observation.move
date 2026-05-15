@@ -42,12 +42,20 @@ const EInvalidDirection: u64 = 4;
 const EInvalidConfig: u64 = 5;
 const ENotReadyToSettle: u64 = 6;
 const ESnapshotAlreadyLocked: u64 = 8;
+const ENotInDrainWindow: u64 = 11;   // record_during_drain called outside drain
+const EDrainWindowOpen: u64 = 12;    // lock_settlement_snapshot called before drain closed
 
 // === Constants ===
 const DEFAULT_BUFFER_BPS: u64 = 0;
 const DEFAULT_MIN_OBSERVATIONS: u64 = 6;
 const DEFAULT_TOUCH_CONFIRMATIONS: u64 = 3;
 const DEFAULT_GRACE_MS: u64 = 60_000;  // 1 minute past expiry → Aborted
+/// Window AFTER expiry during which mempool-delayed pre-expiry-stamped
+/// ticks may still be applied. lock_settlement_snapshot is gated on
+/// `now >= expiry_ms + pre_lock_drain_ms`. THIS is what closes the
+/// settlement-bot race documented in the C.3 design — without it, atomic
+/// lock_and_settle is cosmetic.
+const DEFAULT_PRE_LOCK_DRAIN_MS: u64 = 5_000;  // 5 seconds default
 const MAX_BUFFER_BPS: u64 = 1_000;     // 10%
 const BPS_DENOM: u128 = 10_000;
 
@@ -94,6 +102,10 @@ public struct PathObservation has key {
     touched_at: Option<u64>,
     /// Frozen settlement view. Once Some, `redeem` reads from here exclusively.
     settlement_snapshot: Option<PathSnapshot>,
+    /// Drain window after expiry. lock_settlement_snapshot is gated on
+    /// `now >= expiry_ms + pre_lock_drain_ms`. record_during_drain accepts
+    /// pre-expiry-stamped ticks during this window. Closes the bot race.
+    pre_lock_drain_ms: u64,
 }
 
 public struct PathSnapshot has copy, drop, store {
@@ -148,6 +160,25 @@ public fun new_v2(
     grace_ms: u64,
     ctx: &mut TxContext,
 ): PathObservation {
+    new_v3(
+        oracle, barrier, direction, buffer_bps, min_observations,
+        touch_confirmations_required, grace_ms, DEFAULT_PRE_LOCK_DRAIN_MS, ctx,
+    )
+}
+
+/// v3 constructor with explicit pre_lock_drain_ms. Use this when you need
+/// to override the default 5s drain (e.g., low-latency markets at 1s).
+public fun new_v3(
+    oracle: &WickOracle,
+    barrier: u64,
+    direction: u8,
+    buffer_bps: u64,
+    min_observations: u64,
+    touch_confirmations_required: u64,
+    grace_ms: u64,
+    pre_lock_drain_ms: u64,
+    ctx: &mut TxContext,
+): PathObservation {
     assert!(barrier > 0, EInvalidConfig);
     assert!(direction == touch_above() || direction == touch_below(), EInvalidDirection);
     assert!(buffer_bps <= MAX_BUFFER_BPS, EInvalidConfig);
@@ -171,6 +202,7 @@ public fun new_v2(
         last_seen_ms: option::none(),
         touched_at: option::none(),
         settlement_snapshot: option::none(),
+        pre_lock_drain_ms,
     };
     sui::event::emit(PathCreated {
         path_id: object::id(&po),
@@ -183,14 +215,14 @@ public fun new_v2(
 }
 
 /// Backwards-compat wrapper using v2 hardening defaults
-/// (3-confirmations, min_obs=6, 1-min grace, no buffer).
+/// (3-confirmations, min_obs=6, 1-min grace, no buffer, 5s drain).
 public fun new(
     oracle: &WickOracle,
     barrier: u64,
     direction: u8,
     ctx: &mut TxContext,
 ): PathObservation {
-    new_v2(
+    new_v3(
         oracle,
         barrier,
         direction,
@@ -198,6 +230,7 @@ public fun new(
         DEFAULT_MIN_OBSERVATIONS,
         DEFAULT_TOUCH_CONFIRMATIONS,
         DEFAULT_GRACE_MS,
+        DEFAULT_PRE_LOCK_DRAIN_MS,
         ctx,
     )
 }
@@ -271,6 +304,71 @@ public fun record(po: &mut PathObservation, oracle: &WickOracle, clock: &Clock) 
     });
 }
 
+/// Record an oracle tick DURING the drain window [expiry_ms, expiry_ms +
+/// pre_lock_drain_ms). ONLY accepts ticks whose `obs.timestamp_ms < expiry_ms`
+/// — i.e. mempool-delayed pre-expiry observations that didn't make it into a
+/// pre-expiry block. This is the primitive that lets in-flight confirmation
+/// ticks land before snapshot lock, closing the bot-race fairness hole.
+///
+/// Post-expiry-stamped ticks are silently rejected (return early). The drain
+/// window is for the CHAIN, not the price feed.
+public fun record_during_drain(po: &mut PathObservation, oracle: &WickOracle, clock: &Clock) {
+    assert!(po.oracle_id == object::id(oracle), EOracleMismatch);
+    let now = clock.timestamp_ms();
+    // Must be in the drain window: at-or-past expiry but before drain closes.
+    assert!(now >= po.expiry_ms, ENotInDrainWindow);
+    assert!(now < po.expiry_ms + po.pre_lock_drain_ms, ENotInDrainWindow);
+
+    let latest_opt = wick_oracle::latest(oracle);
+    assert!(option::is_some(latest_opt), ENoObservation);
+    let obs = option::borrow(latest_opt);
+    let obs_ts = price_observation::timestamp_ms(obs);
+    let obs_price = price_observation::price(obs);
+
+    // Critical: only PRE-expiry-stamped ticks count. Post-expiry obs would
+    // let a single late price print decide a touch outcome — not what
+    // confirmation logic protects against.
+    if (obs_ts >= po.expiry_ms) return;
+
+    // Stale-tick guard.
+    if (option::is_some(&po.last_seen_ms)) {
+        let last = *option::borrow(&po.last_seen_ms);
+        if (obs_ts <= last) return;
+    };
+
+    // Same body as record() from this point on — apply the tick to extremes,
+    // counter, and N-confirmation touch logic.
+    if (obs_price > po.max_seen) po.max_seen = obs_price;
+    if (obs_price < po.min_seen) po.min_seen = obs_price;
+    po.observation_count = po.observation_count + 1;
+    po.last_seen_ms = option::some(obs_ts);
+
+    if (is_buffered_touch(po, obs_price)) {
+        po.consecutive_cross_count = po.consecutive_cross_count + 1;
+        if (po.consecutive_cross_count >= po.touch_confirmations_required
+            && option::is_none(&po.touched_at)) {
+            po.touched_at = option::some(obs_ts);
+            sui::event::emit(BarrierTouched {
+                path_id: object::id(po),
+                touched_at_ms: obs_ts,
+                touch_price: obs_price,
+                confirmations: po.consecutive_cross_count,
+            });
+        };
+    } else {
+        po.consecutive_cross_count = 0;
+    };
+
+    sui::event::emit(TickRecorded {
+        path_id: object::id(po),
+        price: obs_price,
+        timestamp_ms: obs_ts,
+        new_min: po.min_seen,
+        new_max: po.max_seen,
+        consecutive: po.consecutive_cross_count,
+    });
+}
+
 /// Whether `price` crosses the buffered trigger for this path's direction.
 fun is_buffered_touch(po: &PathObservation, price: u64): bool {
     if (po.direction == touch_above()) {
@@ -320,8 +418,16 @@ public fun settlement_state(po: &PathObservation, clock: &Clock): u8 {
 
 /// Permissionless one-shot lock. After this, all settlement reads come from
 /// the snapshot — kills post-lock racing on max_seen / touched_at / count.
+///
+/// FAIRNESS GATE: requires `now >= expiry_ms + pre_lock_drain_ms`. This is
+/// the load-bearing change vs v2 — without it, a losing-side bot could lock
+/// the snapshot the millisecond past expiry, freezing out any in-flight
+/// pre-expiry confirmation tick. The drain window gives mempool-delayed
+/// pre-expiry-stamped ticks a chance to land via `record_during_drain`.
 public fun lock_settlement_snapshot(po: &mut PathObservation, clock: &Clock) {
     assert!(option::is_none(&po.settlement_snapshot), ESnapshotAlreadyLocked);
+    let now = clock.timestamp_ms();
+    assert!(now >= po.expiry_ms + po.pre_lock_drain_ms, EDrainWindowOpen);
     let state = compute_settlement_state(po, clock);
     assert!(state != SETTLEMENT_NOT_READY, ENotReadyToSettle);
     po.settlement_snapshot = option::some(PathSnapshot {
@@ -330,7 +436,7 @@ public fun lock_settlement_snapshot(po: &mut PathObservation, clock: &Clock) {
         min_seen: po.min_seen,
         touched_at: po.touched_at,
         observation_count: po.observation_count,
-        locked_at_ms: clock.timestamp_ms(),
+        locked_at_ms: now,
     });
     sui::event::emit(PathSettlementLocked {
         path_id: object::id(po),
@@ -346,6 +452,8 @@ public fun barrier(po: &PathObservation): u64 { po.barrier }
 public fun direction(po: &PathObservation): u8 { po.direction }
 public fun expiry_ms(po: &PathObservation): u64 { po.expiry_ms }
 public fun grace_ms(po: &PathObservation): u64 { po.grace_ms }
+public fun pre_lock_drain_ms(po: &PathObservation): u64 { po.pre_lock_drain_ms }
+public fun default_pre_lock_drain_ms(): u64 { DEFAULT_PRE_LOCK_DRAIN_MS }
 public fun buffer_bps(po: &PathObservation): u64 { po.buffer_bps }
 public fun min_observations(po: &PathObservation): u64 { po.min_observations }
 public fun observation_count(po: &PathObservation): u64 { po.observation_count }
