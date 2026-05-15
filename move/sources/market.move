@@ -1,37 +1,45 @@
 // Copyright (c) Wick Markets
 // SPDX-License-Identifier: Apache-2.0
 
-/// Wick-native market: touch / no-touch positions backed by a single-collateral
-/// vault, settled against a `PathObservation` at expiry. Used for SUI / SP500 /
+/// Wick-native market: touch / no-touch positions backed by a SHARED
+/// MartingalerVault<C> singleton (one per collateral type, cross-market).
+/// Settled against a `PathObservation` at expiry. Used for SUI / SP500 /
 /// random-walk markets. The Predict-backed BTC route does not use this — it
 /// composes with Predict's own market state via `wick::predict_route`.
 ///
-/// === C.3.2 status field added ===
-/// Market.status: u8 enum (Active=0/Hit=1/Expired=2/Aborted=3/Cancelled=4)
-/// per docs/design/v2/00_reconciliation.md §1. Status is the canonical gate
-/// for redeem/open. Set by lock_and_settle_v1 (this commit) or its successor
-/// atomic lock_and_settle (C.3.3). Does NOT yet wire MartingalerVault — the
-/// vault.move-backed v1 path is preserved so existing tests pass.
+/// === C.3.3: MartingalerVault wiring + atomic lock_and_settle ===
+/// Replaces v1 `Vault<C>` (per-market, owned by Market struct) with the
+/// shared MartingalerVault<C> (cross-market, externally-owned). All
+/// entrypoints take the vault as a `&mut MartingalerVault<C>` parameter.
+///
+/// Vault accounting:
+///   - open<C>(market, vault, side, stake, ...) → vault::deposit_open(stake)
+///   - lock_and_settle<C>(market, vault, path, oracle, ...) →
+///       Phase 4: vault::reserve_for_market(obligation)
+///       If Aborted: vault::route_lock_to_abort_refund_pool
+///   - redeem<C>(market, vault, position, ...) →
+///       Hit/Expired winner: vault::pay_winner (handles queue overflow)
+///       Aborted/Cancelled:  vault::claim_aborted_refund (1:1 stake)
+///       Loser: zero coin (mint_to_loser + record_loss wiring is C.3.5)
 ///
 /// Payout model: fixed `payout_multiplier_bps` per market. Bettor stakes
 /// `stake`. If they win, vault pays `stake * payout_multiplier_bps / 10_000`.
-/// Counterparty is the vault, seeded by the protocol on create.
+/// Counterparty is the Martingaler treasury, bootstrapped from $0 by trader
+/// losses (papertrade-derived).
 module wick::market;
 
 use std::string::String;
 use sui::clock::Clock;
-use sui::coin::Coin;
+use sui::coin::{Self, Coin};
 use wick::impact_fee::{Self as fee, FeeSnapshot};
+use wick::martingaler_vault::{Self as mv, MartingalerVault};
 use wick::path_observation::{Self, PathObservation};
-use wick::vault::{Self, Vault};
 use wick::wick_oracle::{Self, WickOracle};
 
 const EWrongPath: u64 = 1;
 const EBadMultiplier: u64 = 2;
 const EZeroStake: u64 = 3;
 const EAfterExpiry: u64 = 4;
-const ENotExpired: u64 = 5;
-const EInsufficientPool: u64 = 6;
 const EWrongMarket: u64 = 10;
 const ENotReadyToSettle: u64 = 11;
 const ENotActive: u64 = 12;
@@ -57,6 +65,8 @@ public fun status_aborted(): u8 { STATUS_ABORTED }
 public fun status_cancelled(): u8 { STATUS_CANCELLED }
 
 /// Touch / no-touch market for a single underlying with a single barrier.
+/// Phantom-typed by collateral C — the actual coins live in the
+/// MartingalerVault<C>, not here.
 public struct Market<phantom C> has key {
     id: UID,
     name: String,
@@ -65,6 +75,9 @@ public struct Market<phantom C> has key {
     underlying: String,
     oracle_id: ID,
     path_id: ID,
+    /// ID of the MartingalerVault<C> backing this market. Pinned at create
+    /// to prevent rug-pull where someone hands a different vault later.
+    vault_id: ID,
     expiry_ms: u64,
     /// Fixed payout multiplier in basis points: a winning $1 stake returns
     /// `1 * payout_multiplier_bps / 10_000`. e.g. 18_000 = 1.8x.
@@ -72,11 +85,16 @@ public struct Market<phantom C> has key {
     /// Risk-bucket id for cross-underlying correlation caps (C.3.4 wiring).
     /// 0 = "uncategorized" (default for hackathon). Admin sets at create.
     correlation_bucket_id: u8,
-    vault: Vault<C>,
-    /// Sum of open `stake * multiplier / 10_000` for touch positions.
+    /// Sum of `stake * multiplier / 10_000` (gross payout obligation) for
+    /// touch positions currently open.
     touch_exposure: u64,
     /// Same for no-touch positions.
     no_touch_exposure: u64,
+    /// Sum of trader stakes currently open on the touch side. Tracks raw
+    /// stake (not leveraged payout) — used for Aborted refund accounting.
+    touch_stakes: u64,
+    /// Same for no-touch side.
+    no_touch_stakes: u64,
     /// Lifecycle: Active / Hit / Expired / Aborted / Cancelled. The canonical
     /// gate for open (Active only) and redeem (any settled state).
     status: u8,
@@ -95,12 +113,19 @@ public struct Position has key, store {
     side: u8,
     stake: u64,
     payout_if_win: u64,
+    /// Snapshot of bot-eligibility at OPEN time (per adversarial #7). Reading
+    /// at redeem-time would let a freshly-flagged bot's outstanding positions
+    /// still mint WICK on close. C.3.5 will populate this from BotRegistry.
+    is_bot_eligible: bool,
+    /// Wall-clock when opened — used for analytics + expiry logic.
+    opened_at_ms: u64,
 }
 
 public struct MarketCreated has copy, drop {
     market_id: ID,
     oracle_id: ID,
     path_id: ID,
+    vault_id: ID,
     expiry_ms: u64,
     payout_multiplier_bps: u64,
     underlying: String,
@@ -131,6 +156,7 @@ public struct MarketSettled has copy, drop {
     settled_at_ms: u64,
     touch_exposure_at_lock: u64,
     no_touch_exposure_at_lock: u64,
+    obligation_reserved: u64,
 }
 
 // === Lifecycle ===
@@ -140,29 +166,28 @@ public fun create<C>(
     name: String,
     oracle: &WickOracle,
     path: &PathObservation,
+    vault: &MartingalerVault<C>,
     payout_multiplier_bps: u64,
-    seed_collateral: Coin<C>,
     ctx: &mut TxContext,
 ): Market<C> {
-    create_v2<C>(name, oracle, path, payout_multiplier_bps, 0, seed_collateral, ctx)
+    create_v2<C>(name, oracle, path, vault, payout_multiplier_bps, 0, ctx)
 }
 
 /// v2 create — caller specifies correlation_bucket_id for risk-bucket caps.
+/// NOTE: vault is a SHARED MartingalerVault<C> — provisioned once per
+/// collateral type at protocol bootstrap. Markets bind to it by ID.
 public fun create_v2<C>(
     name: String,
     oracle: &WickOracle,
     path: &PathObservation,
+    vault: &MartingalerVault<C>,
     payout_multiplier_bps: u64,
     correlation_bucket_id: u8,
-    seed_collateral: Coin<C>,
     ctx: &mut TxContext,
 ): Market<C> {
     assert!(payout_multiplier_bps > 10_000, EBadMultiplier);
     assert!(payout_multiplier_bps < 100_000, EBadMultiplier);
     assert!(path_observation::oracle_id(path) == object::id(oracle), EWrongPath);
-
-    let mut vault = vault::new<C>();
-    vault::deposit(&mut vault, seed_collateral);
 
     let underlying = *wick_oracle::underlying(oracle);
 
@@ -172,12 +197,14 @@ public fun create_v2<C>(
         underlying,
         oracle_id: object::id(oracle),
         path_id: object::id(path),
+        vault_id: object::id(vault),
         expiry_ms: wick_oracle::expiry_ms(oracle),
         payout_multiplier_bps,
         correlation_bucket_id,
-        vault,
         touch_exposure: 0,
         no_touch_exposure: 0,
+        touch_stakes: 0,
+        no_touch_stakes: 0,
         status: STATUS_ACTIVE,
         fee_snapshot: option::none(),
         settled_at_ms: option::none(),
@@ -187,6 +214,7 @@ public fun create_v2<C>(
         market_id: object::id(&market),
         oracle_id: market.oracle_id,
         path_id: market.path_id,
+        vault_id: market.vault_id,
         expiry_ms: market.expiry_ms,
         payout_multiplier_bps,
         underlying: market.underlying,
@@ -202,16 +230,23 @@ public fun share<C>(market: Market<C>) {
 
 // === Trading ===
 
-/// Open a touch or no-touch position. Stake flows into the vault.
+/// Open a touch or no-touch position. Stake flows into the shared
+/// MartingalerVault.
 /// STATUS-GATED: requires market.status == Active.
+///
+/// C.3.3 keeps simple solvency: relies on vault's queue model to absorb
+/// asymmetric books. C.3.4 will wire `assert_open_allowed` for global PWE
+/// + correlation bucket + per-side caps.
 public fun open<C>(
     market: &mut Market<C>,
+    vault: &mut MartingalerVault<C>,
     side: u8,
     stake: Coin<C>,
     clock: &Clock,
     ctx: &mut TxContext,
 ): Position {
     assert!(market.status == STATUS_ACTIVE, ENotActive);
+    assert!(market.vault_id == object::id(vault), EWrongMarket);
     let now = clock.timestamp_ms();
     assert!(now < market.expiry_ms, EAfterExpiry);
     assert!(side == SIDE_TOUCH || side == SIDE_NO_TOUCH, EBadMultiplier);
@@ -223,17 +258,14 @@ public fun open<C>(
 
     if (side == SIDE_TOUCH) {
         market.touch_exposure = market.touch_exposure + payout;
+        market.touch_stakes = market.touch_stakes + stake_amount;
     } else {
         market.no_touch_exposure = market.no_touch_exposure + payout;
+        market.no_touch_stakes = market.no_touch_stakes + stake_amount;
     };
 
-    vault::deposit(&mut market.vault, stake);
-
-    // Solvency check: vault must cover worst-case payouts on the side that
-    // will actually pay (only one side wins). Worst case is max of both.
-    let worst_case = if (market.touch_exposure > market.no_touch_exposure)
-        market.touch_exposure else market.no_touch_exposure;
-    assert!(vault::balance(&market.vault) >= worst_case, EInsufficientPool);
+    // Stake flows into the vault (auto-harvests queue heads if non-empty).
+    mv::deposit_open(vault, stake, clock, ctx);
 
     let position = Position {
         id: object::new(ctx),
@@ -241,6 +273,8 @@ public fun open<C>(
         side,
         stake: stake_amount,
         payout_if_win: payout,
+        is_bot_eligible: true,  // C.3.5 wires bot_registry lookup here
+        opened_at_ms: now,
     };
 
     sui::event::emit(PositionOpened {
@@ -255,103 +289,23 @@ public fun open<C>(
     position
 }
 
-/// Redeem a settled position. Burns the position; pays out from the vault.
-/// STATUS-GATED: requires market.status != Active.
+/// Atomic lock_and_settle. Folds the previous settle_market + lock_settlement
+/// + status transition + obligation reservation into one entry. Idempotent.
 ///
-/// Switches on market.status (set by lock_and_settle_v1):
-///   - Hit:       touch holders win, no_touch get 0
-///   - Expired:   no_touch holders win, touch get 0
-///   - Aborted:   refund 1:1 to BOTH sides (no winner)
-///   - Cancelled: refund 1:1 (admin-initiated, same path as Aborted)
-public fun redeem<C>(
-    market: &mut Market<C>,
-    position: Position,
-    path: &PathObservation,
-    clock: &Clock,
-    ctx: &mut TxContext,
-): Coin<C> {
-    assert!(position.market_id == object::id(market), EWrongMarket);
-    assert!(market.path_id == object::id(path), EWrongPath);
-    assert!(market.status != STATUS_ACTIVE, EStillActive);
-
-    let Position { id, market_id: _, side, stake, payout_if_win } = position;
-    let pos_id = id.to_inner();
-    object::delete(id);
-
-    // Decrement exposure regardless of branch (position is closed).
-    if (side == SIDE_TOUCH) {
-        market.touch_exposure = if (market.touch_exposure >= payout_if_win)
-            market.touch_exposure - payout_if_win else 0;
-    } else {
-        market.no_touch_exposure = if (market.no_touch_exposure >= payout_if_win)
-            market.no_touch_exposure - payout_if_win else 0;
-    };
-
-    // Aborted / Cancelled: 1:1 refund.
-    if (market.status == STATUS_ABORTED || market.status == STATUS_CANCELLED) {
-        assert!(vault::balance(&market.vault) >= stake, EInsufficientPool);
-        let refund = vault::withdraw(&mut market.vault, stake, ctx);
-        sui::event::emit(PositionRedeemed {
-            market_id: object::id(market),
-            position_id: pos_id,
-            side,
-            payout: stake,
-            won: false,
-            owner: tx_context::sender(ctx),
-        });
-        return refund
-    };
-
-    // Hit / Expired: leveraged payout to the winning side.
-    let touched = market.status == STATUS_HIT;
-    let won = (side == SIDE_TOUCH && touched)
-              || (side == SIDE_NO_TOUCH && !touched);
-
-    let _ = clock;  // path snapshot is canonical now; clock retained for future
-    let _ = path;
-
-    if (won) {
-        let payout_coin = vault::withdraw(&mut market.vault, payout_if_win, ctx);
-        sui::event::emit(PositionRedeemed {
-            market_id: object::id(market),
-            position_id: pos_id,
-            side,
-            payout: payout_if_win,
-            won: true,
-            owner: tx_context::sender(ctx),
-        });
-        payout_coin
-    } else {
-        sui::event::emit(PositionRedeemed {
-            market_id: object::id(market),
-            position_id: pos_id,
-            side,
-            payout: 0,
-            won: false,
-            owner: tx_context::sender(ctx),
-        });
-        sui::coin::zero<C>(ctx)
-    }
-}
-
-// === Settlement ===
-
-/// v1 lock_and_settle (status orchestration only — does NOT yet wire
-/// MartingalerVault or fee_router). Folds the v2 settle_market and
-/// lock_settlement helpers into one entry. C.3.3 will replace this with
-/// the atomic version per docs/design/v2/00_reconciliation.md §2.
-///
-/// Phases:
+/// Phases (per state-machine spec):
 ///   P0: idempotency gate (status == Active else early-return)
-///   P1: lock path snapshot (asserts now >= expiry + drain inside lock fn)
-///   P2: lock oracle settlement_price from settlement_observation latch
-///   P3: capture FeeSnapshot from snapshot.{max_seen, min_seen} + exposures
-///   P4: transition status (Hit / Expired / Aborted from snapshot.state)
-///   P5: emit MarketSettled
+///   P1: lock path snapshot (gated on now >= expiry + drain_ms by path module)
+///   P2: lock oracle settlement_price from latch (Resolved branches only)
+///   P3: capture FeeSnapshot from path snapshot + market exposures
+///   P4: transition status (Hit / Expired / Aborted)
+///   P5: reserve obligation in vault (gross payout for winning side, both
+///       stakes for Aborted refund pool)
+///   P6: emit MarketSettled
 ///
-/// Permissionless — anyone can call. Idempotent across multiple calls.
-public fun lock_and_settle_v1<C>(
+/// PWE-clear (Phase 7) lives in C.3.4 once registry wiring lands.
+public fun lock_and_settle<C>(
     market: &mut Market<C>,
+    vault: &mut MartingalerVault<C>,
     path: &mut PathObservation,
     oracle: &mut WickOracle,
     clock: &Clock,
@@ -360,6 +314,7 @@ public fun lock_and_settle_v1<C>(
     // P0: idempotency
     if (market.status != STATUS_ACTIVE) return;
     assert!(market.path_id == object::id(path), EWrongPath);
+    assert!(market.vault_id == object::id(vault), EWrongMarket);
 
     // P1: snapshot path (gated on now >= expiry + drain by path module)
     if (option::is_none(path_observation::settlement_snapshot(path))) {
@@ -368,11 +323,10 @@ public fun lock_and_settle_v1<C>(
     let snap_opt = path_observation::settlement_snapshot(path);
     assert!(option::is_some(snap_opt), ENotReadyToSettle);
     let snap = option::borrow(snap_opt);
+    let snap_state = path_observation::snapshot_state(snap);
 
-    // P2: oracle settlement_price (only matters for Resolved branches; safe
-    // to skip for Aborted but we attempt anyway — lock fn is idempotent and
-    // aborts only on missing settlement_observation).
-    if (path_observation::snapshot_state(snap) != path_observation::settlement_aborted()
+    // P2: oracle settlement_price (only for Resolved branches)
+    if (snap_state != path_observation::settlement_aborted()
         && !wick_oracle::is_settled(oracle)) {
         wick_oracle::lock_settlement_from_latest(oracle, clock);
     };
@@ -388,8 +342,7 @@ public fun lock_and_settle_v1<C>(
     );
     market.fee_snapshot = option::some(fs);
 
-    // P4: transition status from snapshot
-    let snap_state = path_observation::snapshot_state(snap);
+    // P4: transition status
     let new_status = if (snap_state == path_observation::settlement_aborted()) {
         STATUS_ABORTED
     } else if (path_observation::snapshot_is_touched(snap)) {
@@ -401,36 +354,120 @@ public fun lock_and_settle_v1<C>(
     let now = clock.timestamp_ms();
     market.settled_at_ms = option::some(now);
 
-    // P5: emit
+    // P5: reserve vault liquidity for the winning branch
+    let market_id = object::id(market);
+    let obligation = if (new_status == STATUS_HIT) {
+        market.touch_exposure
+    } else if (new_status == STATUS_EXPIRED) {
+        market.no_touch_exposure
+    } else {
+        // Aborted: refund both sides 1:1 of stake. Reserve sum of stakes.
+        market.touch_stakes + market.no_touch_stakes
+    };
+    mv::reserve_for_market(vault, market_id, obligation);
+    if (new_status == STATUS_ABORTED) {
+        // Move the lock into the abort refund pool. After all holders claim,
+        // pool drains to zero (sum of stakes = obligation). No residue.
+        mv::route_lock_to_abort_refund(vault, market_id);
+    };
+
+    // P6: emit
     sui::event::emit(MarketSettled {
-        market_id: object::id(market),
+        market_id,
         new_status,
         settled_at_ms: now,
         touch_exposure_at_lock: market.touch_exposure,
         no_touch_exposure_at_lock: market.no_touch_exposure,
+        obligation_reserved: obligation,
     });
 }
 
-// === Backwards-compat wrappers (existing v2 tests) ===
-
-/// DEPRECATED: use `lock_and_settle_v1` instead. Kept for v2 tests; just
-/// locks the path snapshot without status transition.
-public fun settle_market<C>(
-    market: &Market<C>,
-    path: &mut PathObservation,
+/// Redeem a settled position. Burns the position; pays out from the vault.
+/// STATUS-GATED: requires market.status != Active.
+///
+/// Switches on market.status (set by lock_and_settle):
+///   - Hit:       touch holders win → vault::pay_winner; no_touch get 0 coin
+///   - Expired:   no_touch holders win → vault::pay_winner; touch get 0
+///   - Aborted:   refund 1:1 via vault::claim_aborted_refund (no winner)
+///   - Cancelled: refund 1:1 (admin-initiated, same path as Aborted)
+///
+/// Impact-fee deduction lives in C.3.4 — for now winners get the full
+/// payout_if_win. Loser WICK mint + record_loss live in C.3.5.
+public fun redeem<C>(
+    market: &mut Market<C>,
+    vault: &mut MartingalerVault<C>,
+    position: Position,
     clock: &Clock,
-) {
-    assert!(market.path_id == object::id(path), EWrongPath);
-    if (option::is_none(path_observation::settlement_snapshot(path))) {
-        path_observation::lock_settlement_snapshot(path, clock);
-    };
-}
+    ctx: &mut TxContext,
+): Coin<C> {
+    assert!(position.market_id == object::id(market), EWrongMarket);
+    assert!(market.vault_id == object::id(vault), EWrongMarket);
+    assert!(market.status != STATUS_ACTIVE, EStillActive);
 
-/// DEPRECATED: use `lock_and_settle_v1`. Locks oracle settlement_price.
-public fun lock_settlement<C>(_market: &Market<C>, oracle: &mut WickOracle, clock: &Clock) {
-    if (!wick_oracle::is_settled(oracle)) {
-        wick_oracle::lock_settlement_from_latest(oracle, clock);
+    let Position {
+        id, market_id: _, side, stake, payout_if_win,
+        is_bot_eligible: _, opened_at_ms: _,
+    } = position;
+    let pos_id = id.to_inner();
+    object::delete(id);
+
+    // Decrement exposure + stakes regardless of branch (position is closed).
+    if (side == SIDE_TOUCH) {
+        market.touch_exposure = if (market.touch_exposure >= payout_if_win)
+            market.touch_exposure - payout_if_win else 0;
+        market.touch_stakes = if (market.touch_stakes >= stake)
+            market.touch_stakes - stake else 0;
+    } else {
+        market.no_touch_exposure = if (market.no_touch_exposure >= payout_if_win)
+            market.no_touch_exposure - payout_if_win else 0;
+        market.no_touch_stakes = if (market.no_touch_stakes >= stake)
+            market.no_touch_stakes - stake else 0;
     };
+
+    let owner = tx_context::sender(ctx);
+    let market_id = object::id(market);
+
+    // Aborted / Cancelled: 1:1 stake refund from abort_refund_pool.
+    if (market.status == STATUS_ABORTED || market.status == STATUS_CANCELLED) {
+        let refund = mv::claim_aborted_refund(vault, market_id, owner, stake, ctx);
+        sui::event::emit(PositionRedeemed {
+            market_id,
+            position_id: pos_id,
+            side,
+            payout: stake,
+            won: false,
+            owner,
+        });
+        return refund
+    };
+
+    // Hit / Expired: leveraged payout to the winning side.
+    let touched = market.status == STATUS_HIT;
+    let won = (side == SIDE_TOUCH && touched)
+              || (side == SIDE_NO_TOUCH && !touched);
+
+    if (won) {
+        let payout_coin = mv::pay_winner(vault, market_id, owner, payout_if_win, clock, ctx);
+        sui::event::emit(PositionRedeemed {
+            market_id,
+            position_id: pos_id,
+            side,
+            payout: payout_if_win,
+            won: true,
+            owner,
+        });
+        payout_coin
+    } else {
+        sui::event::emit(PositionRedeemed {
+            market_id,
+            position_id: pos_id,
+            side,
+            payout: 0,
+            won: false,
+            owner,
+        });
+        coin::zero<C>(ctx)
+    }
 }
 
 // === Reads ===
@@ -439,12 +476,14 @@ public fun name<C>(m: &Market<C>): &String { &m.name }
 public fun underlying<C>(m: &Market<C>): &String { &m.underlying }
 public fun oracle_id<C>(m: &Market<C>): ID { m.oracle_id }
 public fun path_id<C>(m: &Market<C>): ID { m.path_id }
+public fun vault_id<C>(m: &Market<C>): ID { m.vault_id }
 public fun expiry_ms<C>(m: &Market<C>): u64 { m.expiry_ms }
 public fun payout_multiplier_bps<C>(m: &Market<C>): u64 { m.payout_multiplier_bps }
 public fun correlation_bucket_id<C>(m: &Market<C>): u8 { m.correlation_bucket_id }
-public fun vault_balance<C>(m: &Market<C>): u64 { vault::balance(&m.vault) }
 public fun touch_exposure<C>(m: &Market<C>): u64 { m.touch_exposure }
 public fun no_touch_exposure<C>(m: &Market<C>): u64 { m.no_touch_exposure }
+public fun touch_stakes<C>(m: &Market<C>): u64 { m.touch_stakes }
+public fun no_touch_stakes<C>(m: &Market<C>): u64 { m.no_touch_stakes }
 public fun status<C>(m: &Market<C>): u8 { m.status }
 public fun fee_snapshot<C>(m: &Market<C>): &Option<FeeSnapshot> { &m.fee_snapshot }
 public fun settled_at_ms<C>(m: &Market<C>): &Option<u64> { &m.settled_at_ms }
@@ -454,6 +493,8 @@ public fun position_market_id(p: &Position): ID { p.market_id }
 public fun position_side(p: &Position): u8 { p.side }
 public fun position_stake(p: &Position): u64 { p.stake }
 public fun position_payout_if_win(p: &Position): u64 { p.payout_if_win }
+public fun position_is_bot_eligible(p: &Position): bool { p.is_bot_eligible }
+public fun position_opened_at_ms(p: &Position): u64 { p.opened_at_ms }
 
 // === Helpers ===
 
@@ -462,26 +503,15 @@ fun mul_bps(amount: u64, bps: u64): u64 {
 }
 
 #[test_only]
-/// Drain the vault to a coin (tests dispose) and delete the market in one shot.
-public fun drain_and_destroy_for_testing<C>(
-    market: Market<C>,
-    ctx: &mut TxContext,
-): sui::coin::Coin<C> {
+/// Delete the market (no vault drain — vault is external now).
+public fun destroy_for_testing<C>(market: Market<C>) {
     let Market {
-        id, name: _, underlying: _, oracle_id: _, path_id: _, expiry_ms: _,
-        payout_multiplier_bps: _, correlation_bucket_id: _,
-        mut vault, touch_exposure: _, no_touch_exposure: _,
+        id, name: _, underlying: _, oracle_id: _, path_id: _, vault_id: _,
+        expiry_ms: _, payout_multiplier_bps: _, correlation_bucket_id: _,
+        touch_exposure: _, no_touch_exposure: _, touch_stakes: _, no_touch_stakes: _,
         status: _, fee_snapshot: _, settled_at_ms: _,
     } = market;
-    let amt = vault::balance(&vault);
-    let drained = if (amt > 0) {
-        vault::withdraw(&mut vault, amt, ctx)
-    } else {
-        sui::coin::zero<C>(ctx)
-    };
-    vault::destroy_empty(vault);
     object::delete(id);
-    drained
 }
 
 #[test_only]

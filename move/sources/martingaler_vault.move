@@ -245,20 +245,26 @@ public(package) fun deposit_open<C>(
     });
 }
 
-/// Reserve worst-case obligation from treasury into a per-market lock.
-/// Called by lock_and_settle Phase 2. Aborts if a lock already exists for
-/// the market.
+/// Reserve up to `obligation` from treasury into a per-market lock.
+/// Called by lock_and_settle Phase 5. Aborts if a lock already exists.
+///
+/// MARTINGALER MODEL: if treasury has less than the requested obligation,
+/// lock is funded with whatever's available (could be 0). The shortfall
+/// is absorbed by the FIFO queue at redemption time — winner gets the
+/// cash that's there + a queue entry for the rest. This keeps the
+/// settlement non-blocking when the vault is bootstrapping.
 public(package) fun reserve_for_market<C>(
     vault: &mut MartingalerVault<C>,
     market_id: ID,
     obligation: u64,
 ) {
     assert!(!table::contains(&vault.settlement_locks, market_id), EAlreadyLocked);
-    if (obligation == 0) {
-        // Empty lock — still register so subsequent code paths can find it
+    let treasury_avail = balance::value(&vault.treasury);
+    let actually_reserved = if (obligation <= treasury_avail) obligation else treasury_avail;
+    if (actually_reserved == 0) {
         table::add(&mut vault.settlement_locks, market_id, balance::zero<C>());
     } else {
-        let split = balance::split(&mut vault.treasury, obligation);
+        let split = balance::split(&mut vault.treasury, actually_reserved);
         table::add(&mut vault.settlement_locks, market_id, split);
     };
     sui::event::emit(SettlementLockReserved {
@@ -441,6 +447,53 @@ public(package) fun claim_aborted_refund<C>(
         amount,
     });
     coin::from_balance(payout, ctx)
+}
+
+/// Admin: recover residue from an aborted market's refund pool back to
+/// treasury. Per math agent M8 GAP fix:
+///
+/// At route-time, abort_refund_pool[m] is funded with the gross OBLIGATION
+/// (max(touch_exp, no_touch_exp), in payout units). But holders claim 1:1
+/// of STAKE (not payout). After all holders claim, residue = obligation −
+/// Σ stakes = (multiplier − 1) × Σ stakes. For 1.8x multiplier with $1k
+/// total stakes, that's $800 stranded per aborted market.
+///
+/// This function flushes the pool back to treasury. Anti-rug: routes to
+/// treasury (not arbitrary recipient) and only after the market is in
+/// aborted state. Admin-gated for hackathon safety; permissionless variant
+/// with retention window is post-MVP.
+///
+/// Idempotent: if pool already drained or not present, no-op.
+public(package) fun recover_aborted_seed<C>(
+    cap: &VaultAdminCap,
+    vault: &mut MartingalerVault<C>,
+    market_id: ID,
+) {
+    assert!(cap.vault_id == object::id(vault), ENotAdmin);
+    assert!(vec_set::contains(&vault.aborted_markets, &market_id), EAlreadyAborted);
+    if (!table::contains(&vault.abort_refund_pool, market_id)) return;
+    let residue: Balance<C> = table::remove(&mut vault.abort_refund_pool, market_id);
+    let amount = balance::value(&residue);
+    if (amount == 0) {
+        balance::destroy_zero(residue);
+        return
+    };
+    balance::join(&mut vault.treasury, residue);
+    sui::event::emit(SettlementLockReleased {
+        vault_id: object::id(vault),
+        market_id,
+        returned: amount,
+    });
+}
+
+/// Public wrapper for tests + admin scripts. Same semantics as
+/// `recover_aborted_seed` (admin-cap-gated).
+public fun admin_recover_aborted_seed<C>(
+    cap: &VaultAdminCap,
+    vault: &mut MartingalerVault<C>,
+    market_id: ID,
+) {
+    recover_aborted_seed(cap, vault, market_id)
 }
 
 /// Accrue a fee into a specific bucket. bucket: 0=protocol, 1=staker,
