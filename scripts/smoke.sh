@@ -30,7 +30,7 @@ cd "$(dirname "$0")/.."
 
 # ---------- env ----------
 
-STAKE_MIST="${STAKE_MIST:-10000000}"          # 0.01 SUI
+STAKE_MIST="${STAKE_MIST:-100000}"            # 0.0001 SUI (fits 50bps per-position cap on a 0.2 SUI seeded vault)
 TICK_INTERVAL_S="${TICK_INTERVAL_S:-30}"
 MAX_WAIT_S="${MAX_WAIT_S:-1500}"
 SUI_COIN_TYPE="0x2::sui::SUI"
@@ -202,8 +202,14 @@ fetch_market_status() {
   sui client object "$market" --json 2>/dev/null | python3 -c "
 import json, sys
 d=json.load(sys.stdin)
-fields=d.get('content',{}).get('fields',{})
-print(fields.get('status','-1'))
+# Sui RPC v1: fields live directly under 'content' (not 'content.fields').
+# Status comes back as a JSON number — could be int or float — coerce.
+content = d.get('content', {})
+s = content.get('status', content.get('fields', {}).get('status', -1))
+try:
+    print(int(float(s)))
+except (TypeError, ValueError):
+    print(-1)
 "
 }
 
@@ -237,27 +243,39 @@ STAKING_POOL=$(artifact_get "wick_staking_pool")
 
 bootstrap_singleton() {
   # $1=label, $2=module, $3=function, $4=share-object-type-needle,
-  # $5=cap-type-needle, $6..=extra --args (optional)
+  # $5=cap-type-needle, $6..=extra positional args to the init function
+  # (e.g. an address arg for wick_staking::init_pool).
+  #
+  # These init_* functions return a cap object — plain `sui client call`
+  # crashes with UnusedValueWithoutDrop because the returned cap isn't
+  # consumed. PTB syntax with `--assign cap --transfer-objects [cap] @addr`
+  # is required so the cap lands in the sender's wallet.
   local label="$1" module="$2" func="$3" obj_needle="$4" cap_needle="$5"
   shift 5
-  green ">>> init: $label"
-  local extra_args=()
-  if [ "$#" -gt 0 ]; then extra_args=(--args "$@"); fi
-  local out
+  # IMPORTANT: status output goes to stderr — bootstrap_singleton's stdout
+  # is captured by $() to extract the shared_id. Anything written to stdout
+  # other than the final `echo "$shared_id"` corrupts the caller's variable.
+  green ">>> init: $label" >&2
+
+  # Build positional args for the move-call. For init_pool's address arg
+  # the value is already in the form expected by sui PTB CLI (no @).
+  local mc_args=()
+  if [ "$#" -gt 0 ]; then mc_args=("$@"); fi
+
+  # Type-arg suffix (currently only fee_router needs <SUI>).
+  local target="$PKG::$module::$func"
   if [ "$module" = "fee_router" ]; then
-    out=$(run_tx "init-$label" \
-      sui client call \
-        --package "$PKG" --module "$module" --function "$func" \
-        --type-args "$SUI_COIN_TYPE" \
-        ${extra_args[@]+"${extra_args[@]}"} \
-        --gas-budget 100000000 --json)
-  else
-    out=$(run_tx "init-$label" \
-      sui client call \
-        --package "$PKG" --module "$module" --function "$func" \
-        ${extra_args[@]+"${extra_args[@]}"} \
-        --gas-budget 100000000 --json)
+    target="$target<$SUI_COIN_TYPE>"
   fi
+
+  local out
+  out=$(run_tx "init-$label" \
+    sui client ptb \
+      --move-call "$target" ${mc_args[@]+"${mc_args[@]}"} \
+      --assign cap \
+      --transfer-objects "[cap]" "@$SENDER" \
+      --gas-budget 100000000 --json)
+
   local shared_id cap_id
   shared_id=$(created_of_type "$out" "$obj_needle")
   cap_id=$(created_of_type "$out" "$cap_needle")
@@ -265,8 +283,8 @@ bootstrap_singleton() {
     red "could not parse shared object id (needle: $obj_needle) from $label init"
     exit 4
   fi
-  note "    shared: $shared_id"
-  note "    cap:    $cap_id"
+  note "    shared: $shared_id" >&2
+  note "    cap:    $cap_id" >&2
   echo "$shared_id"
 }
 
@@ -320,7 +338,7 @@ if [ -z "$STAKING_POOL" ]; then
   STAKING_POOL=$(bootstrap_singleton "wick_staking_pool" \
     "wick_staking" "init_pool" \
     "::wick_staking::WickStakingPool" "::wick_staking::StakingAdminCap" \
-    "$SENDER")
+    "@$SENDER")
   patch_artifact_kv "wick_staking_pool" "$STAKING_POOL"
 fi
 note "staking_pool:      $STAKING_POOL"
@@ -353,12 +371,21 @@ hr
 green ">>> selecting shortest-expiry arcade market"
 
 MARKET_PICK=$(python3 -c "
-import json
+import json, time
 d=json.load(open('$ARTIFACT'))
 mkts=d.get('arcade_markets',[])
 if not mkts:
     raise SystemExit('no arcade markets')
-pick=min(mkts, key=lambda m: m['expiry_ms'])
+now_ms = int(time.time()*1000)
+# Prefer markets with time remaining (so we can exercise open + tick + settle).
+# Fall back to the most-recently-expired market if all have passed expiry.
+unexpired = [m for m in mkts if m['expiry_ms'] > now_ms]
+if unexpired:
+    pick = min(unexpired, key=lambda m: m['expiry_ms'])
+else:
+    # All expired — pick the one closest to expiry (least time past). Settlement
+    # is idempotent so this is safe even if already settled.
+    pick = max(mkts, key=lambda m: m['expiry_ms'])
 print(pick['name'], pick['market'], pick['oracle'], pick['path'], pick['random_walk'], pick['barrier'], pick['direction'], pick['expiry_ms'])
 ")
 read -r M_NAME MARKET ORACLE PATH_OBS RWALK BARRIER DIRECTION EXPIRY_MS <<< "$MARKET_PICK"
