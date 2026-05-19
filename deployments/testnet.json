@@ -4,5 +4,39 @@
   "publisher": "0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455",
   "publish_digest": "Coie76uxpmRHs2UQGchHp7pGCVL9DqLedJLoyVqmJ3sb",
   "published_at": "20260519T001955Z",
-  "raw_log": "deployments/archive/publish-20260519T001955Z.json"
+  "raw_log": "deployments/archive/publish-20260519T001955Z.json",
+  "vault_sui": "0x59a6ff9c8383855ac11be99ebeca48c62480fe989754339f30b5ba2c18229f2e",
+  "vault_admin_cap_sui": "0xbb34ad2a6bada7a84cce167a66d1785d11e1993b91fdcc928380bcd6bb239e68",
+  "arcade_markets": [
+    {
+      "name": "WICK-RNG-25",
+      "market": "0xd6726e777243cb97b075577a4404c465dd91471492bdf1ae06fd8b7f84ef0fd8",
+      "oracle": "0xc33231f1ffb3df9f4ef77846a5057e87e27166e683d623594d8e42a4c062e06d",
+      "path": "0xe257e6759112876eecbcae8f71aa23ce764bf22781dfa175a0e5c7ceee0ad2c0",
+      "random_walk": "0x262df36758511b6803824c99259ac925642380075bdb8990f4b92f23fdb66a6b",
+      "barrier": 26000000,
+      "direction": 0,
+      "expiry_ms": 1779164991596
+    },
+    {
+      "name": "WICK-RNG-100",
+      "market": "0xd83bbb5808b65d1197e47438e8febe979a8e264455a28f0a43baf69de11f0bce",
+      "oracle": "0xfc1bc88f8f6ed0e362757bb292faafeb3b9f2364e1d1b0cd1be451331e53bc08",
+      "path": "0x19dd98451e388f961e8be6e43e8da27e26a3664c4f6e4684f213c018cb5fae05",
+      "random_walk": "0x1d80a5e3d2d71cad8f909a9c9f906fa3887a6a6cd179f698fef302f7947d4719",
+      "barrier": 95000000,
+      "direction": 1,
+      "expiry_ms": 1779165293626
+    },
+    {
+      "name": "WICK-RNG-1000",
+      "market": "0x7c5ed07827536293d5c64db0ea27d726462b478903ca8e4d9948dfda82cea031",
+      "oracle": "0x961b2bafabc4396a058e57ba33df4c7f91f40b95a5d14450f40fcbe38d8313f6",
+      "path": "0x36c0028ebc002a65778797fff1904dfd6ee8590eaf59f7aa547690e363bddbba",
+      "random_walk": "0x03bd66a34d0e4133e8d717b6f19759e5e3f52ad9d67f012f29a606f0cc2710fb",
+      "barrier": 1030000000,
+      "direction": 0,
+      "expiry_ms": 1779165895532
+    }
+  ]
 }

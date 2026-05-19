@@ -249,13 +249,13 @@ bootstrap_singleton() {
       sui client call \
         --package "$PKG" --module "$module" --function "$func" \
         --type-args "$SUI_COIN_TYPE" \
-        "${extra_args[@]}" \
+        ${extra_args[@]+"${extra_args[@]}"} \
         --gas-budget 100000000 --json)
   else
     out=$(run_tx "init-$label" \
       sui client call \
         --package "$PKG" --module "$module" --function "$func" \
-        "${extra_args[@]}" \
+        ${extra_args[@]+"${extra_args[@]}"} \
         --gas-budget 100000000 --json)
   fi
   local shared_id cap_id
