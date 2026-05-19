@@ -528,3 +528,120 @@ fun explicit_crank_pays_head() {
     clk.destroy_for_testing();
     sc.end();
 }
+
+// === ride streaming hooks (per docs/design/v2/11_ride_streaming_primitive.md §9) ===
+
+#[test]
+fun deposit_ride_escrow_increases_treasury_and_cumulative_in() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, cap) = mv::init_for_testing<SUI>(sc.ctx());
+
+    let escrow = mint(750, sc.ctx());
+    mv::test_deposit_ride_escrow(&mut vault, escrow);
+
+    // Treasury (not side_bucket / not a settlement_lock) holds the escrow.
+    assert!(mv::treasury_value(&vault) == 750, 0);
+    assert!(mv::side_bucket_value(&vault) == 0, 1);
+    assert!(mv::cumulative_in(&vault) == 750, 2);
+    assert!(mv::cumulative_out(&vault) == 0, 3);
+
+    test_utils::destroy(vault);
+    test_utils::destroy(cap);
+    sc.end();
+}
+
+#[test]
+#[expected_failure(abort_code = mv::EZeroAmount)]
+fun deposit_ride_escrow_zero_value_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, cap) = mv::init_for_testing<SUI>(sc.ctx());
+    let zero = coin::zero<SUI>(sc.ctx());
+    mv::test_deposit_ride_escrow(&mut vault, zero);
+    test_utils::destroy(vault);
+    test_utils::destroy(cap);
+    sc.end();
+}
+
+#[test]
+fun withdraw_for_ride_settlement_pays_from_treasury_when_sufficient() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, cap) = mv::init_for_testing<SUI>(sc.ctx());
+
+    mv::test_deposit_ride_escrow(&mut vault, mint(1000, sc.ctx()));
+
+    let payout = mv::test_withdraw_for_ride_settlement(&mut vault, 400, sc.ctx());
+    assert!(payout.value() == 400, 0);
+    assert!(mv::treasury_value(&vault) == 600, 1);
+    assert!(mv::queue_total(&vault) == 0, 2);
+    assert!(mv::queue_length(&vault) == 0, 3);
+    assert!(mv::cumulative_out(&vault) == 400, 4);
+
+    test_utils::destroy(payout);
+    test_utils::destroy(vault);
+    test_utils::destroy(cap);
+    sc.end();
+}
+
+#[test]
+fun withdraw_for_ride_settlement_routes_shortfall_to_queue() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, cap) = mv::init_for_testing<SUI>(sc.ctx());
+
+    // Treasury has 300, ride payout asks for 500 → 300 cash + 200 queued.
+    mv::test_deposit_ride_escrow(&mut vault, mint(300, sc.ctx()));
+
+    let payout = mv::test_withdraw_for_ride_settlement(&mut vault, 500, sc.ctx());
+    assert!(payout.value() == 300, 0);
+    assert!(mv::treasury_value(&vault) == 0, 1);
+    assert!(mv::queue_total(&vault) == 200, 2);
+    assert!(mv::queue_length(&vault) == 1, 3);
+
+    // Queue entry should be addressed to the tx sender (ALICE here).
+    let entry = mv::queue_entry_at(&vault, 0);
+    assert!(mv::queue_entry_owed(&entry) == 200, 4);
+    assert!(mv::queue_entry_claimant(&entry) == ALICE, 5);
+
+    test_utils::destroy(payout);
+    test_utils::destroy(vault);
+    test_utils::destroy(cap);
+    sc.end();
+}
+
+#[test]
+#[expected_failure(abort_code = mv::EZeroAmount)]
+fun withdraw_for_ride_settlement_zero_amount_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, cap) = mv::init_for_testing<SUI>(sc.ctx());
+    mv::test_deposit_ride_escrow(&mut vault, mint(100, sc.ctx()));
+
+    let payout = mv::test_withdraw_for_ride_settlement(&mut vault, 0, sc.ctx());
+
+    test_utils::destroy(payout);
+    test_utils::destroy(vault);
+    test_utils::destroy(cap);
+    sc.end();
+}
+
+#[test]
+fun cumulative_out_only_counts_actually_paid_amount() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, cap) = mv::init_for_testing<SUI>(sc.ctx());
+
+    // Treasury 120; caller asks for 500 → only 120 should hit cumulative_out;
+    // the queued 380 must NOT count until paid via crank/auto-harvest.
+    mv::test_deposit_ride_escrow(&mut vault, mint(120, sc.ctx()));
+
+    let payout = mv::test_withdraw_for_ride_settlement(&mut vault, 500, sc.ctx());
+    assert!(payout.value() == 120, 0);
+    assert!(mv::cumulative_out(&vault) == 120, 1);  // NOT 500
+    assert!(mv::queue_total(&vault) == 380, 2);
+
+    // Conservation: in - out == still-held (treasury + queue_total is the
+    // outstanding obligation; treasury is 0, queue 380, cash paid 120 → in=120).
+    assert!(mv::cumulative_in(&vault) - mv::cumulative_out(&vault) == 0, 3);
+
+    test_utils::destroy(payout);
+    test_utils::destroy(vault);
+    test_utils::destroy(cap);
+    sc.end();
+}

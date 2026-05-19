@@ -220,6 +220,61 @@ public fun recover_aborted_seed<C>(
     mv::admin_recover_aborted_seed<C>(cap, vault, object::id(market))
 }
 
+// === Ride primitive — SDK re-exports ===
+//
+// Wick-native streaming touch options per `docs/design/v2/11_ride_streaming_primitive.md`.
+// Rides require a `wick::ride_market_caps::RideMarketCaps` shared object
+// gating sigma/multiplier/escrow-caps per market. Discrete markets are
+// unaffected.
+
+public fun open_ride<C>(
+    caps: &mut wick::ride_market_caps::RideMarketCaps,
+    path: &PathObservation,
+    vault: &mut MartingalerVault<C>,
+    bot_registry: &BotRegistry,
+    rate_micro_usd_per_sec: u64,
+    escrow: Coin<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): wick::ride_position::RidePosition {
+    wick::ride_position::open_ride<C>(
+        caps, path, vault, bot_registry, rate_micro_usd_per_sec, escrow, clock, ctx,
+    )
+}
+
+public fun close_ride<C>(
+    ride: &mut wick::ride_position::RidePosition,
+    caps: &mut wick::ride_market_caps::RideMarketCaps,
+    path: &PathObservation,
+    oracle: &wick::wick_oracle::WickOracle,
+    vault: &mut MartingalerVault<C>,
+    price_oracle: &UsdPriceOracle,
+    token_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    wick::ride_position::close_ride<C>(
+        ride, caps, path, oracle, vault, price_oracle, token_state, staking_pool, clock, ctx,
+    )
+}
+
+public fun crank_expired_ride<C>(
+    ride: &mut wick::ride_position::RidePosition,
+    caps: &mut wick::ride_market_caps::RideMarketCaps,
+    path: &PathObservation,
+    vault: &mut MartingalerVault<C>,
+    price_oracle: &UsdPriceOracle,
+    token_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    wick::ride_position::crank_expired_ride<C>(
+        ride, caps, path, vault, price_oracle, token_state, staking_pool, clock, ctx,
+    )
+}
+
 #[test_only]
 public fun share_random_walk_for_testing(rw: RandomWalk) {
     random_walk_driver::share(rw);

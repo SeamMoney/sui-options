@@ -533,6 +533,101 @@ public(package) fun withdraw_insurance_fees<C>(
     balance::withdraw_all(&mut vault.insurance_fees)
 }
 
+// === Ride streaming hooks (per docs/design/v2/11_ride_streaming_primitive.md §9) ===
+
+/// Deposit ride-open escrow into the vault.
+///
+/// Per spec §9: escrow for the streaming-ride primitive lives in
+/// `treasury` — NOT `settlement_lock` (those are reserved for discrete
+/// touch/no-touch markets) and NOT the abort-pool path or per-market
+/// `side_bucket` accounting. This keeps voluntary cashouts and settled
+/// forfeits flowing through a single, simple hook that does not perturb
+/// the discrete-market settlement state.
+///
+/// Note this intentionally bypasses the queue auto-harvest that
+/// `deposit_open` performs: ride escrow is short-lived working capital,
+/// not new LP stake. Routing it through `side_bucket`/auto-harvest would
+/// pay out ride escrow to queued discrete-market winners and then leave
+/// the ride underfunded at close.
+public(package) fun deposit_ride_escrow<C>(
+    vault: &mut MartingalerVault<C>,
+    escrow: Coin<C>,
+) {
+    let amount = escrow.value();
+    assert!(amount > 0, EZeroAmount);
+    vault.cumulative_in = vault.cumulative_in + (amount as u128);
+    balance::join(&mut vault.treasury, escrow.into_balance());
+    sui::event::emit(StakeDeposited {
+        vault_id: object::id(vault),
+        amount,
+        new_treasury: balance::value(&vault.treasury),
+        new_side_bucket: balance::value(&vault.side_bucket),
+    });
+}
+
+/// Withdraw funds to settle a ride payout (touch win / cashout / forfeit).
+///
+/// Source priority (patterned on `pay_winner`'s lock-first/queue-rest
+/// split, but sourced from `treasury` directly since ride escrow is not
+/// kept in a per-market lock):
+///   1. Pay from `treasury` up to what's available.
+///   2. If `amount` exceeds treasury, enqueue a FIFO entry for the
+///      shortfall so future loss inflows pay it down. The returned
+///      Coin<C> contains only what treasury could cover — callers must
+///      treat it as the actually-paid amount.
+///
+/// `cumulative_out` is bumped only by the cash actually paid (the queue
+/// entry's eventual payment will bump `cumulative_out` again at
+/// crank/auto-harvest time, matching `pay_winner` semantics).
+public(package) fun withdraw_for_ride_settlement<C>(
+    vault: &mut MartingalerVault<C>,
+    amount: u64,
+    ctx: &mut TxContext,
+): Coin<C> {
+    assert!(amount > 0, EZeroAmount);
+
+    let treasury_avail = balance::value(&vault.treasury);
+    let (cash_amount, queued_amount) = if (treasury_avail >= amount) {
+        (amount, 0u64)
+    } else {
+        (treasury_avail, amount - treasury_avail)
+    };
+
+    let cash_balance = if (cash_amount > 0) {
+        balance::split(&mut vault.treasury, cash_amount)
+    } else {
+        balance::zero<C>()
+    };
+
+    if (queued_amount > 0) {
+        let claimant = ctx.sender();
+        let idx = vault.queue_tail_idx;
+        // Use the vault id as a sentinel market_id since ride
+        // settlement is not bound to a discrete market lock. Crank
+        // logic doesn't dispatch on market_id, only on FIFO order.
+        let sentinel_market = object::id(vault);
+        let entry = QueueEntry {
+            claimant,
+            market_id: sentinel_market,
+            amount_owed: queued_amount,
+            enqueued_at_ms: 0,
+        };
+        table::add(&mut vault.fifo_queue, idx, entry);
+        vault.queue_tail_idx = idx + 1;
+        vault.queue_total = vault.queue_total + queued_amount;
+        sui::event::emit(QueueEntryAdded {
+            vault_id: object::id(vault),
+            queue_index: idx,
+            claimant,
+            market_id: sentinel_market,
+            amount_owed: queued_amount,
+        });
+    };
+
+    vault.cumulative_out = vault.cumulative_out + (cash_amount as u128);
+    coin::from_balance(cash_balance, ctx)
+}
+
 // === Auto-harvest internal ===
 
 /// Drain side_bucket into queue heads, up to max_entries entries.
@@ -687,4 +782,21 @@ public fun test_accrue_fee<C>(
     fee_balance: Balance<C>,
 ) {
     accrue_fee(vault, bucket, fee_balance);
+}
+
+#[test_only]
+public fun test_deposit_ride_escrow<C>(
+    vault: &mut MartingalerVault<C>,
+    escrow: Coin<C>,
+) {
+    deposit_ride_escrow(vault, escrow);
+}
+
+#[test_only]
+public fun test_withdraw_for_ride_settlement<C>(
+    vault: &mut MartingalerVault<C>,
+    amount: u64,
+    ctx: &mut TxContext,
+): Coin<C> {
+    withdraw_for_ride_settlement(vault, amount, ctx)
 }
