@@ -56,7 +56,18 @@ const DEFAULT_GRACE_MS: u64 = 60_000;  // 1 minute past expiry → Aborted
 /// settlement-bot race documented in the C.3 design — without it, atomic
 /// lock_and_settle is cosmetic.
 const DEFAULT_PRE_LOCK_DRAIN_MS: u64 = 5_000;  // 5 seconds default
+/// Per-tick anti-jitter filter (papertrade-borrowed). A tick must clear the
+/// buffered trigger by at least `deadband_bps × barrier / 10_000` to count
+/// toward the confirmation counter. Stacks ON TOP of `buffer_bps`: the
+/// buffer biases the trigger outward by a fixed bps, and the deadband
+/// additionally requires the tick to overshoot the buffered trigger by an
+/// extra bps margin. Defends against oracle micro-flutter triggering
+/// spurious touch fires. Default 20 bps = 0.2% (papertrade default).
+const DEFAULT_DEADBAND_BPS: u64 = 20;
 const MAX_BUFFER_BPS: u64 = 1_000;     // 10%
+/// Kept strictly below MAX_BUFFER_BPS so both guards stay meaningful in
+/// stacked configurations. 200 bps = 2%.
+const MAX_DEADBAND_BPS: u64 = 200;
 const BPS_DENOM: u128 = 10_000;
 
 // === Settlement state values ===
@@ -71,6 +82,10 @@ public fun settlement_aborted(): u8 { SETTLEMENT_ABORTED }
 /// Side of the barrier the buyer is watching for.
 public fun touch_above(): u8 { 0 }
 public fun touch_below(): u8 { 1 }
+/// Double-no-touch: payoff predicate is "neither upper nor lower was touched
+/// during the window." Uses `upper_barrier` / `lower_barrier` instead of the
+/// single `barrier` field.
+public fun touch_dnt(): u8 { 2 }
 
 public struct PathObservation has key {
     id: UID,
@@ -84,6 +99,13 @@ public struct PathObservation has key {
     /// 0..=MAX_BUFFER_BPS. Trigger price is barrier shifted outward by this
     /// many bps (defends against single-tick noise just brushing the level).
     buffer_bps: u64,
+    /// 0..=MAX_DEADBAND_BPS. Per-tick filter: ticks that only barely cross
+    /// the buffered trigger (within `deadband_bps × barrier / 10_000` of it)
+    /// do NOT increment the confirmation counter. Papertrade-borrowed
+    /// anti-jitter — defends against oracle micro-flutter triggering
+    /// spurious touch fires. Stacks on top of `buffer_bps`. Default 20 bps
+    /// = 0.2% (papertrade default).
+    deadband_bps: u64,
     /// Minimum observations required to count a no-touch outcome as Resolved.
     /// Below this, settlement Aborts after the grace window.
     min_observations: u64,
@@ -91,7 +113,7 @@ public struct PathObservation has key {
     observation_count: u64,
     /// Consecutive in-row crossings of the buffered trigger. Resets to 0 on
     /// any non-crossing tick. `touched_at` only fires when this reaches
-    /// `touch_confirmations_required`.
+    /// `touch_confirmations_required`. Single-barrier paths only.
     consecutive_cross_count: u64,
     /// How many in-a-row crossings are required. Default 3.
     touch_confirmations_required: u64,
@@ -99,6 +121,7 @@ public struct PathObservation has key {
     min_seen: u64,
     last_seen_ms: Option<u64>,
     /// Set the first time the buffered trigger is crossed N times in a row.
+    /// Single-barrier paths only.
     touched_at: Option<u64>,
     /// Frozen settlement view. Once Some, `redeem` reads from here exclusively.
     settlement_snapshot: Option<PathSnapshot>,
@@ -106,6 +129,18 @@ public struct PathObservation has key {
     /// `now >= expiry_ms + pre_lock_drain_ms`. record_during_drain accepts
     /// pre-expiry-stamped ticks during this window. Closes the bot race.
     pre_lock_drain_ms: u64,
+    // === DNT (direction == touch_dnt()) fields ===
+    // For single-barrier paths these default to 0 / None and are unused.
+    // Decision: SPLIT counters per barrier. A shared counter would let a
+    // ping-ponging price [upper, lower, upper, lower] fake N-in-a-row
+    // confirmations for neither side. Each barrier must accrue its own
+    // independent evidence to fire its respective touched_at.
+    lower_barrier: u64,
+    upper_barrier: u64,
+    consecutive_upper_cross_count: u64,
+    consecutive_lower_cross_count: u64,
+    upper_touched_at: Option<u64>,
+    lower_touched_at: Option<u64>,
 }
 
 public struct PathSnapshot has copy, drop, store {
@@ -115,6 +150,9 @@ public struct PathSnapshot has copy, drop, store {
     touched_at: Option<u64>,
     observation_count: u64,
     locked_at_ms: u64,
+    /// DNT-only snapshot fields. None for single-barrier paths.
+    upper_touched_at: Option<u64>,
+    lower_touched_at: Option<u64>,
 }
 
 public struct PathCreated has copy, drop {
@@ -168,6 +206,7 @@ public fun new_v2(
 
 /// v3 constructor with explicit pre_lock_drain_ms. Use this when you need
 /// to override the default 5s drain (e.g., low-latency markets at 1s).
+/// Delegates to `new_v4` with `DEFAULT_DEADBAND_BPS` for back-compat.
 public fun new_v3(
     oracle: &WickOracle,
     barrier: u64,
@@ -179,9 +218,32 @@ public fun new_v3(
     pre_lock_drain_ms: u64,
     ctx: &mut TxContext,
 ): PathObservation {
+    new_v4(
+        oracle, barrier, direction, buffer_bps, min_observations,
+        touch_confirmations_required, grace_ms, pre_lock_drain_ms,
+        DEFAULT_DEADBAND_BPS, ctx,
+    )
+}
+
+/// v4 constructor with explicit `deadband_bps`. Stacks the papertrade-style
+/// per-tick deadband filter on top of `buffer_bps`. Pass `deadband_bps = 0`
+/// to revert to pre-deadband behavior (only `buffer_bps` decides crosses).
+public fun new_v4(
+    oracle: &WickOracle,
+    barrier: u64,
+    direction: u8,
+    buffer_bps: u64,
+    min_observations: u64,
+    touch_confirmations_required: u64,
+    grace_ms: u64,
+    pre_lock_drain_ms: u64,
+    deadband_bps: u64,
+    ctx: &mut TxContext,
+): PathObservation {
     assert!(barrier > 0, EInvalidConfig);
     assert!(direction == touch_above() || direction == touch_below(), EInvalidDirection);
     assert!(buffer_bps <= MAX_BUFFER_BPS, EInvalidConfig);
+    assert!(deadband_bps <= MAX_DEADBAND_BPS, EInvalidConfig);
     assert!(min_observations > 0, EInvalidConfig);
     assert!(touch_confirmations_required >= 1, EInvalidConfig);
 
@@ -193,6 +255,7 @@ public fun new_v3(
         expiry_ms: wick_oracle::expiry_ms(oracle),
         grace_ms,
         buffer_bps,
+        deadband_bps,
         min_observations,
         observation_count: 0,
         consecutive_cross_count: 0,
@@ -203,12 +266,99 @@ public fun new_v3(
         touched_at: option::none(),
         settlement_snapshot: option::none(),
         pre_lock_drain_ms,
+        lower_barrier: 0,
+        upper_barrier: 0,
+        consecutive_upper_cross_count: 0,
+        consecutive_lower_cross_count: 0,
+        upper_touched_at: option::none(),
+        lower_touched_at: option::none(),
     };
     sui::event::emit(PathCreated {
         path_id: object::id(&po),
         oracle_id: po.oracle_id,
         barrier,
         direction,
+        expiry_ms: po.expiry_ms,
+    });
+    po
+}
+
+/// DNT constructor — two barriers, payoff predicate is "neither was touched."
+/// Same hardening parameters as new_v3 (N-confirmations, buffer, drain). The
+/// legacy single `barrier` field is set to 0 (unused on the DNT path); the
+/// upper / lower fields hold the corridor. Delegates to `new_dnt_v2` with
+/// `DEFAULT_DEADBAND_BPS` for the per-tick anti-jitter filter.
+public fun new_dnt(
+    oracle: &WickOracle,
+    lower_barrier: u64,
+    upper_barrier: u64,
+    buffer_bps: u64,
+    min_observations: u64,
+    touch_confirmations_required: u64,
+    grace_ms: u64,
+    pre_lock_drain_ms: u64,
+    ctx: &mut TxContext,
+): PathObservation {
+    new_dnt_v2(
+        oracle, lower_barrier, upper_barrier, buffer_bps, min_observations,
+        touch_confirmations_required, grace_ms, pre_lock_drain_ms,
+        DEFAULT_DEADBAND_BPS, ctx,
+    )
+}
+
+/// DNT constructor v2 with explicit `deadband_bps`. Pass `deadband_bps = 0`
+/// to revert to pre-deadband behavior (only `buffer_bps` decides crosses).
+public fun new_dnt_v2(
+    oracle: &WickOracle,
+    lower_barrier: u64,
+    upper_barrier: u64,
+    buffer_bps: u64,
+    min_observations: u64,
+    touch_confirmations_required: u64,
+    grace_ms: u64,
+    pre_lock_drain_ms: u64,
+    deadband_bps: u64,
+    ctx: &mut TxContext,
+): PathObservation {
+    assert!(lower_barrier > 0, EInvalidConfig);
+    assert!(upper_barrier > lower_barrier, EInvalidConfig);
+    assert!(buffer_bps <= MAX_BUFFER_BPS, EInvalidConfig);
+    assert!(deadband_bps <= MAX_DEADBAND_BPS, EInvalidConfig);
+    assert!(min_observations > 0, EInvalidConfig);
+    assert!(touch_confirmations_required >= 1, EInvalidConfig);
+
+    let po = PathObservation {
+        id: object::new(ctx),
+        oracle_id: object::id(oracle),
+        // The legacy `barrier` field is unused for DNT; set to 0.
+        barrier: 0,
+        direction: touch_dnt(),
+        expiry_ms: wick_oracle::expiry_ms(oracle),
+        grace_ms,
+        buffer_bps,
+        deadband_bps,
+        min_observations,
+        observation_count: 0,
+        consecutive_cross_count: 0,
+        touch_confirmations_required,
+        max_seen: 0,
+        min_seen: 18_446_744_073_709_551_615,
+        last_seen_ms: option::none(),
+        touched_at: option::none(),
+        settlement_snapshot: option::none(),
+        pre_lock_drain_ms,
+        lower_barrier,
+        upper_barrier,
+        consecutive_upper_cross_count: 0,
+        consecutive_lower_cross_count: 0,
+        upper_touched_at: option::none(),
+        lower_touched_at: option::none(),
+    };
+    sui::event::emit(PathCreated {
+        path_id: object::id(&po),
+        oracle_id: po.oracle_id,
+        barrier: 0,
+        direction: touch_dnt(),
         expiry_ms: po.expiry_ms,
     });
     po
@@ -275,23 +425,27 @@ public fun record(po: &mut PathObservation, oracle: &WickOracle, clock: &Clock) 
     po.observation_count = po.observation_count + 1;
     po.last_seen_ms = option::some(obs_ts);
 
-    // N-consecutive-confirmation touch logic.
-    if (is_buffered_touch(po, obs_price)) {
-        po.consecutive_cross_count = po.consecutive_cross_count + 1;
-        if (po.consecutive_cross_count >= po.touch_confirmations_required
-            && option::is_none(&po.touched_at)) {
-            po.touched_at = option::some(obs_ts);
-            sui::event::emit(BarrierTouched {
-                path_id: object::id(po),
-                touched_at_ms: obs_ts,
-                touch_price: obs_price,
-                confirmations: po.consecutive_cross_count,
-            });
-        };
+    if (po.direction == touch_dnt()) {
+        apply_dnt_tick(po, obs_price, obs_ts);
     } else {
-        // A touch has to be a real, sustained crossing. Any non-crossing tick
-        // resets the run.
-        po.consecutive_cross_count = 0;
+        // N-consecutive-confirmation touch logic.
+        if (is_buffered_touch(po, obs_price)) {
+            po.consecutive_cross_count = po.consecutive_cross_count + 1;
+            if (po.consecutive_cross_count >= po.touch_confirmations_required
+                && option::is_none(&po.touched_at)) {
+                po.touched_at = option::some(obs_ts);
+                sui::event::emit(BarrierTouched {
+                    path_id: object::id(po),
+                    touched_at_ms: obs_ts,
+                    touch_price: obs_price,
+                    confirmations: po.consecutive_cross_count,
+                });
+            };
+        } else {
+            // A touch has to be a real, sustained crossing. Any non-crossing tick
+            // resets the run.
+            po.consecutive_cross_count = 0;
+        };
     };
 
     sui::event::emit(TickRecorded {
@@ -343,20 +497,24 @@ public fun record_during_drain(po: &mut PathObservation, oracle: &WickOracle, cl
     po.observation_count = po.observation_count + 1;
     po.last_seen_ms = option::some(obs_ts);
 
-    if (is_buffered_touch(po, obs_price)) {
-        po.consecutive_cross_count = po.consecutive_cross_count + 1;
-        if (po.consecutive_cross_count >= po.touch_confirmations_required
-            && option::is_none(&po.touched_at)) {
-            po.touched_at = option::some(obs_ts);
-            sui::event::emit(BarrierTouched {
-                path_id: object::id(po),
-                touched_at_ms: obs_ts,
-                touch_price: obs_price,
-                confirmations: po.consecutive_cross_count,
-            });
-        };
+    if (po.direction == touch_dnt()) {
+        apply_dnt_tick(po, obs_price, obs_ts);
     } else {
-        po.consecutive_cross_count = 0;
+        if (is_buffered_touch(po, obs_price)) {
+            po.consecutive_cross_count = po.consecutive_cross_count + 1;
+            if (po.consecutive_cross_count >= po.touch_confirmations_required
+                && option::is_none(&po.touched_at)) {
+                po.touched_at = option::some(obs_ts);
+                sui::event::emit(BarrierTouched {
+                    path_id: object::id(po),
+                    touched_at_ms: obs_ts,
+                    touch_price: obs_price,
+                    confirmations: po.consecutive_cross_count,
+                });
+            };
+        } else {
+            po.consecutive_cross_count = 0;
+        };
     };
 
     sui::event::emit(TickRecorded {
@@ -369,17 +527,74 @@ public fun record_during_drain(po: &mut PathObservation, oracle: &WickOracle, cl
     });
 }
 
-/// Whether `price` crosses the buffered trigger for this path's direction.
+/// Whether `price` crosses the buffered trigger for this path's direction,
+/// after applying the per-tick deadband filter on top. Two guards stack:
+///   1. `buffer_bps` biases the trigger outward (barrier ± buffer).
+///   2. `deadband_bps` requires the tick to overshoot the buffered trigger
+///      by an additional `deadband_bps × barrier / 10_000` margin.
 fun is_buffered_touch(po: &PathObservation, price: u64): bool {
     if (po.direction == touch_above()) {
         let trigger = if (po.buffer_bps == 0) po.barrier
             else add_bps_clamped(po.barrier, po.buffer_bps);
-        price >= trigger
+        let eff_trigger = apply_deadband_up(trigger, po.barrier, po.deadband_bps);
+        price >= eff_trigger
     } else {
         let trigger = if (po.buffer_bps == 0) po.barrier
             else sub_bps_floored(po.barrier, po.buffer_bps);
-        price <= trigger
+        let eff_trigger = apply_deadband_down(trigger, po.barrier, po.deadband_bps);
+        price <= eff_trigger
     }
+}
+
+/// Apply a DNT tick: update upper / lower split confirmation counters and
+/// set the respective `*_touched_at` once each reaches the N-confirmation
+/// threshold. Symmetric to the single-barrier N-confirmation logic. The
+/// per-tick deadband filter is applied on top of `buffer_bps` for each
+/// side independently (deadband margin sized by THAT side's barrier).
+fun apply_dnt_tick(po: &mut PathObservation, price: u64, obs_ts: u64) {
+    // Upper trigger: barrier + buffer (price ≥ trigger ⇒ upper-side touch).
+    let upper_trigger = if (po.buffer_bps == 0) po.upper_barrier
+        else add_bps_clamped(po.upper_barrier, po.buffer_bps);
+    let eff_upper_trigger = apply_deadband_up(upper_trigger, po.upper_barrier, po.deadband_bps);
+    // Lower trigger: barrier − buffer (price ≤ trigger ⇒ lower-side touch).
+    let lower_trigger = if (po.buffer_bps == 0) po.lower_barrier
+        else sub_bps_floored(po.lower_barrier, po.buffer_bps);
+    let eff_lower_trigger = apply_deadband_down(lower_trigger, po.lower_barrier, po.deadband_bps);
+
+    let upper_cross = price >= eff_upper_trigger;
+    let lower_cross = price <= eff_lower_trigger;
+
+    if (upper_cross) {
+        po.consecutive_upper_cross_count = po.consecutive_upper_cross_count + 1;
+        if (po.consecutive_upper_cross_count >= po.touch_confirmations_required
+            && option::is_none(&po.upper_touched_at)) {
+            po.upper_touched_at = option::some(obs_ts);
+            sui::event::emit(BarrierTouched {
+                path_id: object::id(po),
+                touched_at_ms: obs_ts,
+                touch_price: price,
+                confirmations: po.consecutive_upper_cross_count,
+            });
+        };
+    } else {
+        po.consecutive_upper_cross_count = 0;
+    };
+
+    if (lower_cross) {
+        po.consecutive_lower_cross_count = po.consecutive_lower_cross_count + 1;
+        if (po.consecutive_lower_cross_count >= po.touch_confirmations_required
+            && option::is_none(&po.lower_touched_at)) {
+            po.lower_touched_at = option::some(obs_ts);
+            sui::event::emit(BarrierTouched {
+                path_id: object::id(po),
+                touched_at_ms: obs_ts,
+                touch_price: price,
+                confirmations: po.consecutive_lower_cross_count,
+            });
+        };
+    } else {
+        po.consecutive_lower_cross_count = 0;
+    };
 }
 
 fun add_bps_clamped(p: u64, bps: u64): u64 {
@@ -392,6 +607,23 @@ fun sub_bps_floored(p: u64, bps: u64): u64 {
     if (delta >= (p as u128)) 0 else ((p as u128) - delta) as u64
 }
 
+/// Add `deadband_bps × barrier / 10_000` to `trigger` (clamped to u64::MAX).
+/// The deadband margin is sized off the BARRIER, not the trigger — keeps the
+/// filter shape stable regardless of `buffer_bps`.
+fun apply_deadband_up(trigger: u64, barrier: u64, deadband_bps: u64): u64 {
+    if (deadband_bps == 0) return trigger;
+    let margin = (barrier as u128) * (deadband_bps as u128) / BPS_DENOM;
+    let scaled = (trigger as u128) + margin;
+    if (scaled > 18_446_744_073_709_551_615u128) 18_446_744_073_709_551_615u64 else scaled as u64
+}
+
+/// Subtract `deadband_bps × barrier / 10_000` from `trigger` (floored at 0).
+fun apply_deadband_down(trigger: u64, barrier: u64, deadband_bps: u64): u64 {
+    if (deadband_bps == 0) return trigger;
+    let margin = (barrier as u128) * (deadband_bps as u128) / BPS_DENOM;
+    if (margin >= (trigger as u128)) 0 else ((trigger as u128) - margin) as u64
+}
+
 // === Settlement state + snapshot lock ===
 
 /// Compute the settlement state from live fields. This is the live read used
@@ -400,7 +632,13 @@ fun sub_bps_floored(p: u64, bps: u64): u64 {
 fun compute_settlement_state(po: &PathObservation, clock: &Clock): u8 {
     let now = clock.timestamp_ms();
     if (now < po.expiry_ms) return SETTLEMENT_NOT_READY;
-    if (option::is_some(&po.touched_at)) return SETTLEMENT_RESOLVED;
+    // Single-barrier paths: a touched_at trumps observation_count.
+    if (po.direction != touch_dnt() && option::is_some(&po.touched_at)) return SETTLEMENT_RESOLVED;
+    // DNT paths: any barrier touch trumps observation_count.
+    if (po.direction == touch_dnt()
+        && (option::is_some(&po.upper_touched_at) || option::is_some(&po.lower_touched_at))) {
+        return SETTLEMENT_RESOLVED
+    };
     if (po.observation_count >= po.min_observations) return SETTLEMENT_RESOLVED;
     if (now >= po.expiry_ms + po.grace_ms) return SETTLEMENT_ABORTED;
     SETTLEMENT_NOT_READY
@@ -437,11 +675,19 @@ public fun lock_settlement_snapshot(po: &mut PathObservation, clock: &Clock) {
         touched_at: po.touched_at,
         observation_count: po.observation_count,
         locked_at_ms: now,
+        upper_touched_at: po.upper_touched_at,
+        lower_touched_at: po.lower_touched_at,
     });
+    // For DNT, "touched" in the event = either side breached.
+    let touched_for_event = if (po.direction == touch_dnt()) {
+        option::is_some(&po.upper_touched_at) || option::is_some(&po.lower_touched_at)
+    } else {
+        option::is_some(&po.touched_at)
+    };
     sui::event::emit(PathSettlementLocked {
         path_id: object::id(po),
         state,
-        touched: option::is_some(&po.touched_at),
+        touched: touched_for_event,
     });
 }
 
@@ -455,6 +701,9 @@ public fun grace_ms(po: &PathObservation): u64 { po.grace_ms }
 public fun pre_lock_drain_ms(po: &PathObservation): u64 { po.pre_lock_drain_ms }
 public fun default_pre_lock_drain_ms(): u64 { DEFAULT_PRE_LOCK_DRAIN_MS }
 public fun buffer_bps(po: &PathObservation): u64 { po.buffer_bps }
+public fun deadband_bps(po: &PathObservation): u64 { po.deadband_bps }
+public fun default_deadband_bps(): u64 { DEFAULT_DEADBAND_BPS }
+public fun max_deadband_bps(): u64 { MAX_DEADBAND_BPS }
 public fun min_observations(po: &PathObservation): u64 { po.min_observations }
 public fun observation_count(po: &PathObservation): u64 { po.observation_count }
 public fun consecutive_cross_count(po: &PathObservation): u64 { po.consecutive_cross_count }
@@ -464,6 +713,33 @@ public fun min_seen(po: &PathObservation): u64 { po.min_seen }
 public fun last_seen_ms(po: &PathObservation): &Option<u64> { &po.last_seen_ms }
 public fun touched_at(po: &PathObservation): &Option<u64> { &po.touched_at }
 public fun is_touched(po: &PathObservation): bool { option::is_some(&po.touched_at) }
+
+// === DNT reads ===
+public fun lower_barrier(po: &PathObservation): u64 { po.lower_barrier }
+public fun upper_barrier(po: &PathObservation): u64 { po.upper_barrier }
+public fun upper_touched_at(po: &PathObservation): &Option<u64> { &po.upper_touched_at }
+public fun lower_touched_at(po: &PathObservation): &Option<u64> { &po.lower_touched_at }
+public fun consecutive_upper_cross_count(po: &PathObservation): u64 { po.consecutive_upper_cross_count }
+public fun consecutive_lower_cross_count(po: &PathObservation): u64 { po.consecutive_lower_cross_count }
+public fun is_dnt(po: &PathObservation): bool { po.direction == touch_dnt() }
+
+/// DNT payoff predicate. True iff direction is DNT AND neither barrier has
+/// been touched. Reads from snapshot if locked (frozen view), otherwise from
+/// live state.
+public fun dnt_neither_touched(po: &PathObservation): bool {
+    if (po.direction != touch_dnt()) return false;
+    if (option::is_some(&po.settlement_snapshot)) {
+        let s = option::borrow(&po.settlement_snapshot);
+        return option::is_none(&s.upper_touched_at) && option::is_none(&s.lower_touched_at)
+    };
+    option::is_none(&po.upper_touched_at) && option::is_none(&po.lower_touched_at)
+}
+
+public fun snapshot_upper_touched_at(s: &PathSnapshot): &Option<u64> { &s.upper_touched_at }
+public fun snapshot_lower_touched_at(s: &PathSnapshot): &Option<u64> { &s.lower_touched_at }
+public fun snapshot_dnt_neither_touched(s: &PathSnapshot): bool {
+    option::is_none(&s.upper_touched_at) && option::is_none(&s.lower_touched_at)
+}
 
 /// True iff the barrier was touched at a timestamp inside [start_ms, end_ms].
 /// Load-bearing for `wick::ride_position::close_ride` — establishes the

@@ -510,6 +510,232 @@ fun default_new_uses_hardening_defaults() {
     assert!(po::min_observations(&p) == 6, 1);
     assert!(po::buffer_bps(&p) == 0, 2);
     assert!(po::grace_ms(&p) == 60_000, 3);
+    // A5d: deadband-on-by-default for production posture.
+    assert!(po::deadband_bps(&p) == po::default_deadband_bps(), 4);
+    assert!(po::default_deadband_bps() == 20, 5);
+
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(p);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+// === A5d: sub-spread deadband (papertrade-borrowed anti-jitter) ===
+
+const LOWER_BARRIER_DNT: u64 = 95_000_000_000;   //  95.0
+const UPPER_BARRIER_DNT: u64 = 105_000_000_000;  // 105.0
+
+#[test]
+fun tick_at_exactly_buffered_trigger_does_not_count_with_default_deadband() {
+    // buffer = 10 bps, deadband = 20 bps (default). Barrier 105.
+    // Buffered trigger = 105 × (1 + 10/10000) = 105.105.
+    // Effective trigger = 105.105 + 105 × 20/10000 = 105.105 + 0.21 = 105.315.
+    // A tick at EXACTLY the buffered trigger (105.105) sits inside the deadband
+    // band and MUST NOT bump consecutive_cross_count.
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let (mut oracle, _rw) = mk_oracle_at(1_000_000, &mut sc, &clk);
+    let mut p = po::new_v2(
+        &oracle, BARRIER_ABOVE, po::touch_above(),
+        10, 1, 3, 60_000, sc.ctx(),  // buffer=10bps, default deadband=20bps
+    );
+
+    // Push 3 obs at exactly the buffered trigger.
+    let mut i = 0;
+    while (i < 3) {
+        clk.increment_for_testing(100);
+        push_obs(&mut oracle, 105_105_000_000, (i + 1) * 100);  // 105.105
+        po::record(&mut p, &oracle, &clk);
+        i = i + 1;
+    };
+
+    assert!(!po::is_touched(&p), 0);
+    assert!(po::consecutive_cross_count(&p) == 0, 1);
+
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(p);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+#[test]
+fun tick_clearing_trigger_by_more_than_deadband_does_count() {
+    // Same setup as above. Effective trigger 105.315.
+    // 3 ticks at 105.320 (just above) → counter goes to 3 and touch fires.
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let (mut oracle, _rw) = mk_oracle_at(1_000_000, &mut sc, &clk);
+    let mut p = po::new_v2(
+        &oracle, BARRIER_ABOVE, po::touch_above(),
+        10, 1, 3, 60_000, sc.ctx(),
+    );
+
+    let mut i = 0;
+    while (i < 3) {
+        clk.increment_for_testing(100);
+        push_obs(&mut oracle, 105_320_000_000, (i + 1) * 100);  // 105.320 > 105.315
+        po::record(&mut p, &oracle, &clk);
+        i = i + 1;
+    };
+
+    assert!(po::is_touched(&p), 0);
+    assert!(po::consecutive_cross_count(&p) == 3, 1);
+
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(p);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+#[test]
+fun deadband_zero_makes_buffer_alone_decisive() {
+    // Explicit deadband_bps=0 via new_v4 → only buffer_bps gates the cross.
+    // buffer=10bps, barrier=105 → buffered trigger 105.105.
+    // 3 ticks at exactly 105.105 must NOW count (no deadband margin).
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let (mut oracle, _rw) = mk_oracle_at(1_000_000, &mut sc, &clk);
+    let mut p = po::new_v4(
+        &oracle, BARRIER_ABOVE, po::touch_above(),
+        10,        // buffer_bps
+        1,         // min_observations
+        3,         // confirmations
+        60_000,    // grace_ms
+        5_000,     // pre_lock_drain_ms
+        0,         // deadband_bps = 0 → buffer-only behavior
+        sc.ctx(),
+    );
+
+    let mut i = 0;
+    while (i < 3) {
+        clk.increment_for_testing(100);
+        push_obs(&mut oracle, 105_105_000_000, (i + 1) * 100);
+        po::record(&mut p, &oracle, &clk);
+        i = i + 1;
+    };
+
+    assert!(po::is_touched(&p), 0);
+    assert!(po::consecutive_cross_count(&p) == 3, 1);
+    assert!(po::deadband_bps(&p) == 0, 2);
+
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(p);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+#[test]
+fun deadband_filter_resets_consecutive_counter_on_borderline_ticks() {
+    // Alternate: clear-cross, borderline (no count + RESET), clear-cross,
+    // borderline, clear-cross. With confirmations=3 the run never reaches 3,
+    // so touched_at stays None and counter never lands on 3.
+    // buffer=0, default deadband=20bps. Barrier 105 → effective trigger
+    // 105 + 0.21 = 105.21. Borderline = 105.10 (sits in deadband band).
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let (mut oracle, _rw) = mk_oracle_at(1_000_000, &mut sc, &clk);
+    let mut p = po::new_v2(
+        &oracle, BARRIER_ABOVE, po::touch_above(),
+        0, 1, 3, 60_000, sc.ctx(),
+    );
+
+    let prices = vector[
+        110_000_000_000,  // clear cross (above 105.21) → counter 1
+        105_100_000_000,  // borderline (in deadband band) → counter resets to 0
+        110_000_000_000,  // clear cross → counter 1
+        105_100_000_000,  // borderline → counter resets to 0
+        110_000_000_000,  // clear cross → counter 1
+    ];
+    let mut i = 0;
+    while (i < 5) {
+        clk.increment_for_testing(100);
+        push_obs(&mut oracle, *vector::borrow(&prices, i), (i + 1) * 100);
+        po::record(&mut p, &oracle, &clk);
+        i = i + 1;
+    };
+
+    assert!(!po::is_touched(&p), 0);
+    // Final tick was a clear cross → counter at 1, not 3.
+    assert!(po::consecutive_cross_count(&p) == 1, 1);
+
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(p);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+#[test]
+fun dnt_deadband_filters_upper_micro_flutter() {
+    // DNT, upper barrier = 105. buffer=0, default deadband=20bps → effective
+    // upper trigger = 105.21. A tick at 105.10 (just inside the deadband
+    // band on the upper side) must NOT bump the upper confirmation counter.
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let (mut oracle, _rw) = mk_oracle_at(1_000_000, &mut sc, &clk);
+    let mut p = po::new_dnt(
+        &oracle, LOWER_BARRIER_DNT, UPPER_BARRIER_DNT,
+        0, 1, 1, 60_000, 5_000, sc.ctx(),
+    );
+
+    clk.increment_for_testing(100);
+    push_obs(&mut oracle, 105_100_000_000, 100);  // < 105.21 effective trigger
+    po::record(&mut p, &oracle, &clk);
+
+    assert!(option::is_none(po::upper_touched_at(&p)), 0);
+    assert!(option::is_none(po::lower_touched_at(&p)), 1);
+    assert!(po::consecutive_upper_cross_count(&p) == 0, 2);
+    assert!(po::dnt_neither_touched(&p), 3);
+
+    // Same observation crossing past the deadband — now the upper IS hit.
+    clk.increment_for_testing(100);
+    push_obs(&mut oracle, 105_300_000_000, 200);  // > 105.21
+    po::record(&mut p, &oracle, &clk);
+
+    assert!(option::is_some(po::upper_touched_at(&p)), 4);
+    assert!(!po::dnt_neither_touched(&p), 5);
+
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(p);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+#[test]
+fun dnt_deadband_filters_lower_micro_flutter() {
+    // DNT, lower barrier = 95. buffer=0, default deadband=20bps → effective
+    // lower trigger = 95 − 95×20/10000 = 95 − 0.19 = 94.81. A tick at 94.90
+    // (just above the deadband floor on the lower side) must NOT bump the
+    // lower confirmation counter.
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let (mut oracle, _rw) = mk_oracle_at(1_000_000, &mut sc, &clk);
+    let mut p = po::new_dnt(
+        &oracle, LOWER_BARRIER_DNT, UPPER_BARRIER_DNT,
+        0, 1, 1, 60_000, 5_000, sc.ctx(),
+    );
+
+    clk.increment_for_testing(100);
+    push_obs(&mut oracle, 94_900_000_000, 100);  // > 94.81 effective trigger
+    po::record(&mut p, &oracle, &clk);
+
+    assert!(option::is_none(po::upper_touched_at(&p)), 0);
+    assert!(option::is_none(po::lower_touched_at(&p)), 1);
+    assert!(po::consecutive_lower_cross_count(&p) == 0, 2);
+    assert!(po::dnt_neither_touched(&p), 3);
+
+    // Clear breach below the deadband floor — lower IS hit.
+    clk.increment_for_testing(100);
+    push_obs(&mut oracle, 94_700_000_000, 200);  // < 94.81
+    po::record(&mut p, &oracle, &clk);
+
+    assert!(option::is_some(po::lower_touched_at(&p)), 4);
+    assert!(!po::dnt_neither_touched(&p), 5);
 
     sui::test_utils::destroy(oracle);
     sui::test_utils::destroy(_rw);

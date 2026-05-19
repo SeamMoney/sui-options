@@ -44,12 +44,22 @@ const EZeroSigma: u64 = 15;
 
 const SIDE_TOUCH: u8 = 0;
 const SIDE_NO_TOUCH: u8 = 1;
+/// DNT: bets the corridor holds (neither barrier touched).
+const SIDE_DNT_INSIDE: u8 = 2;
+/// DNT: bets at least one barrier is touched.
+const SIDE_DNT_OUTSIDE: u8 = 3;
 
 const STATUS_ACTIVE: u8 = 0;
 const STATUS_HIT: u8 = 1;
 const STATUS_EXPIRED: u8 = 2;
 const STATUS_ABORTED: u8 = 3;
 const STATUS_CANCELLED: u8 = 4;
+/// DNT: corridor held (inside wins). Distinct numeric value to keep DNT
+/// markets visibly tagged in events / clients without polluting the
+/// existing HIT/EXPIRED invariants.
+const STATUS_DNT_HELD: u8 = 5;
+/// DNT: at least one barrier breached (outside wins).
+const STATUS_DNT_BROKEN: u8 = 6;
 
 /// Sensible default volatility for hackathon — 100 bps per sqrt(sec) ≈ 1%/s.
 /// Frontend can override per-market via create_v3.
@@ -57,11 +67,15 @@ const DEFAULT_SIGMA_BPS_PER_SQRT_SEC: u64 = 100;
 
 public fun side_touch(): u8 { SIDE_TOUCH }
 public fun side_no_touch(): u8 { SIDE_NO_TOUCH }
+public fun side_dnt_inside(): u8 { SIDE_DNT_INSIDE }
+public fun side_dnt_outside(): u8 { SIDE_DNT_OUTSIDE }
 public fun status_active(): u8 { STATUS_ACTIVE }
 public fun status_hit(): u8 { STATUS_HIT }
 public fun status_expired(): u8 { STATUS_EXPIRED }
 public fun status_aborted(): u8 { STATUS_ABORTED }
 public fun status_cancelled(): u8 { STATUS_CANCELLED }
+public fun status_dnt_held(): u8 { STATUS_DNT_HELD }
+public fun status_dnt_broken(): u8 { STATUS_DNT_BROKEN }
 public fun default_sigma_bps_per_sqrt_sec(): u64 { DEFAULT_SIGMA_BPS_PER_SQRT_SEC }
 
 public struct Market<phantom C> has key {
@@ -235,6 +249,62 @@ public fun create_v3<C>(
     market
 }
 
+/// DNT market constructor — asserts path is a DNT path. Otherwise identical
+/// to create_v2: same fee/exposure plumbing; touch_* fields are reused to
+/// store the INSIDE side and no_touch_* fields to store the OUTSIDE side.
+public fun create_dnt<C>(
+    name: String,
+    oracle: &WickOracle,
+    path: &PathObservation,
+    vault: &MartingalerVault<C>,
+    payout_multiplier_bps: u64,
+    correlation_bucket_id: u8,
+    ctx: &mut TxContext,
+): Market<C> {
+    assert!(path_observation::is_dnt(path), EWrongPath);
+    assert!(payout_multiplier_bps > 10_000, EBadMultiplier);
+    assert!(payout_multiplier_bps < 100_000, EBadMultiplier);
+    assert!(path_observation::oracle_id(path) == object::id(oracle), EWrongPath);
+
+    let underlying = *wick_oracle::underlying(oracle);
+
+    let market = Market<C> {
+        id: object::new(ctx),
+        name,
+        underlying,
+        oracle_id: object::id(oracle),
+        path_id: object::id(path),
+        vault_id: object::id(vault),
+        expiry_ms: wick_oracle::expiry_ms(oracle),
+        payout_multiplier_bps,
+        correlation_bucket_id,
+        sigma_bps_per_sqrt_sec: DEFAULT_SIGMA_BPS_PER_SQRT_SEC,
+        touch_exposure: 0,
+        no_touch_exposure: 0,
+        touch_stakes: 0,
+        no_touch_stakes: 0,
+        touch_pwe: 0,
+        no_touch_pwe: 0,
+        status: STATUS_ACTIVE,
+        fee_snapshot: option::none(),
+        settled_at_ms: option::none(),
+    };
+
+    sui::event::emit(MarketCreated {
+        market_id: object::id(&market),
+        oracle_id: market.oracle_id,
+        path_id: market.path_id,
+        vault_id: market.vault_id,
+        expiry_ms: market.expiry_ms,
+        payout_multiplier_bps,
+        underlying: market.underlying,
+        correlation_bucket_id,
+        sigma_bps_per_sqrt_sec: DEFAULT_SIGMA_BPS_PER_SQRT_SEC,
+    });
+
+    market
+}
+
 public fun share<C>(market: Market<C>) {
     transfer::share_object(market);
 }
@@ -271,30 +341,45 @@ public fun open<C>(
     assert!(market.path_id == object::id(path), EWrongPath);
     let now = clock.timestamp_ms();
     assert!(now < market.expiry_ms, EAfterExpiry);
-    assert!(side == SIDE_TOUCH || side == SIDE_NO_TOUCH, EBadMultiplier);
+    // Side gating: 0/1 require single-barrier path; 2/3 require DNT path.
+    let is_dnt = path_observation::is_dnt(path);
+    if (side == SIDE_TOUCH || side == SIDE_NO_TOUCH) {
+        assert!(!is_dnt, EWrongPath);
+    } else {
+        assert!(side == SIDE_DNT_INSIDE || side == SIDE_DNT_OUTSIDE, EBadMultiplier);
+        assert!(is_dnt, EWrongPath);
+    };
 
     let stake_amount = stake.value();
     assert!(stake_amount > 0, EZeroStake);
 
     let payout = mul_bps(stake_amount, market.payout_multiplier_bps);
 
-    // Compute PWE for this position.
-    let seconds_remaining = if (market.expiry_ms > now) (market.expiry_ms - now) / 1_000 else 1;
-    let position_pwe = rc::compute_pwe(
-        payout,
-        spot,
-        path_observation::barrier(path),
-        market.sigma_bps_per_sqrt_sec,
-        if (seconds_remaining == 0) 1 else seconds_remaining,
-    );
+    // Compute PWE for this position. DNT PWE math is deferred (separate
+    // task); for now DNT positions are tracked at zero probability-weighted
+    // exposure. Single-barrier paths use the existing Bachelier model.
+    let position_pwe: u128 = if (is_dnt) {
+        0
+    } else {
+        let seconds_remaining = if (market.expiry_ms > now) (market.expiry_ms - now) / 1_000 else 1;
+        rc::compute_pwe(
+            payout,
+            spot,
+            path_observation::barrier(path),
+            market.sigma_bps_per_sqrt_sec,
+            if (seconds_remaining == 0) 1 else seconds_remaining,
+        )
+    };
 
     // Compute V_eff = vault treasury (free funds available for new payouts).
     // Bootstrap path (V_eff == 0): risk_config asserts will short-circuit
     // sensibly since per-position cap requires V_eff > 0.
     let v_eff = mv::treasury_value(vault);
 
-    // Compute side_exposure_after.
-    let side_exposure_after = if (side == SIDE_TOUCH) {
+    // Compute side_exposure_after. INSIDE shares the touch slot; OUTSIDE
+    // shares the no_touch slot — same accounting buckets.
+    let stores_in_touch_slot = (side == SIDE_TOUCH) || (side == SIDE_DNT_INSIDE);
+    let side_exposure_after = if (stores_in_touch_slot) {
         market.touch_exposure + payout
     } else {
         market.no_touch_exposure + payout
@@ -318,8 +403,9 @@ public fun open<C>(
     // Deposit stake (auto-harvests queue heads if non-empty).
     mv::deposit_open(vault, stake, clock, ctx);
 
-    // Update market exposure + stakes + pwe.
-    if (side == SIDE_TOUCH) {
+    // Update market exposure + stakes + pwe. INSIDE shares touch slot;
+    // OUTSIDE shares no_touch slot.
+    if (stores_in_touch_slot) {
         market.touch_exposure = market.touch_exposure + payout;
         market.touch_stakes = market.touch_stakes + stake_amount;
         market.touch_pwe = market.touch_pwe + position_pwe;
@@ -329,7 +415,8 @@ public fun open<C>(
         market.no_touch_pwe = market.no_touch_pwe + position_pwe;
     };
 
-    // Register PWE into global registry (+).
+    // Register PWE into global registry (+). Side stays as-is (0/1/2/3)
+    // so DNT exposure occupies its own buckets.
     ger::update_exposure(registry, market.underlying, side, true, position_pwe, clock);
 
     // Bot eligibility snapshotted at OPEN time (per adversarial #7). Reading
@@ -402,9 +489,14 @@ public fun lock_and_settle<C>(
     );
     market.fee_snapshot = option::some(fs);
 
-    // P4: status
+    // P4: status. DNT uses dedicated status values to distinguish corridor
+    // outcomes from single-barrier ones in events / clients.
+    let is_dnt = path_observation::is_dnt(path);
     let new_status = if (snap_state == path_observation::settlement_aborted()) {
         STATUS_ABORTED
+    } else if (is_dnt) {
+        if (path_observation::snapshot_dnt_neither_touched(snap)) STATUS_DNT_HELD
+        else STATUS_DNT_BROKEN
     } else if (path_observation::snapshot_is_touched(snap)) {
         STATUS_HIT
     } else {
@@ -414,11 +506,12 @@ public fun lock_and_settle<C>(
     let now = clock.timestamp_ms();
     market.settled_at_ms = option::some(now);
 
-    // P5: vault liquidity reservation
+    // P5: vault liquidity reservation. INSIDE shares the touch_exposure
+    // slot; OUTSIDE shares no_touch_exposure.
     let market_id = object::id(market);
-    let obligation = if (new_status == STATUS_HIT) {
+    let obligation = if (new_status == STATUS_HIT || new_status == STATUS_DNT_HELD) {
         market.touch_exposure
-    } else if (new_status == STATUS_EXPIRED) {
+    } else if (new_status == STATUS_EXPIRED || new_status == STATUS_DNT_BROKEN) {
         market.no_touch_exposure
     } else {
         market.touch_stakes + market.no_touch_stakes
@@ -428,16 +521,22 @@ public fun lock_and_settle<C>(
         mv::route_lock_to_abort_refund(vault, market_id);
     };
 
-    // P7: clear PWE from registry (math agent M7 GAP fix). Both sides
-    // dissolve regardless of outcome — the market is no longer at risk.
+    // P7: clear PWE from registry. For DNT markets the PWE is 0 (deferred
+    // model), so update_exposure isn't called. Sides are stored under their
+    // actual bucket (2/3) for DNT, (0/1) for single-barrier.
+    let (touch_side_bucket, no_touch_side_bucket) = if (is_dnt) {
+        (SIDE_DNT_INSIDE, SIDE_DNT_OUTSIDE)
+    } else {
+        (SIDE_TOUCH, SIDE_NO_TOUCH)
+    };
     if (market.touch_pwe > 0) {
         ger::update_exposure(
-            registry, market.underlying, SIDE_TOUCH, false, market.touch_pwe, clock,
+            registry, market.underlying, touch_side_bucket, false, market.touch_pwe, clock,
         );
     };
     if (market.no_touch_pwe > 0) {
         ger::update_exposure(
-            registry, market.underlying, SIDE_NO_TOUCH, false, market.no_touch_pwe, clock,
+            registry, market.underlying, no_touch_side_bucket, false, market.no_touch_pwe, clock,
         );
     };
 
@@ -481,8 +580,10 @@ public fun redeem<C>(
     let pos_id = id.to_inner();
     object::delete(id);
 
-    // Decrement exposure + stakes regardless of branch.
-    if (side == SIDE_TOUCH) {
+    // Decrement exposure + stakes regardless of branch. INSIDE shares the
+    // touch_* slots; OUTSIDE shares the no_touch_* slots.
+    let stores_in_touch_slot = (side == SIDE_TOUCH) || (side == SIDE_DNT_INSIDE);
+    if (stores_in_touch_slot) {
         market.touch_exposure = if (market.touch_exposure >= payout_if_win)
             market.touch_exposure - payout_if_win else 0;
         market.touch_stakes = if (market.touch_stakes >= stake)
@@ -512,10 +613,20 @@ public fun redeem<C>(
         return refund
     };
 
-    // Hit / Expired: leveraged payout to winners; loser closure to losers.
-    let touched = market.status == STATUS_HIT;
-    let won = (side == SIDE_TOUCH && touched)
-              || (side == SIDE_NO_TOUCH && !touched);
+    // Hit / Expired / DNT_HELD / DNT_BROKEN: leveraged payout to winners,
+    // loser closure to losers. DNT_HELD ⇒ inside wins; DNT_BROKEN ⇒ outside.
+    let status = market.status;
+    let won = if (status == STATUS_HIT) {
+        side == SIDE_TOUCH
+    } else if (status == STATUS_EXPIRED) {
+        side == SIDE_NO_TOUCH
+    } else if (status == STATUS_DNT_HELD) {
+        side == SIDE_DNT_INSIDE
+    } else if (status == STATUS_DNT_BROKEN) {
+        side == SIDE_DNT_OUTSIDE
+    } else {
+        false
+    };
 
     if (!won) {
         // LOSER BRANCH: mint WICK + record loss, atomically with the SAME
@@ -637,6 +748,6 @@ public fun destroy_for_testing<C>(market: Market<C>) {
 
 #[test_only]
 public fun set_status_for_testing<C>(market: &mut Market<C>, new_status: u8) {
-    assert!(new_status <= STATUS_CANCELLED, EBadStatus);
+    assert!(new_status <= STATUS_DNT_BROKEN, EBadStatus);
     market.status = new_status;
 }

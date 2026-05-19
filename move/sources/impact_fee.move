@@ -170,8 +170,230 @@ public fun fee_for_winner(
 
 public fun m0_bps_default(): u64 { M0_BPS_DEFAULT }
 
+// === DNT (double-no-touch) decisiveness ===
+//
+// DNT has two barriers (lower + upper). The corridor "INSIDE" wins iff
+// NEITHER barrier was touched during the window. "OUTSIDE" wins iff at
+// least one barrier was breached. Decisiveness for each side rewards a
+// different geometry:
+//
+//   INSIDE  — reward distance from BOTH barriers (min of two distances).
+//             Centered = max decisiveness; grazed = ~0.
+//   OUTSIDE — reward biggest overshoot past whichever barrier was breached
+//             (matches existing single-touch overshoot pattern).
+//
+// Intermediates use u128 so large nominal barriers (e.g. BTC ~1e11
+// micro-USD) and the 10_000 bps factor cannot overflow.
+
+/// Decisiveness `m` in bps for a DNT INSIDE winner (corridor held).
+/// Rewards the closer of (upper - max_seen, min_seen - lower). At the
+/// geometric center this distance is range_width/2 so decisiveness = 10_000.
+/// Returns 0 if a barrier was actually touched (shouldn't happen for an
+/// INSIDE winner; defensive).
+public fun dnt_inside_decisiveness_bps(
+    lower_barrier: u64,
+    upper_barrier: u64,
+    max_seen: u64,
+    min_seen: u64,
+): u64 {
+    if (upper_barrier <= lower_barrier) return 0;
+    // INSIDE winner shouldn't have touched either barrier; if the snapshot
+    // says otherwise, treat as zero decisiveness (graze on the boundary).
+    if (max_seen >= upper_barrier) return 0;
+    if (min_seen <= lower_barrier) return 0;
+
+    let range_width = upper_barrier - lower_barrier;
+    let half_range = range_width / 2;
+    if (half_range == 0) return 0;
+
+    let closest_to_upper = upper_barrier - max_seen;
+    let closest_to_lower = min_seen - lower_barrier;
+    let closest_to_either = if (closest_to_upper < closest_to_lower) {
+        closest_to_upper
+    } else {
+        closest_to_lower
+    };
+
+    let bps_u128 = (closest_to_either as u128) * 10_000 / (half_range as u128);
+    if (bps_u128 > 10_000) 10_000 else bps_u128 as u64
+}
+
+/// Decisiveness `m` in bps for a DNT OUTSIDE winner (a barrier broke).
+/// Rewards the biggest overshoot past whichever barrier was breached,
+/// expressed as a percentage of the full range width. Returns 0 if neither
+/// barrier was touched (defensive — OUTSIDE shouldn't be a winner then).
+public fun dnt_outside_decisiveness_bps(
+    lower_barrier: u64,
+    upper_barrier: u64,
+    max_seen: u64,
+    min_seen: u64,
+): u64 {
+    if (upper_barrier <= lower_barrier) return 0;
+    let range_width = upper_barrier - lower_barrier;
+
+    let upper_overshoot = if (max_seen > upper_barrier) {
+        max_seen - upper_barrier
+    } else { 0 };
+    let lower_overshoot = if (min_seen < lower_barrier) {
+        lower_barrier - min_seen
+    } else { 0 };
+
+    let biggest_breach = if (upper_overshoot > lower_overshoot) {
+        upper_overshoot
+    } else {
+        lower_overshoot
+    };
+    if (biggest_breach == 0) return 0;
+
+    let bps_u128 = (biggest_breach as u128) * 10_000 / (range_width as u128);
+    if (bps_u128 > 10_000) 10_000 else bps_u128 as u64
+}
+
 // === Helpers ===
 
 fun mul_div_u64(a: u64, b: u64, denom: u64): u64 {
     (((a as u128) * (b as u128)) / (denom as u128)) as u64
+}
+
+// === Tests (DNT decisiveness) ===
+
+#[test_only]
+const T_LOWER: u64 = 90_000_000_000;   // 90.0 (1e9 scaling)
+#[test_only]
+const T_UPPER: u64 = 110_000_000_000;  // 110.0
+#[test_only]
+const T_CENTER: u64 = 100_000_000_000; // 100.0 (midpoint)
+
+#[test]
+fun dnt_inside_max_at_center_returns_10000() {
+    // max_seen == min_seen == center: both distances = 10.0 = half_range → 10_000 bps
+    let m = dnt_inside_decisiveness_bps(T_LOWER, T_UPPER, T_CENTER, T_CENTER);
+    assert!(m == 10_000, 0);
+}
+
+#[test]
+fun dnt_inside_max_at_upper_barrier_returns_0() {
+    // max_seen exactly at upper barrier — boundary touch, INSIDE shouldn't win.
+    // Defensively returns 0.
+    let m = dnt_inside_decisiveness_bps(T_LOWER, T_UPPER, T_UPPER, T_CENTER);
+    assert!(m == 0, 0);
+
+    // Same idea for min_seen at lower barrier.
+    let m2 = dnt_inside_decisiveness_bps(T_LOWER, T_UPPER, T_CENTER, T_LOWER);
+    assert!(m2 == 0, 1);
+}
+
+#[test]
+fun dnt_inside_proportional_to_min_distance() {
+    // range_width = 20, half_range = 10.
+    //
+    // Case A: max=105, min=95 → distances (5, 5), min=5 → 5/10 = 5000 bps
+    let a = dnt_inside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        105_000_000_000,
+        95_000_000_000,
+    );
+    assert!(a == 5000, 0);
+
+    // Case B: max=109, min=95 → distances (1, 5), min=1 → 1/10 = 1000 bps
+    let b = dnt_inside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        109_000_000_000,
+        95_000_000_000,
+    );
+    assert!(b == 1000, 1);
+
+    // Case C: max=102, min=91 → distances (8, 1), min=1 → 1000 bps
+    let c = dnt_inside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        102_000_000_000,
+        91_000_000_000,
+    );
+    assert!(c == 1000, 2);
+}
+
+#[test]
+fun dnt_inside_symmetric_above_and_below_center() {
+    // Symmetric distance from each barrier should yield identical decisiveness.
+    //
+    // Hugging the upper barrier: max=108, min=92 → (2, 2) → 2/10 = 2000
+    let upper_hug = dnt_inside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        108_000_000_000,
+        92_000_000_000,
+    );
+    // Hugging the lower barrier: max=108, min=92 — same min by symmetry.
+    // Now mirror it: max=98, min=92 (closest is min, distance 2 from lower)
+    // vs                max=108, min=102 (closest is max, distance 2 from upper)
+    let lower_closest = dnt_inside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        98_000_000_000,
+        92_000_000_000,
+    );
+    let upper_closest = dnt_inside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        108_000_000_000,
+        102_000_000_000,
+    );
+    assert!(lower_closest == upper_closest, 0);
+    assert!(lower_closest == 2000, 1);
+    // And the centered-symmetric case stays symmetric too.
+    assert!(upper_hug == 2000, 2);
+}
+
+#[test]
+fun dnt_outside_proportional_to_breach_size() {
+    // range_width = 20.
+    //
+    // Case A: upper breach by 2 → 2/20 = 1000 bps
+    let a = dnt_outside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        112_000_000_000,
+        95_000_000_000,
+    );
+    assert!(a == 1000, 0);
+
+    // Case B: lower breach by 4 → 4/20 = 2000 bps
+    let b = dnt_outside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        105_000_000_000,
+        86_000_000_000,
+    );
+    assert!(b == 2000, 1);
+
+    // Case C: both breached, upper by 1, lower by 5 → max=5 → 5/20 = 2500 bps
+    let c = dnt_outside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        111_000_000_000,
+        85_000_000_000,
+    );
+    assert!(c == 2500, 2);
+
+    // Case D: massive breach (20 = full range) → caps at 10_000
+    let d = dnt_outside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        130_000_000_000,
+        95_000_000_000,
+    );
+    assert!(d == 10_000, 3);
+}
+
+#[test]
+fun dnt_outside_returns_0_when_neither_breached() {
+    // Price stayed strictly inside the corridor → OUTSIDE not a real winner.
+    let m = dnt_outside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        109_000_000_000,
+        91_000_000_000,
+    );
+    assert!(m == 0, 0);
+
+    // Touched-but-not-past also doesn't qualify as a breach (max==upper,
+    // min==lower) — overshoot is zero, decisiveness is zero.
+    let m2 = dnt_outside_decisiveness_bps(
+        T_LOWER, T_UPPER,
+        T_UPPER,
+        T_LOWER,
+    );
+    assert!(m2 == 0, 1);
 }
