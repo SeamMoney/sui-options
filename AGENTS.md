@@ -4,9 +4,9 @@ Source of truth for any AI coding agent (Claude Code, Codex CLI, Cursor, Aider, 
 
 ## What Wick is
 
-Short-dated **touch / no-touch** binary options on oracle-observed price barriers, on Sui, composing with DeepBook Predict.
+Short-dated **touch / no-touch** binary options, **double-no-touch (DNT)** corridor exotics, and **continuous-streaming rides** on oracle-observed price barriers, on Sui.
 
-One-liner: *Prediction markets ask where BTC ends. Wick asks whether BTC wicks into a level.*
+One-liner: *Prediction markets ask where BTC ends. Wick asks whether BTC wicks into a level — and lets you ride that question tick-by-tick while you hold the screen.*
 
 Working name: **Wick Markets**. Tagline: *Options for the next candle.*
 
@@ -17,19 +17,27 @@ Working name: **Wick Markets**. Tagline: *Options for the next candle.*
 - **`keeper/`** — TypeScript keeper bot (poll → `mark_hit` / `settle_expired`)
 - **`scripts/`** — bash deploy and smoke-test scripts
 
-## MVP scope — Touch / No-Touch only
+## MVP scope — Touch / No-Touch + DNT + Ride
+
+In scope and shipped:
+
+- Touch / No-Touch single-barrier markets
+- Double-No-Touch (DNT) two-barrier corridor exotics (`STATUS_DNT_HELD=5`, `STATUS_DNT_BROKEN=6`)
+- Ride streaming primitive — `open_ride` / `close_ride` / `crank_expired_ride` (lives only while the user holds the screen)
+- Martingaler vault + asymmetric impact fee + WICK fair-launch token (Phase C.3)
 
 Do **not** write code for any of these unless the user explicitly says we're past MVP:
 
-- Range / Breakout
-- First Touch
-- Vol Burst
+- Range / Breakout markets
+- Lookback exotic (A5c — deferred, needs a new market type, invasive)
 - D stablecoin collateral
 - Aptos / Decibel adapter (lives in `/Users/maxmohammadi/aptos-prop-amm`, not here)
 - Generic token factory
 - Leveraged positions
-- Multi-market vault
+- Multi-market shared collateral (the `MartingalerVault<C>` is single-collateral by design)
 - Advanced option pricing models
+- DeepBook Predict route (D.1) and DeepBook CLOB listing (D.2) — cut from hackathon scope
+- Tournament / badges gamification (E.1 / E.2) — cut from hackathon scope
 
 If a task seems to require any of the above, stop and ask.
 
@@ -45,29 +53,61 @@ Any function that mutates supplies or the vault must preserve this. The invarian
 
 ## Safety properties the Move package must enforce
 
-- A market cannot settle both ways (HIT and EXPIRED are mutually exclusive)
+- A market cannot settle both ways (HIT and EXPIRED are mutually exclusive; DNT_HELD and DNT_BROKEN are mutually exclusive)
 - Settlement is idempotent — repeat calls are no-ops or revert, never re-mutate
-- Repeated `redeem_winner` cannot double-pay
+- Repeated `redeem` cannot double-pay (the `Position` UID is consumed on payout)
 - Losing side cannot redeem
-- `redeem_complete_set` cannot bypass settlement rules
+- `lock_and_settle` is atomic — snapshot, status, fee accrual, and lock release all commit in one tx
+- Aborted markets refund 1:1 to depositors, never 2:1
+- **Ride positions**: touch wins ties at the `close_ride` boundary; aborted refund is 1:1 never 2:1
 
 ## Object model — architectural decision, do not change without discussion
 
 Use **dynamic Sui objects**, not a new `Coin<T>` per market.
 
-- `Market<phantom C>` — `key`-only, holds `Balance<C>` collateral vault, AMM reserves, supply totals, status
-- `Position` — `key, store`, points at a market by `ID`, has `side` and `amount`
-- `LpPosition` — `key, store`, points at a market by `ID`, has `shares`
+Per-market objects:
 
-See `docs/architecture.md` for full struct definitions.
+- `Market<phantom C>` — `key`-only, references its `MartingalerVault` and `PathObservation` by `ID`, holds supply totals, status, payout multiplier, sigma, and fee snapshot
+- `Position` — `key, store`, points at a market by `ID`, has `side`, `stake`, `payout_if_win`, `pwe_at_open`
+- `RidePosition` — `key, store`, the streaming-touch primitive; tracks `multiplier_bps`, `stake_rate_micro_usd_per_sec`, `escrowed`, and a settlement enum (`SETTLEMENT_OPEN / TOUCH_WIN / CASHOUT / EXPIRED_LOSS / ABORTED_REFUND`)
+- `PathObservation` — `key`, shared; the oracle-driven barrier-cross record, with `buffer_bps` + `deadband_bps` anti-jitter (papertrade-pattern, `DEFAULT_DEADBAND_BPS = 20`). Constructors: `new_v2/v3/v4` for single-barrier, `new_dnt/new_dnt_v2` for corridor exotics.
+- `RideMarketCaps` — `key`, shared; per-market cap on concurrent ride exposure
+
+Per-collateral / global objects:
+
+- `MartingalerVault<C>` — `key`-only, the loss-recycling LP vault; holds treasury, side bucket, per-market settlement locks, per-market abort pools, FIFO claim queue, and fee buckets (protocol / staker / insurance)
+- `FeeRouter` — routes accrued fees to the three buckets per the `RiskConfig`
+- `RiskConfig` — global parameters: fee splits, deadband, payout caps, ride caps
+- `GlobalExposureRegistry` — caps aggregate exposure across correlated markets
+- `BotRegistry` — registry of bot-eligible accounts (rebates / payout multipliers)
+- `OracleVersionLock` — pins the oracle version a market settles against
+- `UsdPriceOracle` — small price-of-collateral oracle (mints `micro-USD` denominations for stake-rate accounting)
+- `WickOracle` — the in-package oracle interface fed by `pull_oracle_driver` and `random_walk_driver`
+- `WickTokenState` — fair-launch token state for **WICK**
+- `WickStakingPool` — stakers receive a share of the staker fee bucket
+
+See `docs/architecture.md` for full struct definitions and `docs/design/v2/` for the per-feature design specs.
 
 ## Lifecycle
 
+The v1 `create → trade ↔ swap ↔ redeem_complete_set` flow is **gone**. Current flow:
+
 ```
-create → trade ↔ swap ↔ redeem_complete_set → (mark_hit | settle_expired) → redeem_winner
+bootstrap_vault → seed_vault                          // once per collateral
+bootstrap_*_market (touch / no-touch / dnt)           // per market
+  → open  (depositor stakes into Position)            // many times
+  → tick  (keeper records oracle ticks into PathObservation)
+  → lock_and_settle  (permissionless; atomic snapshot + status + lock release)
+  → redeem  (winner burns Position, vault pays out)
 ```
 
-Touch is **oracle-observed**. The product definition is "price as observed by the oracle crossed the barrier" — not "any off-chain exchange tick." This must be honest in the README, the UI, and the threat model.
+For rides:
+
+```
+open_ride  →  (close_ride | crank_expired_ride)
+```
+
+Touch is **oracle-observed**. The product definition is "price as observed by the oracle crossed the buffered + deadbanded barrier" — not "any off-chain exchange tick." This must be honest in the README, the UI, and the threat model.
 
 ## Darbitex / Desnet / D — reference only, never imported
 
@@ -100,7 +140,9 @@ It checks branch, worktree, `sui move test`, frontend `tsc --noEmit`, keeper `ts
 ## Hackathon notes
 
 - Demo on Sui **testnet**, never mainnet
-- Use DeepBook Predict testnet for live BTC/SUI/APT prices and sensible barrier defaults
-- Demo script: `docs/hackathon-plan.md` § Demo Script — keep it runnable end-to-end at all times
+- Current testnet `package_id` lives in `deployments/testnet.json` (always read it from disk — README and AGENTS may lag a redeploy)
+- Demo script: `docs/design/v2/10_demo_script_v2.md` — keep it runnable end-to-end at all times
+- Per-feature v2 design specs: `docs/design/v2/` (00–11). The ride primitive lives in `11_ride_streaming_primitive.md`.
 - Day-by-day milestones: `docs/hackathon-plan.md`
 - Granular agent-sized tasks: `TASKS.md`
+- Currently deferred (acceptable for demo, do not regress): keeper TS update for new ABI, FeeSnapshot extension for DNT impact fee wiring (DNT winners pay base fee for MVP), PWE for DNT (= 0; per-position caps still bind), frontend tap-hold ride gesture.

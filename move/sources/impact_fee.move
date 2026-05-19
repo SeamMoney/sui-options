@@ -25,17 +25,25 @@ const M0_BPS_DEFAULT: u64 = 50;
 /// market. Fee module reads from this on every redeem.
 public struct FeeSnapshot has copy, drop, store {
     barrier: u64,
-    /// 0 = touch_above, 1 = touch_below — same enum as PathObservation.direction
+    /// 0 = touch_above, 1 = touch_below, 2 = DNT — same enum as PathObservation.direction
     direction: u8,
     max_seen: u64,
     min_seen: u64,
     /// Per-market touch-side and no-touch-side exposures (sum of payout_if_win)
     /// at lock_and_settle time. Frozen — no longer mutates with redemptions.
+    /// For DNT markets, the slot reuse is: touch slot = INSIDE, no_touch slot = OUTSIDE.
     touch_exposure_at_lock: u64,
     no_touch_exposure_at_lock: u64,
+    /// DNT-only. Both 0 for single-barrier snapshots. When `direction == 2`,
+    /// these carry the corridor for decisiveness lookup.
+    lower_barrier: u64,
+    upper_barrier: u64,
+    is_dnt: bool,
 }
 
-/// Build the snapshot. Called by lock_and_settle Phase 0.
+/// Build a single-barrier snapshot. Called by `lock_and_settle` Phase 0 on
+/// non-DNT paths. Preserves the original 6-arg shape; DNT fields default
+/// to 0 / false.
 public fun snapshot_at_lock(
     barrier: u64,
     direction: u8,
@@ -51,6 +59,33 @@ public fun snapshot_at_lock(
         min_seen,
         touch_exposure_at_lock: touch_exposure,
         no_touch_exposure_at_lock: no_touch_exposure,
+        lower_barrier: 0,
+        upper_barrier: 0,
+        is_dnt: false,
+    }
+}
+
+/// Build a DNT snapshot. Called by `lock_and_settle` Phase 0 on DNT paths.
+/// `touch_exposure` here is the INSIDE-side exposure; `no_touch_exposure`
+/// is OUTSIDE (slot reuse in Market<C>).
+public fun snapshot_at_lock_dnt(
+    lower_barrier: u64,
+    upper_barrier: u64,
+    max_seen: u64,
+    min_seen: u64,
+    inside_exposure: u64,
+    outside_exposure: u64,
+): FeeSnapshot {
+    FeeSnapshot {
+        barrier: 0,
+        direction: 2,
+        max_seen,
+        min_seen,
+        touch_exposure_at_lock: inside_exposure,
+        no_touch_exposure_at_lock: outside_exposure,
+        lower_barrier,
+        upper_barrier,
+        is_dnt: true,
     }
 }
 
@@ -62,6 +97,39 @@ public fun max_seen(s: &FeeSnapshot): u64 { s.max_seen }
 public fun min_seen(s: &FeeSnapshot): u64 { s.min_seen }
 public fun touch_exposure(s: &FeeSnapshot): u64 { s.touch_exposure_at_lock }
 public fun no_touch_exposure(s: &FeeSnapshot): u64 { s.no_touch_exposure_at_lock }
+public fun is_dnt(s: &FeeSnapshot): bool { s.is_dnt }
+public fun lower_barrier(s: &FeeSnapshot): u64 { s.lower_barrier }
+public fun upper_barrier(s: &FeeSnapshot): u64 { s.upper_barrier }
+
+/// Side-aware decisiveness lookup. Dispatches on `snap.is_dnt`:
+/// - Non-DNT: side ∈ {0=TOUCH, 1=NO_TOUCH} maps to the existing
+///   single-barrier `decisiveness_bps(snap, side==0)`.
+/// - DNT: side ∈ {2=INSIDE, 3=OUTSIDE} maps to the DNT decisiveness
+///   functions wired to `lower_barrier` / `upper_barrier`.
+///
+/// Other (side, is_dnt) combinations return 0 defensively — they
+/// shouldn't be reachable from `market::redeem`'s winner check.
+public fun decisiveness_bps_for_side(snap: &FeeSnapshot, side: u8): u64 {
+    if (snap.is_dnt) {
+        if (side == 2) {
+            dnt_inside_decisiveness_bps(
+                snap.lower_barrier, snap.upper_barrier, snap.max_seen, snap.min_seen,
+            )
+        } else if (side == 3) {
+            dnt_outside_decisiveness_bps(
+                snap.lower_barrier, snap.upper_barrier, snap.max_seen, snap.min_seen,
+            )
+        } else {
+            0
+        }
+    } else {
+        if (side == 0 || side == 1) {
+            decisiveness_bps(snap, side == 0)
+        } else {
+            0
+        }
+    }
+}
 
 // === Fee computation ===
 

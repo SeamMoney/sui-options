@@ -167,6 +167,11 @@ public fun open_ride<C>(
     ctx: &mut TxContext,
 ): RidePosition {
     assert!(rmc::is_streaming(caps), ENotStreaming);
+    // Defensive: ride is single-barrier only by spec §13. DNT paths use
+    // upper_touched_at/lower_touched_at — the single-barrier touched_during
+    // helper this ride relies on for the "touch wins ties" rule would always
+    // return false on a DNT path, silently breaking touch_win settlement.
+    assert!(!po::is_dnt(path), ENotStreaming);
 
     let market_id_from_caps = rmc::market_id(caps);
     let path_id_actual = object::id(path);

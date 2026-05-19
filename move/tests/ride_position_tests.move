@@ -391,3 +391,39 @@ fun open_ride_insufficient_escrow_aborts() {
     teardown_world(oracle, rw, path, vault, vcap, caps, rcap, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
     sc.end();
 }
+
+#[test]
+fun aborted_market_close_returns_one_to_one_refund_no_double_pay() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut vault, vcap, mut caps, rcap, bots, bcap,
+         upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) = mk_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow(&mut vault, seed);
+
+    let escrow_amt = 100_000;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let mut ride = rp::open_ride<SUI>(
+        &mut caps, &path, &mut vault, &bots,
+        1_000_000, escrow, &clk, sc.ctx(),
+    );
+
+    // Force market into Aborted state in the vault's internal set
+    mv::test_mark_market_aborted(&mut vault, rmc::market_id(&caps));
+
+    clk.increment_for_testing(5_000);
+
+    let payout = rp::close_ride<SUI>(
+        &mut ride, &mut caps, &path, &oracle, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    assert!(rp::settlement_kind(&ride) == rp::settlement_aborted_refund(), 0);
+    // 1:1 refund — exactly escrowed, NOT 2× escrowed (Reviewer E's caught bug)
+    assert!(payout.value() == escrow_amt, 1);
+
+    test_utils::destroy(payout);
+    test_utils::destroy(ride);
+    teardown_world(oracle, rw, path, vault, vcap, caps, rcap, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}

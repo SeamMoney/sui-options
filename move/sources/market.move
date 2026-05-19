@@ -478,15 +478,27 @@ public fun lock_and_settle<C>(
         wick_oracle::lock_settlement_from_latest(oracle, clock);
     };
 
-    // P3: FeeSnapshot
-    let fs = fee::snapshot_at_lock(
-        path_observation::barrier(path),
-        path_observation::direction(path),
-        path_observation::snapshot_max_seen(snap),
-        path_observation::snapshot_min_seen(snap),
-        market.touch_exposure,
-        market.no_touch_exposure,
-    );
+    // P3: FeeSnapshot. DNT paths get the two-barrier variant so
+    // `decisiveness_bps_for_side` dispatches to the DNT helpers at redeem.
+    let fs = if (path_observation::is_dnt(path)) {
+        fee::snapshot_at_lock_dnt(
+            path_observation::lower_barrier(path),
+            path_observation::upper_barrier(path),
+            path_observation::snapshot_max_seen(snap),
+            path_observation::snapshot_min_seen(snap),
+            market.touch_exposure,    // INSIDE-slot reuse
+            market.no_touch_exposure, // OUTSIDE-slot reuse
+        )
+    } else {
+        fee::snapshot_at_lock(
+            path_observation::barrier(path),
+            path_observation::direction(path),
+            path_observation::snapshot_max_seen(snap),
+            path_observation::snapshot_min_seen(snap),
+            market.touch_exposure,
+            market.no_touch_exposure,
+        )
+    };
     market.fee_snapshot = option::some(fs);
 
     // P4: status. DNT uses dedicated status values to distinguish corridor
@@ -685,7 +697,7 @@ fun compute_fee_amount<C>(
 ): u64 {
     if (option::is_none(&market.fee_snapshot)) return 0;
     let snap = option::borrow(&market.fee_snapshot);
-    let m = fee::decisiveness_bps(snap, side == SIDE_TOUCH);
+    let m = fee::decisiveness_bps_for_side(snap, side);
     let v = fee::vulnerability_bps(snap, payout_if_win);
     let fee_bps = fee::compute_fee_bps(
         m, v,

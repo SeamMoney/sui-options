@@ -1,174 +1,152 @@
 # Wick Markets
 
-> Short-dated **touch / no-touch** options on Sui, settled by an oracle-observed price crossing. Tagline: *Options for the next candle.*
+> Touch / no-touch + double-no-touch options where the position lives only while you hold the screen. Tap the candle, watch PnL tick by tick, release to cash out — or hold for the touch jackpot. On Sui, because nowhere else can update position math every block at fractions of a cent.
 
-Prediction markets ask where BTC ends. **Wick asks whether BTC wicks into a level.**
+Prediction markets ask where BTC ends. **Wick asks whether BTC wicks into a level — and lets you ride that question tick-by-tick.**
 
 | | |
 |---|---|
 | Network | Sui **testnet** (do not use on mainnet) |
-| Package | `0x031ff2b0a394ac4933e90314ca49ce197d5f0690b9f2cd8f22c3abc640c2e7d7` |
-| Status  | Hackathon MVP. Working end-to-end (Move + keeper + frontend) on testnet. |
-| Surface | Touch / No-Touch only. Range / Breakout / Vol-Burst are post-MVP. |
+| Package | `0x81ec682cfa370edad312b6b6b37053552199a7aeab1203bf1bc650f6668cc846` |
+| Published | 2026-05-19 (branch `claude/add-trading-bots-testnet-ougdg`) |
+| Source of truth | `deployments/testnet.json` — read it programmatically, README may lag a redeploy |
+| Surface | Touch / No-Touch + Double-No-Touch + Ride streaming primitive |
+| Tests | 252 / 252 Move tests passing |
 
-## What works today
+## What's shipped
 
 | Layer | What it does | How it's verified |
 |---|---|---|
-| **Move package** (`move/`) | `create_market`, `buy_touch`, `buy_no_touch`, two-way CPMM swaps, `redeem_complete_set`, `mark_hit`, `settle_expired`, `redeem_winner`, `redeem_lp` | 40 Move tests pass (`sui move test`); collateral invariant asserted after every state mutation; full-conservation property scenario proves the vault drains to exactly 0 once winners + LPs redeem |
-| **Keeper bot** (`keeper/`) | Polls every `MarketCreated` event, fetches each market + its oracle, calls `mark_hit` when oracle has crossed and `settle_expired` when past expiry. Permissionless on the Move side. | Ran end-to-end on testnet — auto-settled both a HIT path (oracle moved across barrier) and an EXPIRED path |
-| **Multi-actor demo** (`scripts/demo.sh`) | Two real testnet wallets exchange real SUI through the protocol; prints a P&L table that asserts conservation (`bob_payout + alice_lp_claim == seed + bet`) | Both HIT and EXPIRED paths run, conservation holds exactly to the mist |
-| **Frontend** (`frontend/`) | Vite + React + Sui dApp Kit. Live-reads markets via `MarketCreated` events; a connected wallet can submit `buy_touch` / `buy_no_touch` PTBs. Falls back to stub data when no live markets exist. | Type-checks clean; dev server up at `http://localhost:5173`; live + stub modes are visually distinguished in the top bar |
+| **Move package** (`move/`) | Touch / no-touch markets, double-no-touch (DNT) corridor exotics, Ride streaming positions, Martingaler vault with loss-recycling FIFO queue, asymmetric impact fee, WICK fair-launch token + staking, global exposure caps, atomic `lock_and_settle`, permissionless cranking, aborted-seed recovery | 252 Move tests pass (`sui move test`); collateral invariant asserted after every state mutation |
+| **Keeper bot** (`keeper/`) | Polls market events, drives `PathObservation` ticks, calls `lock_and_settle` when the buffered + deadbanded barrier has been crossed or expiry has passed. Permissionless on the Move side. | Runs end-to-end against testnet on the v1 ABI; update for the C.3 ABI is in progress in parallel |
+| **Frontend** (`frontend/`) | Vite + React + Sui dApp Kit. Two-pane trading shell (markets rail + chart + trade panel) wired to live markets via events. | Type-checks clean; dev server up at `http://localhost:5173` |
+| **Bots** (`bots/`) | Four personality-driven testnet traders (bull / bear / contrarian / drunk) producing organic activity so the UI doesn't look empty | `npm run bots:run` — ~1 trade/sec across the fleet |
+| **SDK** (`sdk/`) and **API** (`api/`) | `@wick/sdk` is the canonical TypeScript surface (zero React deps, PTB builders, no signer attached). `@wick/api` is a read-only Fastify HTTP service for non-TS clients. | Both type-check clean; consumed by frontend, keeper, and bots |
 
-## Integrating: SDK + API
-
-**`@wick/sdk`** is the canonical surface for any TypeScript integration.
-Frontend, keeper, and API all consume it. Zero React deps; PTB builders
-have no signer attached so the SDK works the same in browser, Node, and
-service-account contexts. See `sdk/README.md`.
-
-```ts
-import { WickClient, buildBuyTx } from "@wick/sdk";
-
-const wick = new WickClient({ sui, deployment });
-const markets = await wick.listMarkets({ collateralType: "0x2::sui::SUI" });
-
-const tx = buildBuyTx({
-  packageId, collateralType, sender,
-  marketId: markets[0].id,
-  side: "TOUCH",
-  riskMist: 100_000n,
-});
-// caller signs + executes (dApp Kit, Ed25519Keypair, or CLI)
-```
-
-**`@wick/api`** is a Fastify HTTP service for non-TS clients. Read-only
-by design — writes are user-side via the SDK. See `api/README.md`.
-
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/health`                       | liveness |
-| `GET` | `/deployment`                   | full manifest |
-| `GET` | `/markets?collateral_type=<T>`  | every market, optionally filtered |
-| `GET` | `/markets/:id`                  | single market |
-| `GET` | `/positions/:address`           | open Positions + LP shares |
-| `GET` | `/oracles`                      | every MockOracle |
-| `GET` | `/oracles/by-asset?asset=<key>` | find an oracle by asset key |
-
-## What is stubbed and *would* need to change before mainnet
-
-These are honest, not a list of "future ideas." The protocol is production-shaped, but a few load-bearing components are stubbed for the hackathon demo:
-
-- **`MockOracle`** is a shared object whose `set_price` is **permissionless** (anyone can move the price). This is correct for a hackathon demo — the keeper, the demo script, and the test bench all need to drive the price. **For mainnet, replace `wick::oracle_adapter::MockOracle` with a Pyth (or Switchboard) adapter** that exposes the same `barrier_crossed` / `get_price` API but reads from a real feed. The Move package's call sites do not change — `mark_hit` only depends on `oracle_adapter::barrier_crossed`.
-- **The upgrade capability is held by the publisher key alone** (`0xfad7…9455`). On mainnet this should be transferred to a multisig (or burned for an immutable deployment). The package is on `compatible` upgrade policy, so a future upgrade cannot remove or change the signature of any existing public function.
-- **The keeper key** (`keeper/.keeper-key.json`) is generated locally and self-funded. The keeper is permissionless — anyone can run their own — but in production you'd run a redundant fleet rather than a single bot.
-- **No fee accrual / treasury.** CPMM fees are taken on input and stay in the AMM reserves, where LPs collect them on `redeem_lp`. There is no protocol-level fee or DAO treasury. Add at most a `protocol_fee_bps` field on the `Market` struct + a `treasury` shared object; do not rewrite the AMM.
-- **No slippage protection on user-side `buy_touch` / `buy_no_touch`.** The CPMM is small enough that adversarial pre-trades could move the price. Add a `min_position_amount` parameter at the call site before mainnet.
-
-## Conservation invariant — load-bearing
-
-After every state transition in `move/`:
+## Architecture
 
 ```
-ACTIVE   →  collateral_vault == total_touch_supply == total_no_touch_supply
-HIT      →  collateral_vault == total_touch_supply
-EXPIRED  →  collateral_vault == total_no_touch_supply
+                       +-----------------------------+
+                       |    WickOracle (per asset)   |  random-walk driver | pull driver
+                       +--------------+--------------+
+                                      |
+                                      v
+   +-------------------+      +-----------------+      +----------------------+
+   |  RiskConfig       |----->|  PathObservation|<-----| keeper records ticks |
+   |  GlobalExposure   |      |  buffer + dead- |      | every block          |
+   |  OracleVersionLock|      |  band anti-jitr |      +----------------------+
+   +-------------------+      +--------+--------+
+                                       |
+                                       v
+   +--------------------+     +-----------------+     +--------------------+
+   | MartingalerVault<C>|<--->|   Market<C>     |---->|     Position       |  redeem
+   |  treasury + queue  |     |  status, sigma, |     +--------------------+
+   |  fee buckets       |     |  payout mult.   |---->|   RidePosition     |  close_ride
+   +---------+----------+     +-----------------+     +--------------------+
+             |
+             | fee_router splits accrued fees
+             v
+   +---------+----------+     +-----------------+
+   |   WickTokenState   |     | WickStakingPool |
+   |  (fair-launch to   |---->|  stakers earn   |
+   |   losing side)     |     |  staker bucket  |
+   +--------------------+     +-----------------+
 ```
 
-Proven by `move/tests/invariants.move` (asserted after every step in every other test) and by the `scenario_d_full_conservation_with_lp_claim` scenario (proves the vault drains to exactly 0 after all winners + LP redeem). The `scripts/demo.sh` then proves the same property on testnet with real SUI.
+Per-collateral `MartingalerVault<C>` is the single LP for every market that uses collateral `C`. Markets reference the vault and a `PathObservation` by `ID`. `lock_and_settle` is atomic: it snapshots the path, sets the market status, accrues the fee, and releases the vault's settlement lock in one tx.
 
-## Repository layout
+## Mechanism — three pillars
 
-```
-move/            Sui Move package (40 tests pass)
-sdk/             @wick/sdk — TS SDK (WickClient + PTB builders)
-api/             @wick/api — Fastify HTTP service (read-only)
-keeper/          wick-keeper — permissionless TS settlement bot
-bots/            wick-bots — personality-driven testnet trading bots (organic activity)
-frontend/        Vite + React trading UI
-scripts/         Bash deploy + multi-actor demo + market seeder
-deployments/     Live testnet manifest + history of upgrades
-```
+The mechanism design borrows the *ideas* from [papertrade.xyz](https://papertrade.xyz) — Martingaler LP-from-losses, fair-launch fee-claim token, asymmetric impact fee — and reimplements them cleanly for the Sui object model and the touch / no-touch + DNT + ride product surface. No code is vendored.
 
-This repo is an **npm workspace**. A single `npm install` from the root installs
-all four TS packages (sdk, api, keeper, frontend) with `@mysten/sui` hoisted
-once to the root `node_modules`.
+1. **Martingaler vault** — a single LP pool per collateral that recycles loser stakes into the treasury and pays winners from it. A FIFO claim queue smooths cash flow when payouts temporarily exceed the treasury.
+2. **WICK fair-launch token** — losers receive WICK proportional to their loss; WICK stakers earn a share of fees going forward. No presale, no team allocation.
+3. **Asymmetric impact fee** — fees scale with how "decisive" a position is relative to the current barrier distance. Hugging the barrier costs more than betting against it. For DNT, separate `dnt_inside_decisiveness_bps` / `dnt_outside_decisiveness_bps` shapes are implemented (wiring into `compute_fee_amount` is deferred — see below).
+
+## The Ride primitive
+
+Rides are streaming-touch options that exist only while the user holds the screen. The user calls `open_ride` to escrow a stake, the position accrues `stake_rate_micro_usd_per_sec` against time, and the user calls `close_ride` (cashout) or lets the keeper `crank_expired_ride` (loss on the time cap). If the barrier is touched while the ride is open, the user wins the touch jackpot at `multiplier_bps`. Touch wins ties at the `close_ride` boundary; aborted markets refund 1:1.
+
+Per `docs/design/v2/11_ride_streaming_primitive.md`.
 
 ## Run it locally
 
 Prerequisites: `sui` CLI configured for testnet, a funded address, Node 22+.
 
 ```bash
-# 0. install all workspaces
+# install all workspaces
 npm install
 
-# 1. publish (or upgrade) the package
+# publish (or upgrade) the Move package
 ./scripts/deploy-testnet.sh
 
-# 2. seed a few demo markets so the UI has live content
-./scripts/seed-demo-markets.sh
+# bootstrap the SUI MartingalerVault + seed a fleet of arcade (random-walk) markets
+./scripts/seed-arcade-markets.sh
 
-# 3. run the multi-actor demo (two real wallets, real SUI, conservation P&L)
-./scripts/demo.sh --hit       # HIT path (TOUCH wins)
-./scripts/demo.sh --expired   # EXPIRED path (NO_TOUCH wins)
+# end-to-end on-chain smoke test (HIT path)
+./scripts/smoke.sh
 
-# 4. run the keeper (it auto-settles markets when conditions are met)
-npm -w wick-keeper run setup-key
-# fund the printed address with 0.1 SUI, then:
-npm run keeper:watch          # poll forever; or `npm run keeper:tick` for one pass
+# multi-actor demo with real testnet wallets and conservation P&L
+./scripts/demo.sh --hit
+./scripts/demo.sh --expired
 
-# 5. run the API (HTTP read endpoints)
-npm run dev:api               # serves on http://localhost:8787
-curl http://localhost:8787/markets
+# permissionless keeper (drives ticks + settlement)
+npm -w wick-keeper run setup-key      # fund the printed address with 0.1 SUI
+npm run keeper:watch                  # poll forever; or `npm run keeper:tick`
 
-# 6. run the frontend
-npm run dev:frontend          # http://localhost:5173 — connect a Sui wallet
+# read-only HTTP API
+npm run dev:api                       # http://localhost:8787
 
-# 7. (optional) spin up the trading bot fleet so the UI shows organic activity
-npm run bots:setup            # generate 4 bot keys + auto-fund 0.5 SUI each from the active CLI address
-npm run bots:run              # 4 personality bots — bull / bear / contrarian / drunk — ~1 trade/sec
+# frontend
+npm run dev:frontend                  # http://localhost:5173
+
+# optional: organic activity from personality bots
+npm run bots:setup                    # generate + auto-fund 4 bot keys
+npm run bots:run                      # bull / bear / contrarian / drunk
 ```
 
-## Deploy to Vercel (testnet launch)
+## Collateral invariant — load-bearing
 
-The frontend is a static SPA. The repo root has a `vercel.json` that builds
-the SDK then the frontend, and serves SPA-style routing.
+After every state transition in `move/`, the vault, side bucket, queue, fee buckets, and per-market locks must reconcile. The invariant suite (`move/tests/foundation_v2_tests.move`, `martingaler_vault_tests.move`, `drain_window_tests.move`, and the per-feature `*_tests.move`) asserts this after every step. Bugs here are direct loss-of-funds.
 
-```bash
-# from repo root, with the Vercel CLI installed
-npx vercel              # preview
-npx vercel --prod       # production
+## What is stubbed and would need to change before mainnet
+
+- **`WickOracle`** is fed by `pull_oracle_driver` and `random_walk_driver`. For mainnet, swap in a Pyth or Switchboard pull adapter. The market call sites do not change — they consume `WickOracle` via `PathObservation::record`.
+- **The upgrade capability is held by the publisher key alone** (`0xfad7…9455`). On mainnet this should be transferred to a multisig or burned. The package is on `compatible` upgrade policy.
+- **Keeper** is permissionless — anyone can run their own — but for production you'd run a redundant fleet rather than a single bot.
+
+## What's deferred (honest list)
+
+These are explicitly **not** in the hackathon demo. They're either pushed to roadmap or wait on a dependency:
+
+- **D.1 Predict route** (BTC via DeepBook Predict) — Predict's mainnet path isn't shipped; pushed to roadmap
+- **D.2 DeepBook CLOB listing** — cut
+- **E.1 tournament / E.2 badges** — cut
+- **Full Pro-Mode rewrite** — the current 2-pane shell *is* Pro Mode; only need a toggle to a Degen view
+- **Lookback exotic (A5c)** — needs a new market type, invasive; deferred
+- **DNT impact fee wiring** — the decisiveness shapes are implemented in `impact_fee.move`, but `compute_fee_amount` does not yet route through them (the `FeeSnapshot` struct needs extension). DNT winners pay the base fee for MVP.
+- **PWE for DNT** — currently 0; per-position caps still bind
+- **Keeper TS update for the new ABI** — in progress in parallel
+- **Frontend tap-hold ride gesture** — next phase
+
+## Repository layout
+
+```
+move/            Sui Move package (252 tests pass)
+sdk/             @wick/sdk — TS SDK (WickClient + PTB builders)
+api/             @wick/api — Fastify HTTP service (read-only)
+keeper/          wick-keeper — permissionless TS settlement bot
+bots/            wick-bots — personality-driven testnet trading bots
+frontend/        Vite + React trading UI
+scripts/         Bash deploy + smoke + multi-actor demo + market seeders
+deployments/     Live testnet manifest + archive of upgrades
+docs/design/v2/  Per-feature design specs (00 reconciliation → 11 ride primitive)
 ```
 
-Or import the repo in the Vercel dashboard — it picks up `vercel.json`
-automatically. The frontend reads its deployment manifest from
-`frontend/src/config/deployment.json` (committed to the repo and synced
-from `deployments/testnet.json` whenever the Move package is re-deployed).
-
-The API service (`api/`) is a standard Node app — deploy to any Node 22+
-host (Fly, Railway, Render, raw VM). See `api/README.md`.
-
-## Threat model
-
-These are the real attack surfaces, not theoretical ones. Each is annotated with what the code does today and what would have to change before mainnet.
-
-| Attack | Where the code defends today | Mainnet hardening |
-|---|---|---|
-| **Double-payout on the winning side** | `redeem_winner` decrements `total_*_supply` and burns the Position UID, so a re-attempt of the same Position cannot be replayed (the object no longer exists). | No change needed — Sui's object model makes Position-replay impossible. |
-| **Losing-side claim** | `redeem_winner` checks `pos.side` against the settled status and aborts with `E_LOSING_SIDE`. Same enum-check inside `redeem_lp` for completeness. | No change. |
-| **Settle both ways** | `mark_hit` and `settle_expired` both require `status == ACTIVE` and clear it on success. Idempotent: a second call hits the guard. | No change. |
-| **Settle past expiry** | `mark_hit` requires `now < expiry_ms`; `settle_expired` requires `now >= expiry_ms`. Conditions are mutually exclusive. | No change. |
-| **Bypass settlement via `redeem_complete_set`** | `redeem_complete_set` requires equal TOUCH and NO_TOUCH amounts. After a swap, no user holds an equal pair (they got either TOUCH-heavy from `buy_touch` or NO_TOUCH-heavy). | No change. |
-| **Oracle manipulation** | `MockOracle::set_price` is permissionless. **This is the load-bearing stub.** | Replace `wick::oracle_adapter::MockOracle` with a Pyth adapter. The product definition — "the oracle observed a crossing" — survives the swap unchanged. |
-| **Upgrade-cap compromise** | Single-key publisher holds the cap. `compatible` upgrade policy prevents signature changes to existing public functions. | Transfer cap to a multisig, or burn it for immutability. |
-| **CPMM front-running** | No slippage check; small reserves could be moved by an adversarial co-buyer. | Add `min_position_amount` parameter to `buy_touch` / `buy_no_touch` before mainnet. |
-| **Stranded LP collateral** | `redeem_lp` (added in this branch) lets LPs claim the winning-side reserve after settlement. The losing-side reserve is correctly stranded — it represents zero-value losing claims. | No change for the V1 LP model. Multi-LP `add_lp` is a separate post-MVP feature. |
-| **Reentrancy** | Move semantics: `&mut Market<C>` is exclusive within a single tx. There is no callback into user code from the protocol. | No change — Move's borrow checker rules out the EVM-style attack. |
-
-Anything not in this table either (a) doesn't apply to a Sui Move + permissionless-keeper architecture, or (b) is a known stub explicitly called out in the "What is stubbed" section above.
+This repo is an **npm workspace**. A single `npm install` from the root installs every TS package with `@mysten/sui` hoisted to the root `node_modules`.
 
 ## Sibling workspaces — do not bleed into them
 
 - `/Users/maxmohammadi/aptos-prop-amm` — separate Aptos research workspace. Do not import from there.
 
-See `AGENTS.md` for full agent context including the Darbitex / Desnet / D no-import rule and the MVP scope.
+See `AGENTS.md` for full agent context including the object model, lifecycle, Darbitex / Desnet / D no-import rule, and the MVP scope.

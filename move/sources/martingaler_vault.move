@@ -800,3 +800,18 @@ public fun test_withdraw_for_ride_settlement<C>(
 ): Coin<C> {
     withdraw_for_ride_settlement(vault, amount, ctx)
 }
+
+/// Test-only: force-mark a market as aborted in the vault's internal set.
+/// Bypasses the normal `route_lock_to_abort_refund` flow which requires a
+/// settlement_lock to exist first. Useful for ride_position tests that
+/// want to exercise the ABORTED_REFUND branch without setting up a full
+/// discrete market.
+#[test_only]
+public fun test_mark_market_aborted<C>(
+    vault: &mut MartingalerVault<C>,
+    market_id: ID,
+) {
+    if (!vec_set::contains(&vault.aborted_markets, &market_id)) {
+        vec_set::insert(&mut vault.aborted_markets, market_id);
+    };
+}
