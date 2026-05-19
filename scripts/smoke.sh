@@ -1,180 +1,597 @@
 #!/usr/bin/env bash
-# End-to-end on-chain smoke test for the Wick Markets package.
+# End-to-end on-chain smoke test for the Wick Markets package (C.3 ABI).
 #
-# Sequence (HIT path):
-#   1. read package_id from deployments/testnet.json
-#   2. create+share a MockOracle at price < barrier
-#   3. split a small seed coin from gas
-#   4. create_market<SUI> (60s expiry, barrier = 100, fee = 30bps)
-#   5. buy_touch with a small payment, transfer Position back to sender
-#   6. set_price across the barrier
-#   7. mark_hit
-#   8. redeem_winner (TOUCH wins under HIT) — transfer Coin back to sender
-#   9. print final object IDs and Suiscan links
+# Flow:
+#   1. Preflight: env=testnet, artifact present, vault_sui set, arcade markets seeded
+#   2. Bootstrap shared singletons if missing (risk_config, global_exposure_registry,
+#      bot_registry, fee_router<SUI>, usd_price_oracle, wick_staking_pool).
+#      All admin caps are transferred to the active address and the IDs are persisted
+#      to deployments/testnet.json so the next run skips this step.
+#   3. Pick the shortest-expiry arcade market.
+#   4. Split a small SUI coin off gas and open a TOUCH position via PTB.
+#   5. Loop until now > expiry + drain: every 30s, tick the random walk + record path.
+#   6. wick::lock_and_settle to crank settlement.
+#   7. Inspect market.status, then either redeem (HIT/EXPIRED) or skip (ABORTED).
+#   8. Print P&L summary.
 #
-# Designed to fail fast: any non-zero rc from a tx aborts the whole run.
+# This script writes — it costs real testnet gas. Wallet should have >= 1 SUI.
+#
+# Usage:
+#   ./scripts/smoke.sh
+#
+# Env vars:
+#   STAKE_MIST=10000000     # 0.01 SUI stake on the TOUCH position
+#   TICK_INTERVAL_S=30      # seconds between random-walk ticks
+#   MAX_WAIT_S=1500         # safety cap on the polling loop (25 min)
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# ---------- env ----------
+
+STAKE_MIST="${STAKE_MIST:-10000000}"          # 0.01 SUI
+TICK_INTERVAL_S="${TICK_INTERVAL_S:-30}"
+MAX_WAIT_S="${MAX_WAIT_S:-1500}"
+SUI_COIN_TYPE="0x2::sui::SUI"
+ARTIFACT="deployments/testnet.json"
+CLOCK="0x6"
+
+# ---------- ansi ----------
+
 red()   { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 note()  { printf '\033[36m%s\033[0m\n' "$*"; }
+gray()  { printf '\033[90m%s\033[0m\n' "$*"; }
+hr()    { printf '\033[90m%s\033[0m\n' "------------------------------------------------------------"; }
+warn()  { printf '\033[33m%s\033[0m\n' "$*" >&2; }
 
-# ---- read deployment ----
+# ---------- preflight ----------
 
-PKG=$(python3 -c 'import json; print(json.load(open("deployments/testnet.json"))["package_id"])')
+command -v sui >/dev/null 2>&1 || { red "sui CLI not on PATH"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { red "python3 not on PATH"; exit 1; }
+
+ACTIVE_ENV=$(sui client active-env 2>/dev/null || echo "")
+if [ "$ACTIVE_ENV" != "testnet" ]; then
+  red "active sui env is '$ACTIVE_ENV', expected 'testnet'"
+  red "run: sui client switch --env testnet"
+  exit 1
+fi
+
+[ -f "$ARTIFACT" ] || { red "no $ARTIFACT — run ./scripts/deploy-testnet.sh first"; exit 1; }
+
+PKG=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["package_id"])' "$ARTIFACT")
+[ -n "$PKG" ] || { red "package_id missing from $ARTIFACT"; exit 1; }
 SENDER=$(sui client active-address)
-note "package: $PKG"
-note "sender:  $SENDER"
 
-# ---- helpers ----
+VAULT_ID=$(python3 -c "import json; d=json.load(open('$ARTIFACT')); print(d.get('vault_sui',''))" 2>/dev/null || echo "")
+if [ -z "$VAULT_ID" ]; then
+  red "vault_sui missing from $ARTIFACT"
+  red "run: ./scripts/seed-arcade-markets.sh first (it bootstraps + seeds the MartingalerVault<SUI>)"
+  exit 1
+fi
 
-# Parse a created object id whose type contains $1.
-created_with_type() {
+ARCADE_COUNT=$(python3 -c "import json; d=json.load(open('$ARTIFACT')); print(len(d.get('arcade_markets',[])))" 2>/dev/null || echo "0")
+if [ "$ARCADE_COUNT" -eq 0 ]; then
+  red "no arcade_markets in $ARTIFACT"
+  red "run: ./scripts/seed-arcade-markets.sh first"
+  exit 1
+fi
+
+note "package:  $PKG"
+note "sender:   $SENDER"
+note "vault:    $VAULT_ID"
+note "markets:  $ARCADE_COUNT arcade markets in artifact"
+hr
+
+# Gas check (need at least 0.5 SUI for ticks + settle + redeem + stake).
+TOTAL_GAS_MIST=$(sui client gas --json 2>/dev/null \
+  | python3 -c "import json,sys; print(sum(int(c['mistBalance']) for c in json.load(sys.stdin)))")
+MIN_GAS=$((STAKE_MIST + 500000000))   # stake + ~0.5 SUI for ticks + settle + redeem
+if [ "$TOTAL_GAS_MIST" -lt "$MIN_GAS" ]; then
+  red "insufficient gas: have $TOTAL_GAS_MIST mist, need >= $MIN_GAS mist"
+  red "run: ./scripts/faucet.sh"
+  exit 1
+fi
+note "gas:      $TOTAL_GAS_MIST mist (need >= $MIN_GAS)"
+
+# ---------- helpers ----------
+
+# Run a sui command. Capture stdout to json file, stderr to err file.
+# Strips Sui CLI's preamble (everything before the first '{').
+run_tx() {
+  local label="$1"; shift
+  local raw="/tmp/wick-smoke-${label}-raw.txt"
+  local out="/tmp/wick-smoke-${label}.json"
+  local err="/tmp/wick-smoke-${label}.err"
+  if ! "$@" >"$raw" 2>"$err"; then
+    red "tx '$label' failed:"
+    red "  stderr:"; cat "$err" >&2
+    red "  stdout:"; cat "$raw" >&2
+    exit 2
+  fi
+  awk '/^{/ {flag=1} flag {print}' "$raw" > "$out"
+  if [ ! -s "$out" ]; then
+    red "tx '$label' produced no JSON output:"
+    cat "$raw" >&2
+    exit 2
+  fi
+  echo "$out"
+}
+
+# Parse a created object id whose type contains $2. Returns first match.
+created_of_type() {
   python3 -c "
 import json, sys
-data = json.load(open(sys.argv[1]))
+d = json.load(open(sys.argv[1]))
 needle = sys.argv[2]
-for c in data.get('objectChanges', []):
+for c in d.get('objectChanges', []):
     if c.get('type') == 'created' and needle in c.get('objectType', ''):
-        print(c.get('objectId', ''))
+        print(c.get('objectId',''))
         break
 " "$1" "$2"
 }
 
-# Parse the digest field.
+# Parse digest.
 digest_of() {
   python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('digest',''))" "$1"
 }
 
-# Strip Sui CLI's preamble lines (everything before the first line that starts with `{`).
-strip_to_json() {
-  awk '/^{/ {flag=1} flag {print}' "$1" > "$2"
+# Status code of a transaction (success/failure).
+status_of() {
+  python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1]))
+eff=d.get('effects',{}).get('status',{})
+print(eff.get('status','unknown'))
+" "$1"
 }
 
-run_tx() {
-  local label="$1"
-  shift
-  local raw="/tmp/wick-${label}-raw.txt"
-  local out="/tmp/wick-${label}.json"
-  note ">>> $label"
-  if ! "$@" >"$raw" 2>&1; then
-    red "tx '$label' failed:"
-    cat "$raw" >&2
-    exit 2
+# Pick the gas coin with the largest balance above a floor.
+biggest_gas_coin_above() {
+  local floor_mist="$1"
+  sui client gas --json 2>/dev/null \
+    | python3 -c "
+import json, sys
+floor = int(sys.argv[1])
+coins = json.load(sys.stdin)
+ok = [c for c in coins if int(c['mistBalance']) > floor]
+if not ok: sys.exit(1)
+ok.sort(key=lambda c: int(c['mistBalance']), reverse=True)
+print(ok[0]['gasCoinId'])
+" "$floor_mist"
+}
+
+# Patch a top-level key=value (string) into the artifact.
+patch_artifact_kv() {
+  local key="$1" value="$2"
+  python3 - "$ARTIFACT" "$key" "$value" <<'PY'
+import json, sys
+path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f: d = json.load(f)
+d[key] = value
+with open(path, 'w') as f: json.dump(d, f, indent=2)
+PY
+}
+
+# Look up a string key from the artifact (empty if missing).
+artifact_get() {
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],''))" "$ARTIFACT" "$1"
+}
+
+# Sum mist-denominated balanceChange for SUI at $owner from a tx json.
+sui_balance_change_for() {
+  local txjson="$1" owner="$2"
+  python3 -c "
+import json, sys
+d=json.load(open(sys.argv[1]))
+owner=sys.argv[2]
+total=0
+for ch in d.get('balanceChanges',[]):
+    o=ch.get('owner',{})
+    addr=o.get('AddressOwner','') if isinstance(o,dict) else ''
+    if addr==owner and ch.get('coinType','').endswith('::sui::SUI'):
+        total += int(ch.get('amount','0'))
+print(total)
+" "$txjson" "$owner"
+}
+
+# Read market.status (u8) from on-chain object.
+fetch_market_status() {
+  local market="$1"
+  sui client object "$market" --json 2>/dev/null | python3 -c "
+import json, sys
+d=json.load(sys.stdin)
+fields=d.get('content',{}).get('fields',{})
+print(fields.get('status','-1'))
+"
+}
+
+# Pretty status label.
+status_label() {
+  case "$1" in
+    0) echo "ACTIVE" ;;
+    1) echo "HIT" ;;
+    2) echo "EXPIRED" ;;
+    3) echo "ABORTED" ;;
+    4) echo "CANCELLED" ;;
+    5) echo "DNT_HELD" ;;
+    6) echo "DNT_BROKEN" ;;
+    *) echo "UNKNOWN($1)" ;;
+  esac
+}
+
+# ---------- 1. Bootstrap shared singletons if missing ----------
+
+# Each of these returns an AdminCap (transferred to the sender) and shares the
+# underlying object. We persist the shared object id (NOT the cap id) into
+# deployments/testnet.json. None of the init_* fns are #[test_only] — they are
+# production entry points that just haven't been called yet on this package.
+
+RISK_CONFIG=$(artifact_get "risk_config")
+EXPOSURE_REGISTRY=$(artifact_get "global_exposure_registry")
+BOT_REGISTRY=$(artifact_get "bot_registry")
+FEE_ROUTER_SUI=$(artifact_get "fee_router_sui")
+PRICE_ORACLE=$(artifact_get "usd_price_oracle")
+STAKING_POOL=$(artifact_get "wick_staking_pool")
+
+bootstrap_singleton() {
+  # $1=label, $2=module, $3=function, $4=share-object-type-needle,
+  # $5=cap-type-needle, $6..=extra --args (optional)
+  local label="$1" module="$2" func="$3" obj_needle="$4" cap_needle="$5"
+  shift 5
+  green ">>> init: $label"
+  local extra_args=()
+  if [ "$#" -gt 0 ]; then extra_args=(--args "$@"); fi
+  local out
+  if [ "$module" = "fee_router" ]; then
+    out=$(run_tx "init-$label" \
+      sui client call \
+        --package "$PKG" --module "$module" --function "$func" \
+        --type-args "$SUI_COIN_TYPE" \
+        "${extra_args[@]}" \
+        --gas-budget 100000000 --json)
+  else
+    out=$(run_tx "init-$label" \
+      sui client call \
+        --package "$PKG" --module "$module" --function "$func" \
+        "${extra_args[@]}" \
+        --gas-budget 100000000 --json)
   fi
-  strip_to_json "$raw" "$out"
-  note "    digest: $(digest_of "$out")"
+  local shared_id cap_id
+  shared_id=$(created_of_type "$out" "$obj_needle")
+  cap_id=$(created_of_type "$out" "$cap_needle")
+  if [ -z "$shared_id" ]; then
+    red "could not parse shared object id (needle: $obj_needle) from $label init"
+    exit 4
+  fi
+  note "    shared: $shared_id"
+  note "    cap:    $cap_id"
+  echo "$shared_id"
 }
 
-# ---- step 1: create + share oracle ----
+if [ -z "$RISK_CONFIG" ]; then
+  hr
+  RISK_CONFIG=$(bootstrap_singleton "risk_config" "risk_config" "init_config" \
+    "::risk_config::RiskConfig" "::risk_config::RiskAdminCap")
+  patch_artifact_kv "risk_config" "$RISK_CONFIG"
+fi
+note "risk_config:       $RISK_CONFIG"
 
-run_tx "oracle" \
-  sui client call \
-    --package "$PKG" \
-    --module oracle_adapter \
-    --function create_and_share \
-    --args "BTC/USD" 90 \
-    --gas-budget 100000000 \
-    --json
-ORACLE=$(created_with_type /tmp/wick-oracle.json "::oracle_adapter::MockOracle")
-[ -n "$ORACLE" ] || { red "could not parse oracle id"; exit 3; }
-note "    MockOracle: $ORACLE"
+if [ -z "$EXPOSURE_REGISTRY" ]; then
+  hr
+  EXPOSURE_REGISTRY=$(bootstrap_singleton "global_exposure_registry" \
+    "global_exposure_registry" "init_registry" \
+    "::global_exposure_registry::GlobalExposureRegistry" \
+    "::global_exposure_registry::RegistryAdminCap")
+  patch_artifact_kv "global_exposure_registry" "$EXPOSURE_REGISTRY"
+fi
+note "exposure_registry: $EXPOSURE_REGISTRY"
 
-# ---- step 2: pick a gas coin and split a tiny seed ----
+if [ -z "$BOT_REGISTRY" ]; then
+  hr
+  BOT_REGISTRY=$(bootstrap_singleton "bot_registry" \
+    "bot_registry" "init_registry" \
+    "::bot_registry::BotRegistry" "::bot_registry::BotAdminCap")
+  patch_artifact_kv "bot_registry" "$BOT_REGISTRY"
+fi
+note "bot_registry:      $BOT_REGISTRY"
 
-GAS_COIN=$(sui client gas --json 2>/dev/null \
-  | python3 -c 'import json,sys; data=json.load(sys.stdin); print(sorted(data, key=lambda c:int(c["mistBalance"]), reverse=True)[0]["gasCoinId"])')
-note "gas coin: $GAS_COIN"
+if [ -z "$FEE_ROUTER_SUI" ]; then
+  hr
+  FEE_ROUTER_SUI=$(bootstrap_singleton "fee_router_sui" \
+    "fee_router" "init_router" \
+    "::fee_router::FeeRouter" "::fee_router::FeeRouterAdminCap")
+  patch_artifact_kv "fee_router_sui" "$FEE_ROUTER_SUI"
+fi
+note "fee_router<SUI>:   $FEE_ROUTER_SUI"
 
-run_tx "split" \
-  sui client split-coin \
-    --coin-id "$GAS_COIN" \
-    --amounts 100000 \
-    --gas-budget 50000000 \
-    --json
-SEED_COIN=$(created_with_type /tmp/wick-split.json "0x2::coin::Coin<0x2::sui::SUI>")
-[ -n "$SEED_COIN" ] || { red "could not parse split coin id"; exit 4; }
-note "    seed coin: $SEED_COIN (100_000 MIST)"
+if [ -z "$PRICE_ORACLE" ]; then
+  hr
+  PRICE_ORACLE=$(bootstrap_singleton "usd_price_oracle" \
+    "usd_price_oracle" "init_oracle" \
+    "::usd_price_oracle::UsdPriceOracle" "::usd_price_oracle::PriceAdminCap")
+  patch_artifact_kv "usd_price_oracle" "$PRICE_ORACLE"
+fi
+note "price_oracle:      $PRICE_ORACLE"
 
-# ---- step 3: create_market ----
+if [ -z "$STAKING_POOL" ]; then
+  hr
+  STAKING_POOL=$(bootstrap_singleton "wick_staking_pool" \
+    "wick_staking" "init_pool" \
+    "::wick_staking::WickStakingPool" "::wick_staking::StakingAdminCap" \
+    "$SENDER")
+  patch_artifact_kv "wick_staking_pool" "$STAKING_POOL"
+fi
+note "staking_pool:      $STAKING_POOL"
 
-# expiry = now + 5 minutes (give us breathing room)
-EXPIRY_MS=$(python3 -c 'import time; print(int(time.time()*1000) + 5*60*1000)')
+# WickTokenState is auto-shared at publish — read from publish archive if not set.
+WICK_STATE=$(artifact_get "wick_token_state")
+if [ -z "$WICK_STATE" ]; then
+  PUBLISH_LOG=$(artifact_get "raw_log")
+  if [ -n "$PUBLISH_LOG" ] && [ -f "$PUBLISH_LOG" ]; then
+    WICK_STATE=$(python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1]))
+for c in d.get('objectChanges',[]):
+    if c.get('type')=='created' and '::wick_token::WickTokenState' in c.get('objectType',''):
+        print(c.get('objectId','')); break
+" "$PUBLISH_LOG")
+    [ -n "$WICK_STATE" ] && patch_artifact_kv "wick_token_state" "$WICK_STATE"
+  fi
+fi
+if [ -z "$WICK_STATE" ]; then
+  red "could not resolve WickTokenState id (not in artifact, publish log missing)"
+  red "redeem will fail without it. add 'wick_token_state' to $ARTIFACT and rerun."
+  exit 5
+fi
+note "wick_state:        $WICK_STATE"
+
+# ---------- 2. Pick the shortest-expiry arcade market ----------
+
+hr
+green ">>> selecting shortest-expiry arcade market"
+
+MARKET_PICK=$(python3 -c "
+import json
+d=json.load(open('$ARTIFACT'))
+mkts=d.get('arcade_markets',[])
+if not mkts:
+    raise SystemExit('no arcade markets')
+pick=min(mkts, key=lambda m: m['expiry_ms'])
+print(pick['name'], pick['market'], pick['oracle'], pick['path'], pick['random_walk'], pick['barrier'], pick['direction'], pick['expiry_ms'])
+")
+read -r M_NAME MARKET ORACLE PATH_OBS RWALK BARRIER DIRECTION EXPIRY_MS <<< "$MARKET_PICK"
+note "name:      $M_NAME"
+note "market:    $MARKET"
+note "oracle:    $ORACLE"
+note "path:      $PATH_OBS"
+note "rwalk:     $RWALK"
+note "barrier:   $BARRIER  (direction=$DIRECTION  0=above,1=below)"
 note "expiry_ms: $EXPIRY_MS"
 
-# barrier = 100. oracle starts at 90 (below). We'll set above before mark_hit.
-run_tx "create_market" \
-  sui client call \
-    --package "$PKG" \
-    --module wick \
-    --function create_market \
-    --type-args 0x2::sui::SUI \
-    --args "BTC/USD" 0 100 "$EXPIRY_MS" 30 "$SEED_COIN" 0x6 \
-    --gas-budget 200000000 \
-    --json
-MARKET=$(created_with_type /tmp/wick-create_market.json "::wick::Market<")
-LP=$(created_with_type /tmp/wick-create_market.json "::wick::LpPosition")
-[ -n "$MARKET" ] || { red "could not parse market id"; exit 5; }
-note "    Market<SUI>: $MARKET"
-note "    LpPosition:  $LP"
+NOW_MS=$(python3 -c "import time; print(int(time.time()*1000))")
+SECS_TO_EXPIRY=$(( (EXPIRY_MS - NOW_MS) / 1000 ))
+if [ "$SECS_TO_EXPIRY" -le 0 ]; then
+  warn "market already past expiry by $((-SECS_TO_EXPIRY))s — skipping open, going straight to settle"
+  SKIP_OPEN=1
+else
+  note "time-to-expiry: ${SECS_TO_EXPIRY}s"
+  SKIP_OPEN=0
+fi
 
-# ---- step 4: buy_touch (PTB so we can transfer the returned Position) ----
+# Live market sanity: status must be ACTIVE for open.
+LIVE_STATUS=$(fetch_market_status "$MARKET")
+LIVE_STATUS_LABEL=$(status_label "$LIVE_STATUS")
+note "live market status: $LIVE_STATUS_LABEL ($LIVE_STATUS)"
 
-run_tx "buy_touch" \
+# ---------- 3. Open TOUCH position (PTB) ----------
+
+POS_ID=""
+OPEN_DIGEST=""
+OPENED_AT_MS=""
+
+if [ "$SKIP_OPEN" -eq 0 ] && [ "$LIVE_STATUS" = "0" ]; then
+  hr
+  green ">>> opening TOUCH position with $STAKE_MIST mist stake"
+
+  # Use the latest oracle price as `spot`; if no observation yet, fall back to barrier.
+  SPOT=$(sui client object "$ORACLE" --json 2>/dev/null | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+f=d.get('content',{}).get('fields',{})
+latest=f.get('latest')
+if isinstance(latest, dict):
+    v=latest.get('fields',{}).get('vec',[])
+    if v:
+        po=v[0].get('fields',{}) if isinstance(v[0],dict) else {}
+        print(po.get('price','0')); sys.exit(0)
+print('0')
+")
+  if [ -z "$SPOT" ] || [ "$SPOT" = "0" ]; then
+    SPOT="$BARRIER"
+    note "no oracle obs yet, using barrier as spot: $SPOT"
+  else
+    note "oracle spot: $SPOT"
+  fi
+
+  OPENED_AT_MS=$(python3 -c "import time; print(int(time.time()*1000))")
+  OPEN_OUT=$(run_tx "open-touch" \
+    sui client ptb \
+      --split-coins gas "[$STAKE_MIST]" --assign stake \
+      --move-call "${PKG}::wick::open_touch" "<$SUI_COIN_TYPE>" \
+        "@${MARKET}" "@${VAULT_ID}" "@${RISK_CONFIG}" \
+        "@${EXPOSURE_REGISTRY}" "@${BOT_REGISTRY}" "@${PATH_OBS}" \
+        stake.0 "$SPOT" "@${CLOCK}" \
+      --assign pos \
+      --transfer-objects "[pos]" "@${SENDER}" \
+      --gas-budget 300000000 --json)
+  OPEN_DIGEST=$(digest_of "$OPEN_OUT")
+  POS_ID=$(created_of_type "$OPEN_OUT" "::market::Position")
+  [ -n "$POS_ID" ] || { red "could not parse Position id from open_touch"; exit 6; }
+  note "    position: $POS_ID"
+  note "    digest:   $OPEN_DIGEST"
+else
+  warn "skipping open (status=$LIVE_STATUS_LABEL or past expiry)"
+fi
+
+# ---------- 4. Tick loop until past expiry+drain ----------
+
+hr
+green ">>> ticking random walk every ${TICK_INTERVAL_S}s until expiry+drain"
+
+# Pull pre_lock_drain_ms from the path observation.
+DRAIN_MS=$(sui client object "$PATH_OBS" --json 2>/dev/null | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(d.get('content',{}).get('fields',{}).get('pre_lock_drain_ms','5000'))
+")
+note "drain_ms: $DRAIN_MS"
+SETTLE_UNLOCK_MS=$(( EXPIRY_MS + DRAIN_MS + 2000 ))   # +2s buffer
+
+TICK_COUNT=0
+LOOP_START=$(python3 -c "import time; print(int(time.time()*1000))")
+while true; do
+  NOW=$(python3 -c "import time; print(int(time.time()*1000))")
+  if [ "$NOW" -ge "$SETTLE_UNLOCK_MS" ]; then
+    note "now=$NOW >= settle_unlock=$SETTLE_UNLOCK_MS, exiting tick loop"
+    break
+  fi
+  if [ $(( (NOW - LOOP_START) / 1000 )) -ge "$MAX_WAIT_S" ]; then
+    warn "MAX_WAIT_S=$MAX_WAIT_S reached, exiting tick loop"
+    break
+  fi
+
+  TICK_COUNT=$((TICK_COUNT + 1))
+  gray "tick #$TICK_COUNT — t-${SECS_TO_EXPIRY}s to expiry"
+
+  # tick the random walk (mutates oracle.latest)
+  if ! sui client ptb \
+      --move-call "${PKG}::random_walk_driver::tick" \
+        "@${RWALK}" "@${ORACLE}" "@${CLOCK}" \
+      --gas-budget 50000000 --json >/tmp/wick-smoke-tick-$TICK_COUNT.txt 2>&1; then
+    warn "tick #$TICK_COUNT failed (continuing):"
+    tail -5 /tmp/wick-smoke-tick-$TICK_COUNT.txt >&2 || true
+  fi
+
+  # record path obs (consumes the new oracle observation)
+  if ! sui client ptb \
+      --move-call "${PKG}::path_observation::record" \
+        "@${PATH_OBS}" "@${ORACLE}" "@${CLOCK}" \
+      --gas-budget 50000000 --json >/tmp/wick-smoke-rec-$TICK_COUNT.txt 2>&1; then
+    warn "record #$TICK_COUNT failed (continuing):"
+    tail -5 /tmp/wick-smoke-rec-$TICK_COUNT.txt >&2 || true
+  fi
+
+  # Recompute time-to-expiry for next iter
+  NOW=$(python3 -c "import time; print(int(time.time()*1000))")
+  SECS_TO_EXPIRY=$(( (EXPIRY_MS - NOW) / 1000 ))
+
+  REMAINING=$(( SETTLE_UNLOCK_MS - NOW ))
+  if [ "$REMAINING" -gt 0 ] && [ "$REMAINING" -gt $((TICK_INTERVAL_S * 1000)) ]; then
+    sleep "$TICK_INTERVAL_S"
+  elif [ "$REMAINING" -gt 0 ]; then
+    sleep $(( (REMAINING / 1000) + 1 ))
+  fi
+done
+
+note "ticks issued: $TICK_COUNT"
+
+# ---------- 5. lock_and_settle ----------
+
+hr
+green ">>> wick::lock_and_settle"
+SETTLE_OUT=$(run_tx "lock-and-settle" \
   sui client ptb \
-    --split-coins gas "[50000]" \
-    --assign payment \
-    --move-call "${PKG}::wick::buy_touch" "<0x2::sui::SUI>" "@${MARKET}" payment.0 @0x6 \
-    --assign pos \
-    --transfer-objects "[pos]" "@${SENDER}" \
-    --gas-budget 200000000 \
-    --json
-POS=$(created_with_type /tmp/wick-buy_touch.json "::wick::Position")
-[ -n "$POS" ] || { red "could not parse position id"; exit 6; }
-note "    Position(TOUCH): $POS"
+    --move-call "${PKG}::wick::lock_and_settle" "<$SUI_COIN_TYPE>" \
+      "@${MARKET}" "@${VAULT_ID}" "@${PATH_OBS}" "@${ORACLE}" \
+      "@${EXPOSURE_REGISTRY}" "@${CLOCK}" \
+    --gas-budget 200000000 --json)
+SETTLE_DIGEST=$(digest_of "$SETTLE_OUT")
+note "    digest: $SETTLE_DIGEST"
+SETTLED_AT_MS=$(python3 -c "import time; print(int(time.time()*1000))")
 
-# ---- step 5: set oracle price above barrier ----
+# ---------- 6. inspect market status, then redeem (or skip) ----------
 
-run_tx "set_price" \
-  sui client call \
-    --package "$PKG" \
-    --module oracle_adapter \
-    --function set_price \
-    --args "$ORACLE" 150 \
-    --gas-budget 50000000 \
-    --json
+FINAL_STATUS=$(fetch_market_status "$MARKET")
+FINAL_STATUS_LABEL=$(status_label "$FINAL_STATUS")
+hr
+note "post-settle market status: $FINAL_STATUS_LABEL ($FINAL_STATUS)"
 
-# ---- step 6: mark_hit ----
+PAYOUT_MIST=0
+REDEEM_DIGEST=""
+REDEEM_STATUS="skipped"
 
-run_tx "mark_hit" \
-  sui client call \
-    --package "$PKG" \
-    --module wick \
-    --function mark_hit \
-    --type-args 0x2::sui::SUI \
-    --args "$MARKET" "$ORACLE" 0x6 \
-    --gas-budget 100000000 \
-    --json
+if [ -z "$POS_ID" ]; then
+  warn "no position opened — skipping redeem"
+elif [ "$FINAL_STATUS" = "0" ]; then
+  red "market still ACTIVE post-settle — settlement may not be eligible yet"
+  REDEEM_STATUS="market-still-active"
+elif [ "$FINAL_STATUS" = "3" ]; then
+  # ABORTED: redeem still works and returns a 1:1 refund per market::redeem.
+  warn "market ABORTED — redeem returns 1:1 refund (no fee, no WICK mint)"
+  green ">>> wick::redeem (aborted refund path)"
+  REDEEM_OUT=$(run_tx "redeem-aborted" \
+    sui client ptb \
+      --move-call "${PKG}::wick::redeem" "<$SUI_COIN_TYPE>" \
+        "@${MARKET}" "@${VAULT_ID}" "@${RISK_CONFIG}" "@${FEE_ROUTER_SUI}" \
+        "@${WICK_STATE}" "@${STAKING_POOL}" "@${PRICE_ORACLE}" \
+        "@${POS_ID}" "@${CLOCK}" \
+      --assign payout \
+      --transfer-objects "[payout]" "@${SENDER}" \
+      --gas-budget 300000000 --json)
+  REDEEM_DIGEST=$(digest_of "$REDEEM_OUT")
+  PAYOUT_MIST=$(sui_balance_change_for "$REDEEM_OUT" "$SENDER")
+  REDEEM_STATUS="aborted-refund"
+else
+  green ">>> wick::redeem (HIT or EXPIRED — winner or loser)"
+  REDEEM_OUT=$(run_tx "redeem" \
+    sui client ptb \
+      --move-call "${PKG}::wick::redeem" "<$SUI_COIN_TYPE>" \
+        "@${MARKET}" "@${VAULT_ID}" "@${RISK_CONFIG}" "@${FEE_ROUTER_SUI}" \
+        "@${WICK_STATE}" "@${STAKING_POOL}" "@${PRICE_ORACLE}" \
+        "@${POS_ID}" "@${CLOCK}" \
+      --assign payout \
+      --transfer-objects "[payout]" "@${SENDER}" \
+      --gas-budget 300000000 --json)
+  REDEEM_DIGEST=$(digest_of "$REDEEM_OUT")
+  PAYOUT_MIST=$(sui_balance_change_for "$REDEEM_OUT" "$SENDER")
+  REDEEM_STATUS="ok"
+fi
 
-# ---- step 7: redeem_winner (PTB to transfer returned Coin) ----
+# ---------- 7. P&L summary ----------
 
-run_tx "redeem_winner" \
-  sui client ptb \
-    --move-call "${PKG}::wick::redeem_winner" "<0x2::sui::SUI>" "@${MARKET}" "@${POS}" \
-    --assign payout \
-    --transfer-objects "[payout]" "@${SENDER}" \
-    --gas-budget 200000000 \
-    --json
+hr
+green "=== SMOKE TEST SUMMARY ==="
+printf "  %-22s %s\n" "package"            "$PKG"
+printf "  %-22s %s\n" "sender"             "$SENDER"
+printf "  %-22s %s\n" "market"             "$M_NAME ($MARKET)"
+printf "  %-22s %s\n" "barrier/direction"  "$BARRIER  dir=$DIRECTION"
+printf "  %-22s %s\n" "expiry_ms"          "$EXPIRY_MS"
+printf "  %-22s %s\n" "drain_ms"           "$DRAIN_MS"
+printf "  %-22s %s\n" "opened_at_ms"       "${OPENED_AT_MS:-(skipped)}"
+printf "  %-22s %s\n" "settled_at_ms"      "$SETTLED_AT_MS"
+printf "  %-22s %s\n" "final_status"       "$FINAL_STATUS_LABEL"
+printf "  %-22s %s\n" "ticks_issued"       "$TICK_COUNT"
+printf "  %-22s %s\n" "position_id"        "${POS_ID:-(none)}"
+printf "  %-22s %s\n" "stake_mist"         "$STAKE_MIST"
+printf "  %-22s %s\n" "payout_mist"        "$PAYOUT_MIST"
+printf "  %-22s %s\n" "redeem"             "$REDEEM_STATUS"
+if [ -n "$POS_ID" ]; then
+  # P&L is payout - stake. For a winner: payout = stake*multiplier => P&L > 0.
+  # For a loser: payout = 0 => P&L = -stake.
+  PNL=$(( PAYOUT_MIST - STAKE_MIST ))
+  printf "  %-22s %s mist\n" "P&L (gross)"   "$PNL"
+fi
+gray ""
+gray "tx digests:"
+gray "  open:    ${OPEN_DIGEST:-(n/a)}"
+gray "  settle:  $SETTLE_DIGEST"
+gray "  redeem:  ${REDEEM_DIGEST:-(n/a)}"
+gray ""
+gray "explorer:"
+gray "  market:  https://suiscan.xyz/testnet/object/$MARKET"
+[ -n "$POS_ID" ] && gray "  position(consumed): $POS_ID"
 
 green ""
-green "=== smoke: ok ==="
-note "  package_id:  $PKG"
-note "  oracle:      $ORACLE       https://suiscan.xyz/testnet/object/$ORACLE"
-note "  market:      $MARKET       https://suiscan.xyz/testnet/object/$MARKET"
-note "  lp:          $LP           https://suiscan.xyz/testnet/object/$LP"
-note "  position:    $POS (consumed by redeem_winner)"
-note ""
-note "Inspect the market post-redeem: sui client object $MARKET --json"
+green "OK — smoke complete"
