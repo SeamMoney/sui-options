@@ -1,37 +1,8 @@
 {
   "network": "testnet",
-  "package_id": "0x031ff2b0a394ac4933e90314ca49ce197d5f0690b9f2cd8f22c3abc640c2e7d7",
-  "original_id": "0xb035818bd16a2ed51e2af3bb89fae743444d240c9e31e21f64fdba62da43b286",
-  "upgrade_cap": "0xf98e9c7bcfcc0d0b1d5acfb1a739a54177513c0a84da74da5888efd25e3b430c",
+  "package_id": "0x81ec682cfa370edad312b6b6b37053552199a7aeab1203bf1bc650f6668cc846",
   "publisher": "0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455",
-  "publish_digest": "AsFV4WwtsdDQDmKE9vFDtijd3zTgoTeo9Us69aarRoCi",
-  "published_at": "20260509T035546Z",
-  "history": [
-    {
-      "package_id": "0xb035818bd16a2ed51e2af3bb89fae743444d240c9e31e21f64fdba62da43b286",
-      "published_at": "20260508T014431Z",
-      "digest": "HaP8rYkNSZZeWBmKguhWpWZ2hh3vUy2zKJJn4Yfh32J9",
-      "kind": "publish"
-    },
-    {
-      "package_id": "0x464b54005e032d02a971e53835035674675882dd621c021fd7e034168d750cc8",
-      "published_at": "20260508T014939Z",
-      "digest": "AsFV4WwtsdDQDmKE9vFDtijd3zTgoTeo9Us69aarRoCi",
-      "kind": "upgrade"
-    },
-    {
-      "package_id": "0x04c433961027922ee39aec494a1fab31c687b4041eb79fd3a8ee3fadfbb9dbc5",
-      "published_at": "20260509T032130Z",
-      "digest": "EogFagj1GLXYY1FrEBQjCYriGdK8V76JL6Y8jiGTAFcd",
-      "kind": "upgrade",
-      "notes": "added redeem_lp + 6 conservation tests"
-    },
-    {
-      "package_id": "0x031ff2b0a394ac4933e90314ca49ce197d5f0690b9f2cd8f22c3abc640c2e7d7",
-      "published_at": "20260509T035546Z",
-      "digest": "2SC9qY8YNQaBzKezostaphsYnQTqXRTmizujKWGQd5h5",
-      "kind": "upgrade",
-      "notes": "added 8 lifecycle events: MarketCreated, PositionOpened, Swapped, CompleteSetRedeemed, MarkedHit, SettledExpired, WinnerRedeemed, LpRedeemed"
-    }
-  ]
+  "publish_digest": "Coie76uxpmRHs2UQGchHp7pGCVL9DqLedJLoyVqmJ3sb",
+  "published_at": "20260519T001955Z",
+  "raw_log": "deployments/archive/publish-20260519T001955Z.json"
 }

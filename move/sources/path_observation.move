@@ -464,6 +464,15 @@ public fun min_seen(po: &PathObservation): u64 { po.min_seen }
 public fun last_seen_ms(po: &PathObservation): &Option<u64> { &po.last_seen_ms }
 public fun touched_at(po: &PathObservation): &Option<u64> { &po.touched_at }
 public fun is_touched(po: &PathObservation): bool { option::is_some(&po.touched_at) }
+
+/// True iff the barrier was touched at a timestamp inside [start_ms, end_ms].
+/// Load-bearing for `wick::ride_position::close_ride` — establishes the
+/// "touch wins ties" race-resolution rule from design doc 11 §5.
+public fun touched_during(po: &PathObservation, start_ms: u64, end_ms: u64): bool {
+    if (option::is_none(&po.touched_at)) return false;
+    let t = *option::borrow(&po.touched_at);
+    t >= start_ms && t <= end_ms
+}
 public fun settlement_snapshot(po: &PathObservation): &Option<PathSnapshot> {
     &po.settlement_snapshot
 }
