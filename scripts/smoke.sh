@@ -317,9 +317,14 @@ note "bot_registry:      $BOT_REGISTRY"
 
 if [ -z "$FEE_ROUTER_SUI" ]; then
   hr
+  # NOTE: needle is `::fee_router::FeeRouter<` (with the type-param angle
+  # bracket) because `created_of_type` does substring matching and the
+  # admin cap type is `FeeRouterAdminCap` — without the `<`, the cap is
+  # captured instead of the shared `FeeRouter<C>`, which corrupts the
+  # artifact and makes downstream redeem fail with TypeMismatch at arg_idx 3.
   FEE_ROUTER_SUI=$(bootstrap_singleton "fee_router_sui" \
     "fee_router" "init_router" \
-    "::fee_router::FeeRouter" "::fee_router::FeeRouterAdminCap")
+    "::fee_router::FeeRouter<" "::fee_router::FeeRouterAdminCap")
   patch_artifact_kv "fee_router_sui" "$FEE_ROUTER_SUI"
 fi
 note "fee_router<SUI>:   $FEE_ROUTER_SUI"
@@ -523,6 +528,23 @@ while true; do
 done
 
 note "ticks issued: $TICK_COUNT"
+
+# ---------- 4b. Post-expiry settlement tick ----------
+# wick_oracle::apply_observation auto-latches `settlement_observation` only
+# when an inbound obs has `obs_ts >= expiry_ms`. The tick loop above exits
+# BEFORE expiry+drain, so the last obs has `obs_ts < expiry_ms` and the
+# settlement obs slot stays empty — lock_settlement_from_latest then aborts
+# ENoSettlementObservation (code 5). One final post-expiry tick latches it.
+
+hr
+green ">>> post-expiry settlement tick (seeds wick_oracle.settlement_observation)"
+if ! sui client ptb \
+    --move-call "${PKG}::random_walk_driver::tick" \
+      "@${RWALK}" "@${ORACLE}" "@${CLOCK}" \
+    --gas-budget 50000000 --json >/tmp/wick-smoke-tick-final.txt 2>&1; then
+  warn "final tick failed (continuing — lock_and_settle may still abort):"
+  tail -5 /tmp/wick-smoke-tick-final.txt >&2 || true
+fi
 
 # ---------- 5. lock_and_settle ----------
 

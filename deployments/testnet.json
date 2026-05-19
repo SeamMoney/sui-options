@@ -37,13 +37,44 @@
       "barrier": 1030000000,
       "direction": 0,
       "expiry_ms": 1779165895532
+    },
+    {
+      "name": "WICK-RNG-25",
+      "market": "0x97f7a32279e4677249513b6e2c422388d56bf87875529d99636d03ec308562dc",
+      "oracle": "0x1ced9ef2a41d58409e543cb2d0c402bae9be736f68c652670fc74aff48fd762f",
+      "path": "0xc73c08a8f947aa9b1c9dcc40ff51201fcb14f204fd0ecdff8af2884b06deff21",
+      "random_walk": "0x07fff6f549fedce663d6913755767db2c5bd32ca2cc571c0a321bf98c88e7b1b",
+      "barrier": 26000000,
+      "direction": 0,
+      "expiry_ms": 1779166426689
+    },
+    {
+      "name": "WICK-RNG-100",
+      "market": "0xb24ea5286c1f4066fe4f9d065719a9b600668b2d741680f5c78d2f5e00d195df",
+      "oracle": "0xba9f258d505393bbe97f9d1a20c2d4e569cc4645343455006414d2577e50666e",
+      "path": "0x93ace5b83bd47448583ae1902438d744cd8ffe5b14c73f40f920ab629d86fecb",
+      "random_walk": "0x2bed4ab6cdcf74ec5afc109b483408eb6515b634f4cd8f4353cf7d4ffda669ff",
+      "barrier": 95000000,
+      "direction": 1,
+      "expiry_ms": 1779166728655
+    },
+    {
+      "name": "WICK-RNG-1000",
+      "market": "0xf85ac46058b53bc2c0ad54adae46d379fb9548ababa21347539f0f59d3bc0fee",
+      "oracle": "0x97781c4f06869b3351a71ede99d707cb3fe5d76bc3dd68312889024eb2b3e8e1",
+      "path": "0x8058fe0a05753e1b7ae2ef704f321a7f4cbee29a26bd0e072eb3e1de2af79aca",
+      "random_walk": "0x74f67d5e0b4308004269c01ac935e7d6468732eb1679762d48d7d8cea8a50e58",
+      "barrier": 1030000000,
+      "direction": 0,
+      "expiry_ms": 1779167330513
     }
   ],
   "risk_config": "0xed7a8d84b8528804278109945742319936a4544d27ed2a81253bcb3d094705e6",
   "global_exposure_registry": "0x7ccade4b96ab6f8825a820b143baac4109d614c501b85661f5166d1000a27877",
   "bot_registry": "0x58b2baf812ed18315836a3720ea474e967ddd35b8cbaaeac7f4af41f767e9a18",
-  "fee_router_sui": "0x71a56a868cd30dca4cdd4dd475c033b40897e2584a3d59aa95b2ae48055f1b14",
+  "fee_router_sui": "0x7dd54fafc9a4d92e94d834a52098331bf015a3b582496196cd675f98bf99e9fb",
   "usd_price_oracle": "0xd113aaa523992f0c13d057b82a7c7f847fb3fa67df1b807f7b4d3df396ba76af",
   "wick_staking_pool": "0x43f90916195fc9bed5131f3c38a439b8ee1a05a91a4e9a60b64888505f0f868c",
-  "wick_token_state": "0xcc22b2a651be1c36437f90684cb74258b844b2f96dc5f0d3a41370da0133c663"
+  "wick_token_state": "0xcc22b2a651be1c36437f90684cb74258b844b2f96dc5f0d3a41370da0133c663",
+  "fee_router_sui_admin_cap": "0x71a56a868cd30dca4cdd4dd475c033b40897e2584a3d59aa95b2ae48055f1b14"
 }

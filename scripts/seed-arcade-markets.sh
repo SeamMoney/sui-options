@@ -30,7 +30,7 @@ SEED_MIST="${SEED_MIST:-200000000}"        # 0.2 SUI
 MARKET_COUNT="${MARKET_COUNT:-3}"
 PAYOUT_MULT_BPS="${PAYOUT_MULT_BPS:-18000}"
 VOL_BPS="${VOL_BPS:-50}"
-FRESHNESS_MS="${FRESHNESS_MS:-5000}"
+FRESHNESS_MS="${FRESHNESS_MS:-120000}"  # 2min — the keeper needs real time to crank lock_and_settle after the first post-expiry tick latches settlement_observation
 CORRELATION_BUCKET=0
 SUI_COIN_TYPE="0x2::sui::SUI"
 
