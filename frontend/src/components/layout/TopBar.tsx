@@ -1,6 +1,6 @@
-import { ConnectButton } from "@mysten/dapp-kit";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { DynamicConnectButton } from "@/components/wallet/DynamicConnectButton";
 import { PACKAGE_ID, NETWORK, explorerObjectUrl } from "@/lib/sui";
 import { shortAddr } from "@/lib/format";
 
@@ -76,7 +76,7 @@ export function TopBar({
         >
           pkg {shortAddr(PACKAGE_ID, 4, 4)}
         </a>
-        <ConnectButton connectText="Connect wallet" />
+        <DynamicConnectButton />
       </div>
     </header>
   );

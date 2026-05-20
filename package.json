@@ -26,5 +26,8 @@
     "bots:balances": "npm -w wick-bots run balances",
     "bots:run": "npm -w wick-bots run run",
     "bots:tick": "npm -w wick-bots run tick"
+  },
+  "overrides": {
+    "@mysten/sui": "^2.16.0"
   }
 }

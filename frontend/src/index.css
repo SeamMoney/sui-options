@@ -123,6 +123,79 @@ body {
   --chart-label: oklch(0.75 0.01 260);
 }
 
+/* ── Ride canvas (touch/no-touch gesture surface) ──────────────────────────
+ *
+ * Ported from /tmp/cash-trading-game/src/index.css. The PnL overlay,
+ * connect-overlay, and other on-canvas cards all use the `.glass-*` class
+ * stack to layer a liquid-glass surface above the p5 canvas.
+ *
+ * --sat is consumed by `frontend/src/utils/safeArea.ts:getSafeBottom`.
+ */
+:root {
+  --sat: env(safe-area-inset-bottom);
+
+  --lg-bg-color: rgba(255, 255, 255, 0.025);
+  --lg-highlight: rgba(255, 255, 255, 0.20);
+  --lg-glow: rgba(255, 255, 255, 0.15);
+  --lg-refraction: rgba(255, 255, 255, 0.08);
+  --lg-border: rgba(255, 255, 255, 0.12);
+}
+
+.glass-container {
+  position: relative;
+  background: transparent;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--lg-border);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 2px 8px rgba(0, 0, 0, 0.15),
+    0 4px 16px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+.glass-filter,
+.glass-overlay,
+.glass-specular {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  border: none;
+}
+.glass-filter {
+  z-index: 0;
+  backdrop-filter: blur(8px) saturate(200%) contrast(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(200%) contrast(120%);
+  filter: saturate(140%) brightness(1.25) hue-rotate(5deg);
+}
+.glass-overlay {
+  z-index: 1;
+  background: var(--lg-bg-color);
+}
+.glass-specular {
+  z-index: 2;
+  box-shadow:
+    inset 0 0 8px var(--lg-glow),
+    inset 0 0 16px var(--lg-refraction),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 1px 0 0 rgba(255, 255, 255, 0.08),
+    0 0 12px rgba(255, 255, 255, 0.04);
+  background: radial-gradient(circle at 30% 30%,
+    var(--lg-glow) 0%,
+    var(--lg-refraction) 25%,
+    transparent 60%),
+  radial-gradient(circle at 70% 70%,
+    var(--lg-refraction) 0%,
+    transparent 40%);
+}
+.glass-content {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+}
+
 @theme inline {
   --color-chart-1: var(----chart-1);
   --color-chart-2: var(----chart-2);

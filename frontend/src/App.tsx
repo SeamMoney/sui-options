@@ -9,16 +9,20 @@ import { STUB_MARKETS, type MarketSnapshot } from "@/fixtures/markets";
 import { useLiveMarkets } from "@/hooks/useLiveMarkets";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { RideTest } from "@/routes/RideTest";
+import { Ride } from "@/routes/Ride";
 
-// Minimal pathname-based routing for the /ride-test spike. Avoids pulling
-// in a router lib for a one-page debug surface. Vercel SPA rewrite in
-// vercel.json already serves index.html for non-asset paths. Computed once
-// at module load (no hash routing / SPA nav within the test page).
-const IS_RIDE_TEST_ROUTE =
-  typeof window !== "undefined" && window.location.pathname === "/ride-test";
+// Minimal pathname-based routing for the /ride-test spike and the /ride
+// demo surface. Avoids pulling in a router lib. The Vercel SPA rewrite in
+// vercel.json (if deployed) serves index.html for non-asset paths;
+// computed once at module load (no hash routing / SPA nav within these
+// pages).
+const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
+const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
+const IS_RIDE_ROUTE = PATHNAME === "/ride";
 
 export default function App() {
   if (IS_RIDE_TEST_ROUTE) return <RideTest />;
+  if (IS_RIDE_ROUTE) return <Ride />;
   return <MainApp />;
 }
 
