@@ -4,6 +4,7 @@
 #[test_only]
 module wick::market_tests;
 
+use std::string;
 use sui::sui::SUI;
 use sui::test_scenario as ts;
 use sui::test_utils;
@@ -400,6 +401,112 @@ fun lock_and_settle_idempotent() {
 
     market::lock_and_settle<SUI>(&mut mkt, &mut vault, &mut path, &mut oracle, &mut reg, &clk, sc.ctx());
     assert!(market::status(&mkt) == first_status, 0);
+
+    test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
+    test_utils::destroy(vault); test_utils::destroy(vcap);
+    test_utils::destroy(rconf); test_utils::destroy(rcap);
+    test_utils::destroy(reg); test_utils::destroy(regcap);
+    test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
+    market::destroy_for_testing(mkt);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+// ===========================================================================
+// Vault-side gate tests (Monte Carlo finding #2 — see
+// docs/design/v2/15_montecarlo_validation_report.md)
+//
+// When `vault_side = SIDE_NO_TOUCH`, only TOUCH-side opens are allowed.
+// This closes the symmetric-demand vault-edge bug.
+// ===========================================================================
+
+#[test]
+fun gated_market_accepts_open_on_allowed_side() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, _legacy_mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, clk) =
+        h::setup_full_world(&mut sc);
+    h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+
+    // Build a gated market: vault holds NO_TOUCH; traders may only open TOUCH.
+    let mut gated = market::create_v4<SUI>(
+        string::utf8(b"GATED"), &oracle, &path, &vault,
+        market::default_sigma_bps_per_sqrt_sec() * 0 + 18_000, // payout 1.8x
+        0,
+        market::default_sigma_bps_per_sqrt_sec(),
+        market::side_no_touch(),
+        sc.ctx(),
+    );
+    assert!(market::vault_side(&gated) == market::side_no_touch(), 0);
+
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
+    let stake = h::mint_sui(STAKE, &mut sc);
+    let pos = h::open_with_bundle(
+        &mut gated, &mut vault, &rconf, &mut reg, &bundle, &path,
+        market::side_touch(), stake, SPOT, &clk, sc.ctx(),
+    );
+    // Open succeeded — gate is permissive on the allowed side.
+    test_utils::destroy(pos);
+
+    test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
+    test_utils::destroy(_legacy_mkt);
+    test_utils::destroy(vault); test_utils::destroy(vcap);
+    test_utils::destroy(rconf); test_utils::destroy(rcap);
+    test_utils::destroy(reg); test_utils::destroy(regcap);
+    test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
+    market::destroy_for_testing(gated);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+#[test]
+#[expected_failure(abort_code = 16, location = wick::market)]
+fun gated_market_rejects_open_on_vault_side() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, _legacy_mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, clk) =
+        h::setup_full_world(&mut sc);
+    h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+
+    let mut gated = market::create_v4<SUI>(
+        string::utf8(b"GATED"), &oracle, &path, &vault,
+        18_000, 0,
+        market::default_sigma_bps_per_sqrt_sec(),
+        market::side_no_touch(),
+        sc.ctx(),
+    );
+    let bundle = h::setup_c35_bundle(&mut sc, &clk);
+    let stake = h::mint_sui(STAKE, &mut sc);
+    // Attempt to open on the gated side — should abort with EVaultSideClosed (16).
+    let _pos = h::open_with_bundle(
+        &mut gated, &mut vault, &rconf, &mut reg, &bundle, &path,
+        market::side_no_touch(), stake, SPOT, &clk, sc.ctx(),
+    );
+    abort 0xDEAD  // unreachable; #[expected_failure] catches the abort above
+}
+
+#[test]
+fun ungated_market_accepts_both_sides() {
+    // Sanity: VAULT_SIDE_NONE markets (legacy / DNT) still let both sides open.
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, clk) =
+        h::setup_full_world(&mut sc);
+    h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+
+    assert!(market::vault_side(&mkt) == market::vault_side_none(), 0);
+
+    let mut bundle = h::setup_c35_bundle(&mut sc, &clk);
+    let s1 = h::mint_sui(STAKE, &mut sc);
+    let p1 = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
+        market::side_touch(), s1, SPOT, &clk, sc.ctx(),
+    );
+    let s2 = h::mint_sui(STAKE, &mut sc);
+    let p2 = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
+        market::side_no_touch(), s2, SPOT, &clk, sc.ctx(),
+    );
+    test_utils::destroy(p1); test_utils::destroy(p2);
 
     test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
     test_utils::destroy(vault); test_utils::destroy(vcap);

@@ -128,39 +128,54 @@ if [ -z "$VAULT_ID" ]; then
   note "cap:   $VAULT_CAP"
 fi
 
-# ---------- 2. Seed vault with LP ----------
+# ---------- 2. Seed vault with LP (skip if already funded) ----------
+
+VAULT_BAL=$(sui client object "$VAULT_ID" --json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(d.get('content', {}).get('fields', {}).get('treasury', '0'))
+except Exception:
+    print('0')
+" 2>/dev/null || echo "0")
 
 hr
-green "seeding vault with $SEED_MIST MIST"
-GAS=$(biggest_gas_coin_above $((SEED_MIST + 100000000))) || {
-  red "no gas coin large enough to split off $SEED_MIST + 0.1 SUI fee"
-  red "current gas:"
-  sui client gas 2>&1 | head -8
-  exit 3
-}
+if [ "${SKIP_SEED:-0}" = "1" ] || [ "$VAULT_BAL" != "0" ]; then
+  note "vault already funded ($VAULT_BAL MIST) — skipping seed step"
+else
+  green "seeding vault with $SEED_MIST MIST"
+  GAS=$(biggest_gas_coin_above $((SEED_MIST + 100000000))) || {
+    red "no gas coin large enough to split off $SEED_MIST + 0.1 SUI fee"
+    red "current gas:"
+    sui client gas 2>&1 | head -8
+    exit 3
+  }
 
-SPLIT_OUT=$(run_tx "split-seed" \
-  sui client split-coin --coin-id "$GAS" --amounts "$SEED_MIST" \
-    --gas-budget 50000000 --json)
-SEED_COIN=$(created_of_type "$SPLIT_OUT" "0x2::coin::Coin<0x2::sui::SUI>")
-note "seed coin: $SEED_COIN"
+  SPLIT_OUT=$(run_tx "split-seed" \
+    sui client split-coin --coin-id "$GAS" --amounts "$SEED_MIST" \
+      --gas-budget 9000000 --json)
+  SEED_COIN=$(created_of_type "$SPLIT_OUT" "0x2::coin::Coin<0x2::sui::SUI>")
+  note "seed coin: $SEED_COIN"
 
-run_tx "seed-vault" \
-  sui client call \
-    --package "$PKG" --module wick --function seed_vault \
-    --type-args "$SUI_COIN_TYPE" \
-    --args "$VAULT_ID" "$SEED_COIN" 0x6 \
-    --gas-budget 100000000 --json >/dev/null
-note "vault seeded with $SEED_MIST MIST"
+  run_tx "seed-vault" \
+    sui client call \
+      --package "$PKG" --module wick --function seed_vault \
+      --type-args "$SUI_COIN_TYPE" \
+      --args "$VAULT_ID" "$SEED_COIN" 0x6 \
+      --gas-budget 100000000 --json >/dev/null
+  note "vault seeded with $SEED_MIST MIST"
+fi
 
 # ---------- 3. Bootstrap N random-walk markets ----------
 
-# Market specs: (name, underlying, starting_price, barrier, direction, expiry_offset_s)
-# starting_price is in micro-USD; barrier offset is ±5% of start.
+# Market specs: (name, underlying, starting_price, barrier, direction, expiry_offset_s, vol_bps, multiplier_bps)
+# starting_price is in micro-USD. Per-market vol + multiplier validated by
+# scripts/simulate_protocol.py against §6 of 14_ride_economics.md.
+# Each row's edge target: vault keeps ≥ +15% per position with vault_side gate.
 SPECS=(
-  "WICK-RNG-25      WICK_RNG      25000000      26000000     0   300"     # 5min, touch-above (4% room)
-  "WICK-RNG-100     WICK_RNG_HI   100000000     95000000     1   600"     # 10min, touch-below (5% room)
-  "WICK-RNG-1000    WICK_RNG_MEM  1000000000    1030000000   0   1200"    # 20min, touch-above (3% room)
+  "WICK-RNG-25      WICK_RNG      25000000      26000000     0   300     23   25000"   # 5min, touch-above (4% room), 2.5x, edge ~+21%
+  "WICK-RNG-100     WICK_RNG_HI   100000000     95000000     1   600     20   20000"   # 10min, touch-below (5% room), 2.0x, edge ~+38%
+  "WICK-RNG-1000    WICK_RNG_MEM  1000000000    1030000000   0   1200    12   18000"   # 20min, touch-above (3% room), 1.8x, edge ~+15%
 )
 
 MARKETS_PY=""
@@ -168,18 +183,21 @@ idx=0
 for spec in "${SPECS[@]}"; do
   idx=$((idx + 1))
   [ "$idx" -gt "$MARKET_COUNT" ] && break
-  read -r NAME UNDER START BARRIER DIR OFFSET <<< "$spec"
+  read -r NAME UNDER START BARRIER DIR OFFSET SPEC_VOL SPEC_MULT <<< "$spec"
   EXPIRY_MS=$(python3 -c "import time; print(int(time.time()*1000) + ${OFFSET}*1000)")
 
   hr
-  green "[$idx] $NAME ($UNDER)  start=$START  barrier=$BARRIER  dir=$DIR  expires=+${OFFSET}s"
+  green "[$idx] $NAME ($UNDER)  start=$START  barrier=$BARRIER  dir=$DIR  vol=$SPEC_VOL  mult=$SPEC_MULT  expires=+${OFFSET}s"
+  # vault_side = 1 (SIDE_NO_TOUCH): vault is the natural NO_TOUCH counterparty
+  # so traders can only open TOUCH positions. Closes the symmetric-demand
+  # vault-edge bug from docs/design/v2/15_montecarlo_validation_report.md.
   OUT=$(run_tx "market-$idx" \
     sui client call \
       --package "$PKG" --module wick --function bootstrap_random_walk_market \
       --type-args "$SUI_COIN_TYPE" \
-      --args "$NAME" "$UNDER" "$START" "$VOL_BPS" "$BARRIER" "$DIR" \
-             "$EXPIRY_MS" "$FRESHNESS_MS" "$PAYOUT_MULT_BPS" \
-             "$CORRELATION_BUCKET" "$VAULT_ID" 0x6 \
+      --args "$NAME" "$UNDER" "$START" "$SPEC_VOL" "$BARRIER" "$DIR" \
+             "$EXPIRY_MS" "$FRESHNESS_MS" "$SPEC_MULT" \
+             "$CORRELATION_BUCKET" 1 "$VAULT_ID" 0x6 \
       --gas-budget 200000000 --json)
 
   MARKET=$(created_of_type "$OUT" "::market::Market<")

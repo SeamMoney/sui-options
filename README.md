@@ -7,11 +7,12 @@ Prediction markets ask where BTC ends. **Wick asks whether BTC wicks into a leve
 | | |
 |---|---|
 | Network | Sui **testnet** (do not use on mainnet) |
-| Package | `0x81ec682cfa370edad312b6b6b37053552199a7aeab1203bf1bc650f6668cc846` |
-| Published | 2026-05-19 (branch `claude/add-trading-bots-testnet-ougdg`) |
+| Package | `0x9f0320d08c2025c57720b6f9b64fdc767441acb1ef778512abbf00c12e1ee8ba` |
+| Published | 2026-05-20 (vault_side gate + calibrated parameters) |
 | Source of truth | `deployments/testnet.json` — read it programmatically, README may lag a redeploy |
 | Surface | Touch / No-Touch + Double-No-Touch + Ride streaming primitive |
-| Tests | 252 / 252 Move tests passing |
+| Tests | 256 / 256 Move tests passing |
+| Solvency | Monte Carlo across 30k sessions → 0 conservation violations, positive vault edge on every market template (see [§6 of `docs/design/v2/14_ride_economics.md`](docs/design/v2/14_ride_economics.md)) |
 
 ## What's shipped
 

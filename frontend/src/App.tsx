@@ -8,8 +8,21 @@ import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { STUB_MARKETS, type MarketSnapshot } from "@/fixtures/markets";
 import { useLiveMarkets } from "@/hooks/useLiveMarkets";
 import { usePortfolio } from "@/hooks/usePortfolio";
+import { RideTest } from "@/routes/RideTest";
+
+// Minimal pathname-based routing for the /ride-test spike. Avoids pulling
+// in a router lib for a one-page debug surface. Vercel SPA rewrite in
+// vercel.json already serves index.html for non-asset paths. Computed once
+// at module load (no hash routing / SPA nav within the test page).
+const IS_RIDE_TEST_ROUTE =
+  typeof window !== "undefined" && window.location.pathname === "/ride-test";
 
 export default function App() {
+  if (IS_RIDE_TEST_ROUTE) return <RideTest />;
+  return <MainApp />;
+}
+
+function MainApp() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState<number>(Date.now());
   const [tab, setTab] = useState<TopBarTab>("trade");

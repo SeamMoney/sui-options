@@ -82,6 +82,12 @@ public entry fun bootstrap_random_walk_market<C>(
     settlement_freshness_ms: u64,
     payout_multiplier_bps: u64,
     correlation_bucket_id: u8,
+    /// Side reserved for the vault as natural counterparty. For arcade
+    /// markets pass `market::side_no_touch()` (1) so traders only open
+    /// TOUCH; pass `market::vault_side_none()` (255) to allow both sides.
+    /// See docs/design/v2/15_montecarlo_validation_report.md for the
+    /// solvency analysis that drove this gate.
+    vault_side: u8,
     vault: &MartingalerVault<C>,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -96,8 +102,9 @@ public entry fun bootstrap_random_walk_market<C>(
         ctx,
     );
     let path = path_observation::new(&oracle, barrier, direction, ctx);
-    let market = market::create_v2<C>(
-        name, &oracle, &path, vault, payout_multiplier_bps, correlation_bucket_id, ctx,
+    let market = market::create_v4<C>(
+        name, &oracle, &path, vault, payout_multiplier_bps, correlation_bucket_id,
+        market::default_sigma_bps_per_sqrt_sec(), vault_side, ctx,
     );
     market::share(market);
     path_observation::share(path);
@@ -119,6 +126,9 @@ public entry fun bootstrap_pull_market<C>(
     settlement_freshness_ms: u64,
     payout_multiplier_bps: u64,
     correlation_bucket_id: u8,
+    /// See `bootstrap_random_walk_market`. For BTC / ETH / SUI / SP500
+    /// arcade-style touch markets pass `market::side_no_touch()`.
+    vault_side: u8,
     vault: &MartingalerVault<C>,
     ctx: &mut TxContext,
 ) {
@@ -131,8 +141,9 @@ public entry fun bootstrap_pull_market<C>(
         ctx,
     );
     let path = path_observation::new(&oracle, barrier, direction, ctx);
-    let market = market::create_v2<C>(
-        name, &oracle, &path, vault, payout_multiplier_bps, correlation_bucket_id, ctx,
+    let market = market::create_v4<C>(
+        name, &oracle, &path, vault, payout_multiplier_bps, correlation_bucket_id,
+        market::default_sigma_bps_per_sqrt_sec(), vault_side, ctx,
     );
     market::share(market);
     path_observation::share(path);

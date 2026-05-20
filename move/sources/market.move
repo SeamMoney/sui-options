@@ -41,6 +41,7 @@ const ENotActive: u64 = 12;
 const EStillActive: u64 = 13;
 const EBadStatus: u64 = 14;
 const EZeroSigma: u64 = 15;
+const EVaultSideClosed: u64 = 16;
 
 const SIDE_TOUCH: u8 = 0;
 const SIDE_NO_TOUCH: u8 = 1;
@@ -48,6 +49,10 @@ const SIDE_NO_TOUCH: u8 = 1;
 const SIDE_DNT_INSIDE: u8 = 2;
 /// DNT: bets at least one barrier is touched.
 const SIDE_DNT_OUTSIDE: u8 = 3;
+/// Sentinel meaning "no side is reserved for the vault" — both sides
+/// can open positions. Used by legacy/DNT markets where the protocol
+/// is peer-to-peer rather than vault-vs-trader.
+const VAULT_SIDE_NONE: u8 = 255;
 
 const STATUS_ACTIVE: u8 = 0;
 const STATUS_HIT: u8 = 1;
@@ -69,6 +74,7 @@ public fun side_touch(): u8 { SIDE_TOUCH }
 public fun side_no_touch(): u8 { SIDE_NO_TOUCH }
 public fun side_dnt_inside(): u8 { SIDE_DNT_INSIDE }
 public fun side_dnt_outside(): u8 { SIDE_DNT_OUTSIDE }
+public fun vault_side_none(): u8 { VAULT_SIDE_NONE }
 public fun status_active(): u8 { STATUS_ACTIVE }
 public fun status_hit(): u8 { STATUS_HIT }
 public fun status_expired(): u8 { STATUS_EXPIRED }
@@ -92,6 +98,14 @@ public struct Market<phantom C> has key {
     /// from RiskConfig default or per-market override. Used for global OI
     /// cap math via probability::touch_probability.
     sigma_bps_per_sqrt_sec: u64,
+    /// Side reserved for the vault as natural counterparty.
+    /// `open` rejects positions on this side, so the vault is always the
+    /// other side of every trade. Value `VAULT_SIDE_NONE` (255) disables
+    /// the gate — used by DNT and legacy two-sided markets.
+    /// Wired by Monte Carlo finding (see docs/design/v2/15_montecarlo_validation_report.md):
+    /// vault-backed touch markets must gate to single-side opening or
+    /// edge per dollar reduces to `1 - M` regardless of `P_touch`.
+    vault_side: u8,
     touch_exposure: u64,
     no_touch_exposure: u64,
     touch_stakes: u64,
@@ -195,6 +209,7 @@ public fun create_v2<C>(
 }
 
 /// v3 — full create with explicit sigma_bps_per_sqrt_sec.
+/// vault_side defaults to VAULT_SIDE_NONE (no gate, both sides openable).
 public fun create_v3<C>(
     name: String,
     oracle: &WickOracle,
@@ -205,10 +220,39 @@ public fun create_v3<C>(
     sigma_bps_per_sqrt_sec: u64,
     ctx: &mut TxContext,
 ): Market<C> {
+    create_v4<C>(
+        name, oracle, path, vault, payout_multiplier_bps, correlation_bucket_id,
+        sigma_bps_per_sqrt_sec, VAULT_SIDE_NONE, ctx,
+    )
+}
+
+/// v4 — adds vault_side gate. Pass SIDE_NO_TOUCH for arcade/touch markets
+/// so traders can only open the TOUCH side and the vault is the natural
+/// counterparty on NO_TOUCH. Pass VAULT_SIDE_NONE for two-sided markets.
+public fun create_v4<C>(
+    name: String,
+    oracle: &WickOracle,
+    path: &PathObservation,
+    vault: &MartingalerVault<C>,
+    payout_multiplier_bps: u64,
+    correlation_bucket_id: u8,
+    sigma_bps_per_sqrt_sec: u64,
+    vault_side: u8,
+    ctx: &mut TxContext,
+): Market<C> {
     assert!(payout_multiplier_bps > 10_000, EBadMultiplier);
     assert!(payout_multiplier_bps < 100_000, EBadMultiplier);
     assert!(path_observation::oracle_id(path) == object::id(oracle), EWrongPath);
     assert!(sigma_bps_per_sqrt_sec > 0, EZeroSigma);
+    // vault_side must be a recognized value
+    assert!(
+        vault_side == SIDE_TOUCH
+            || vault_side == SIDE_NO_TOUCH
+            || vault_side == SIDE_DNT_INSIDE
+            || vault_side == SIDE_DNT_OUTSIDE
+            || vault_side == VAULT_SIDE_NONE,
+        EVaultSideClosed,
+    );
 
     let underlying = *wick_oracle::underlying(oracle);
 
@@ -223,6 +267,7 @@ public fun create_v3<C>(
         payout_multiplier_bps,
         correlation_bucket_id,
         sigma_bps_per_sqrt_sec,
+        vault_side,
         touch_exposure: 0,
         no_touch_exposure: 0,
         touch_stakes: 0,
@@ -279,6 +324,9 @@ public fun create_dnt<C>(
         payout_multiplier_bps,
         correlation_bucket_id,
         sigma_bps_per_sqrt_sec: DEFAULT_SIGMA_BPS_PER_SQRT_SEC,
+        // DNT markets are two-sided (inside vs outside) by design; no
+        // vault-side reservation.
+        vault_side: VAULT_SIDE_NONE,
         touch_exposure: 0,
         no_touch_exposure: 0,
         touch_stakes: 0,
@@ -349,6 +397,18 @@ public fun open<C>(
         assert!(side == SIDE_DNT_INSIDE || side == SIDE_DNT_OUTSIDE, EBadMultiplier);
         assert!(is_dnt, EWrongPath);
     };
+
+    // Vault-side gate: if the market reserves a side for the vault as
+    // natural counterparty, reject opens on that side. Closes the
+    // symmetric-demand vault-edge bug surfaced by the Monte Carlo report
+    // (docs/design/v2/15_montecarlo_validation_report.md):
+    // with shared multiplier M and balanced two-sided demand, vault P&L
+    // per dollar reduces to `1 - M` independent of P_touch. Gating to a
+    // single side restores `1 - M·P_touch` as the per-position edge.
+    assert!(
+        market.vault_side == VAULT_SIDE_NONE || side != market.vault_side,
+        EVaultSideClosed,
+    );
 
     let stake_amount = stake.value();
     assert!(stake_amount > 0, EZeroStake);
@@ -720,6 +780,7 @@ public fun expiry_ms<C>(m: &Market<C>): u64 { m.expiry_ms }
 public fun payout_multiplier_bps<C>(m: &Market<C>): u64 { m.payout_multiplier_bps }
 public fun correlation_bucket_id<C>(m: &Market<C>): u8 { m.correlation_bucket_id }
 public fun sigma_bps_per_sqrt_sec<C>(m: &Market<C>): u64 { m.sigma_bps_per_sqrt_sec }
+public fun vault_side<C>(m: &Market<C>): u8 { m.vault_side }
 public fun touch_exposure<C>(m: &Market<C>): u64 { m.touch_exposure }
 public fun no_touch_exposure<C>(m: &Market<C>): u64 { m.no_touch_exposure }
 public fun touch_stakes<C>(m: &Market<C>): u64 { m.touch_stakes }
@@ -750,7 +811,7 @@ public fun destroy_for_testing<C>(market: Market<C>) {
     let Market {
         id, name: _, underlying: _, oracle_id: _, path_id: _, vault_id: _,
         expiry_ms: _, payout_multiplier_bps: _, correlation_bucket_id: _,
-        sigma_bps_per_sqrt_sec: _,
+        sigma_bps_per_sqrt_sec: _, vault_side: _,
         touch_exposure: _, no_touch_exposure: _, touch_stakes: _, no_touch_stakes: _,
         touch_pwe: _, no_touch_pwe: _,
         status: _, fee_snapshot: _, settled_at_ms: _,

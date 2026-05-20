@@ -78,7 +78,7 @@ fi
 
 publish_log="${archive_dir}/publish-${stamp}.json"
 note "deploy: running 'sui client publish' (this can take ~30-60s)..."
-sui client publish move/ --json --gas-budget 500000000 > "$publish_log"
+sui client publish move/ --json --gas-budget 1200000000 > "$publish_log"
 
 # Extract the Package object id (objectType == "package") and the tx digest.
 package_id="$(
