@@ -11,32 +11,41 @@
  */
 import { useCallback } from "react";
 import { useDynamicContext } from "@dynamic-labs/sdk-react-core";
+import { ConnectButton } from "@mysten/dapp-kit";
 import { Button } from "@/components/ui/button";
 import { shortAddr } from "@/lib/format";
 import { HAS_DYNAMIC_ENV_ID } from "@/providers/DynamicProvider";
 
+/**
+ * Outer wrapper: gates the env-id check BEFORE any Dynamic hook is called.
+ * When the env id is missing, `DynamicProvider` short-circuits and renders
+ * `<>{children}</>` instead of the real `<DynamicContextProvider>` — so
+ * calling `useDynamicContext()` here unconditionally would crash with
+ * "Hook must be used within <DynamicContextProvider>". Hooks can't be
+ * conditional, so the inner component (which IS allowed to call the hook)
+ * only mounts when the provider is real.
+ *
+ * Fallback: when no Dynamic env id is configured, render dApp Kit's native
+ * ConnectButton so users can still connect Slush / Suiet / any injected Sui
+ * wallet. Dynamic adds social login on top; without it, the rest of the
+ * Sui wallet ecosystem still works perfectly.
+ */
 export function DynamicConnectButton() {
-  // `useDynamicContext` returns no-op-ish defaults when the provider isn't
-  // mounted (happens when VITE_DYNAMIC_ENVIRONMENT_ID is unset). We still
-  // gate explicitly on the env-id sentinel so we can show a clearer message.
+  if (!HAS_DYNAMIC_ENV_ID) {
+    return <ConnectButton connectText="Connect wallet" />;
+  }
+  return <DynamicConnectButtonInner />;
+}
+
+function DynamicConnectButtonInner() {
+  // Safe to call here: this component only mounts when HAS_DYNAMIC_ENV_ID is
+  // true, which is the same condition under which DynamicProvider actually
+  // mounts the real <DynamicContextProvider>.
   // `setShowAuthFlow` lives on useDynamicContext in SDK 4.83+, NOT on
   // useDynamicModals (that hook's surface changed).
   const { primaryWallet, handleLogOut, setShowAuthFlow } = useDynamicContext();
 
   const openConnect = useCallback(() => setShowAuthFlow(true), [setShowAuthFlow]);
-
-  if (!HAS_DYNAMIC_ENV_ID) {
-    return (
-      <Button
-        variant="outline"
-        size="sm"
-        disabled
-        title="Set VITE_DYNAMIC_ENVIRONMENT_ID in frontend/.env.local — register your app at https://app.dynamic.xyz/dashboard/developer/api"
-      >
-        Sign in (no env id)
-      </Button>
-    );
-  }
 
   if (!primaryWallet) {
     return (

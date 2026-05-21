@@ -71,10 +71,96 @@
       "expiry_ms": 1779255969094,
       "ride_caps": "0xaa2e181782db312ff6b2d79e7c3ade18e4024a9955d7bfd98ad035a134d56017",
       "ride_caps_admin": "0xfdd1352de3f519d010f04967e00e1e910a287c035aaa573fa636129dfc78db88"
+    },
+    {
+      "name": "WICK-RNG-25",
+      "market": "0xe3c9cf0f3bc99fd3580502831f786f3106e028804ed15589685523c18d48cadc",
+      "oracle": "0xc8a8531d37312c84232ffc4a03c2a9f13b94ec072b1c8e57f683e5b34d6efcc4",
+      "path": "0xf69b208e1b7a412e41758ea8fda9495fbeef8d70ce0076b08d75ed0a68dc11f9",
+      "random_walk": "0xe2d06017b4669a222144a8ea018994960c223fda801b593a9949bff241239ba0",
+      "barrier": 26000000,
+      "direction": 0,
+      "expiry_ms": 1779260179072
+    },
+    {
+      "name": "WICK-RNG-100",
+      "market": "0x01f0fc411740a2b337bc656132c8d14c92cfd1f6c5b1306499784efd539960e2",
+      "oracle": "0x7e8c6a3d0f09d6ef35efeb5680990a2d50ad70949bf9fefeb669740ec6a751fc",
+      "path": "0xcab043a48d3916b60758a0355f57ab5e0b482470472d8ddd863df025b923a30f",
+      "random_walk": "0x3ef519c49bb37c9618af911d33f21003469873aa825df5d4602dd0e424729c7f",
+      "barrier": 95000000,
+      "direction": 1,
+      "expiry_ms": 1779260481032
+    },
+    {
+      "name": "WICK-RNG-1000",
+      "market": "0x5791b60cc4bdf3fae925228283bbcbd74498feb867b1b8779e8f7b3dc8aa05c6",
+      "oracle": "0xdcbc1790445538d6dac2a52a2eaa14c8a633176b3982f4a42c586c3992ac606c",
+      "path": "0xd9fcf09d6a27c7fd922ce51001b56313a1ee1cccc94f87ea183e564c6d4a633a",
+      "random_walk": "0x01290b374c7055b089761e0febc5327f1fb1f4af7b620cdfdfa4783a33b329b1",
+      "barrier": 1030000000,
+      "direction": 0,
+      "expiry_ms": 1779261083092,
+      "ride_caps": "0x556cdec6b7216447c80803b6f3abfa8f51f4374284b8d4c7efb2c355d2c69a05",
+      "ride_caps_admin": "0x2e0913e29aebb261dfae90b5ca016bf8dbd25fcd04b61a7a0854e8f4f3008861"
+    },
+    {
+      "name": "WICK-RNG-25",
+      "market": "0x7a99fbd74a47be73fd56cced8900caff9f28474b296ecd36dee4d8a6d0b9c976",
+      "oracle": "0x52eb22525a1c2d724593e82730cf6ee54efccfeac4979aab01b8e54a4669d024",
+      "path": "0xdbaa87a27b4480d84576070bcf724247334f1a3794b075c844e3444c344d7942",
+      "random_walk": "0x9188e1f52b7b565221b914f74ef8b810cf50760e557e7fe5c2c9e4d799354707",
+      "barrier": 26000000,
+      "direction": 0,
+      "expiry_ms": 1779262920866
+    },
+    {
+      "name": "WICK-RNG-25",
+      "market": "0xce9da45c4b092d8494a0686eaf92e2927cca22b78db4c74710de9e7f0f3893eb",
+      "oracle": "0x3a842cb590859925b61d0058380b7ce888f5d23066939e89eafc459a30cb0774",
+      "path": "0xf2f7bc39b93db993567e1ac15d1134cd82f4a72a9ca3c1f6a81f04804a2fa5ee",
+      "random_walk": "0x88b5a5951e9ddede35df315dbb194aca55ac419d4304914e8145acd1f489b264",
+      "barrier": 26000000,
+      "direction": 0,
+      "expiry_ms": 1779262982440
+    },
+    {
+      "name": "WICK-RNG-100",
+      "market": "0x1dcd685c5bf8aca342defcd5a9229ed1920c25a68abb1f33975a7bae6a55e70b",
+      "oracle": "0x471bd98813717c83157df258b0cff7285193dcbad649a0311374467a5302aab5",
+      "path": "0x66afbf1dc814d92ac7417ccb47f3052222667cf8edd459a312cfb4249774ea36",
+      "random_walk": "0xe3c28176bfc12cb4f5c1c1861930982d21919bd29e19ed4c8effe51a551ac2e0",
+      "barrier": 95000000,
+      "direction": 1,
+      "expiry_ms": 1779263284415
+    },
+    {
+      "name": "WICK-RNG-1000",
+      "market": "0xc1034a6647b488f1f48ed6f993cc6f734fa4d067a52db72620f5c88a0cd1207b",
+      "oracle": "0xda8a3ca970c3b2323c95485217cde4d40548af60e1b01fa964d03ffa045f0c2a",
+      "path": "0x14c5d249fcfb38c4c27b550a35cc9adc5f4c1b6d2b6e8eaf2be4d2f97bd3917d",
+      "random_walk": "0x41f441d42486308230304b574b283953f6168188f7b5aad08b20af42bac637e4",
+      "barrier": 1030000000,
+      "direction": 0,
+      "expiry_ms": 1779349086174,
+      "ride_caps": "0x13722d19bbfd39336cec5bf1cd91184b7d99e8464ff9f4657a22273f2351cf8b",
+      "ride_caps_admin": "0x25e1271db75f23e2b3faf962db7074b89578e96e81c9bfaa04140585cc78b78b"
+    },
+    {
+      "name": "WICK-RNG-1000",
+      "market": "0x9c153a825b3b6acebccc5e29fd7cd1916bdca11b9df510527abfa72443f77617",
+      "oracle": "0x82f0c373d0408365a30d3d4e40ec7ee75fb7552ec1bb57ba9213eda3a27b1966",
+      "path": "0x382e656bc609e52b14a50709667bf8892369d79b8bf60941b54ba9dc9dab48d4",
+      "random_walk": "0xd545a34d73c04eb0810904d9c22865d761e897c4798ec9e222a2d4f9ce62f0d1",
+      "barrier": 1008000000,
+      "direction": 0,
+      "expiry_ms": 1782360466670,
+      "ride_caps": "0xe4706b39c0e9fd815f762e7e748146b65a240da8d374ee521d6e554030cac528",
+      "ride_caps_admin": "0x037b323a2c8e973a14f846c610d969522e5667744dda2183891f2ad833e3510c"
     }
   ],
-  "ride_caps_sui": "0xaa2e181782db312ff6b2d79e7c3ade18e4024a9955d7bfd98ad035a134d56017",
-  "ride_caps_sui_admin": "0xfdd1352de3f519d010f04967e00e1e910a287c035aaa573fa636129dfc78db88",
+  "ride_caps_sui": "0xe4706b39c0e9fd815f762e7e748146b65a240da8d374ee521d6e554030cac528",
+  "ride_caps_sui_admin": "0x037b323a2c8e973a14f846c610d969522e5667744dda2183891f2ad833e3510c",
   "risk_config": "0xe16efc34b63d627aca1c8ad659ac1f04859109aa2b4a4b8bd2998680f18c1fc4",
   "global_exposure_registry": "0x8504d0b83423039abed8d7aef84314bc91a1ed035259f1fe0f6cdbdcbe29f432",
   "bot_registry": "0x50077c5bf80e400ff21220b6b30dfd7a28dda6de83fb2f72f0900903037aa447",

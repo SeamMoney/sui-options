@@ -39,8 +39,6 @@ export interface RideGestureOptions {
   p5InstanceRef: React.RefObject<p5 | null>;
   /** True while the position is open. Drives PnL line + emoji burst. */
   isHolding: boolean;
-  /** $-denominated live PnL of the open position. Drives line color + glow. */
-  pnl: number;
   /** Most recent observed spot in chart units. If supplied, the canvas
    *  drifts toward it instead of pure random walk. */
   liveSpot?: number;
@@ -48,13 +46,27 @@ export interface RideGestureOptions {
   barrier?: number;
   /** Direction: 0 = touch-from-below (barrier above spot), 1 = above. */
   barrierDirection?: 0 | 1;
+  /** Touch payout multiplier in bps (e.g. 20000 = 2.0x). Drives live PnL. */
+  multiplierBps?: number;
+  /** Premium burn rate in $/sec — how fast the held position accrues stake. */
+  stakeRatePerSec?: number;
+  /** Live PnL callback — fired ~12x/sec while a ride is held. The figure is
+   *  a mark-to-market of the touch position derived from the chart the user
+   *  is actually watching, so it is genuinely real-time / zero-latency. */
+  onPnlChange?: (snap: { pnl: number; staked: number }) => void;
   callbacks: RideGestureCallbacks;
   /** Disable press handling (e.g. wallet not connected, signing in flight). */
   disabled?: boolean;
 }
 
-// ── Tunables (mirrors the cash-trading-game look) ───────────────────────────
-const CANDLE_INTERVAL_MS = 120; // a touch slower than CTG's 65ms — feels less frantic for a real-money product
+// ── Tunables ────────────────────────────────────────────────────────────────
+// A real candlestick chart runs on TWO clocks: a fast price feed, and a
+// slower candle period. The right-most candle is "live" — it grows in place
+// as sub-prices arrive, then freezes when the period rolls. Closed candles
+// never move again. That is what makes the chart read as a stock trading
+// organically instead of a snake of pop-in candles sliding back and forth.
+const PRICE_TICK_MS = 100; // a new sub-price arrives this often
+const CANDLE_PERIOD_MS = 900; // the live candle freezes + a fresh one opens
 const MAX_VISIBLE_CANDLES_MOBILE = 4;
 const MAX_VISIBLE_CANDLES_DESKTOP = 6;
 
@@ -84,10 +96,12 @@ export function useRideGesture(opts: RideGestureOptions) {
     chartRef,
     p5InstanceRef,
     isHolding,
-    pnl,
     liveSpot,
     barrier,
     barrierDirection,
+    multiplierBps,
+    stakeRatePerSec,
+    onPnlChange,
     callbacks,
     disabled = false,
   } = opts;
@@ -96,20 +110,23 @@ export function useRideGesture(opts: RideGestureOptions) {
   // instance when these change.
   const stateRef = useRef({
     isHolding,
-    pnl,
+    // pnl is computed INSIDE the p5 loop (mark-to-market of the chart the
+    // user is watching) — it is not a prop. The loop writes it every frame;
+    // drawing + the close-FX read it.
+    pnl: 0,
     liveSpot,
     barrier,
     barrierDirection,
+    multiplierBps: multiplierBps ?? 20000,
+    stakeRatePerSec: stakeRatePerSec ?? 0.2,
     disabled,
   });
   const callbacksRef = useRef(callbacks);
+  const onPnlChangeRef = useRef(onPnlChange);
 
   useEffect(() => {
     stateRef.current.isHolding = isHolding;
   }, [isHolding]);
-  useEffect(() => {
-    stateRef.current.pnl = pnl;
-  }, [pnl]);
   useEffect(() => {
     stateRef.current.liveSpot = liveSpot;
   }, [liveSpot]);
@@ -120,11 +137,20 @@ export function useRideGesture(opts: RideGestureOptions) {
     stateRef.current.barrierDirection = barrierDirection;
   }, [barrierDirection]);
   useEffect(() => {
+    stateRef.current.multiplierBps = multiplierBps ?? 20000;
+  }, [multiplierBps]);
+  useEffect(() => {
+    stateRef.current.stakeRatePerSec = stakeRatePerSec ?? 0.2;
+  }, [stakeRatePerSec]);
+  useEffect(() => {
     stateRef.current.disabled = disabled;
   }, [disabled]);
   useEffect(() => {
     callbacksRef.current = callbacks;
   }, [callbacks]);
+  useEffect(() => {
+    onPnlChangeRef.current = onPnlChange;
+  }, [onPnlChange]);
 
   useEffect(() => {
     let p5Mod: typeof p5 | null = null;
@@ -136,24 +162,44 @@ export function useRideGesture(opts: RideGestureOptions) {
       p5Mod = (mod.default ?? mod) as typeof p5;
       const sketch = (p: p5) => {
         // ── Local mutable state, scoped to this p5 instance ────────────────
+        // candles[] holds CLOSED candles plus, as the final element, the one
+        // "live" candle currently forming at the right edge.
         let candles: Candle[] = [];
-        let intervalMs = CANDLE_INTERVAL_MS;
         let candleWidth = p.windowWidth < 768 ? 6 : 9;
         let candleSpacing = p.windowWidth < 768 ? 9 : 13;
         let maxCandles = p.windowWidth < 768
           ? Math.floor(p.windowWidth / candleSpacing * 0.6) || MAX_VISIBLE_CANDLES_MOBILE
           : Math.floor(p.windowWidth / candleSpacing * 0.7) || MAX_VISIBLE_CANDLES_DESKTOP;
         let priceScale = { min: 0, max: 100 };
+        let priceScaleInit = false;
         let chartArea = { x: 30, y: 90, width: 0, height: 0 };
         let gridAlpha = 0;
         let pulseAnimation = 0;
-        let lastUpdate = 0;
+        // Two clocks (see PRICE_TICK_MS / CANDLE_PERIOD_MS).
+        let lastTickMs = 0;
+        let liveCandleStartMs = 0;
+        // PnL bookkeeping for the currently-held position.
+        let positionOpenedAtMs = 0;
+        let lastPnlReportMs = 0;
 
-        // Random-walk seed for the synthesized candle stream.
-        let lastClose = stateRef.current.liveSpot ?? 100;
-        // Track when we last sync'd to the live oracle spot so we drift
-        // toward the real number without yanking the chart.
-        let lastSyncSpot = lastClose;
+        // Seed the synthesized walk near the live oracle spot when we have
+        // one; otherwise sit it just inside the barrier so the price line
+        // and the barrier line always share a sanely-scaled y-axis. (A bad
+        // seed — e.g. 100 against a $1030 barrier — collapses the walk into
+        // a flat line, because the far-off barrier blows up the y-range.)
+        const seedClose = (): number => {
+          const ls = stateRef.current.liveSpot;
+          if (ls && ls > 0 && Number.isFinite(ls)) return ls;
+          const b = stateRef.current.barrier;
+          if (b && b > 0 && Number.isFinite(b)) {
+            return stateRef.current.barrierDirection === 1 ? b * 1.01 : b * 0.99;
+          }
+          return 100;
+        };
+        let lastClose = seedClose();
+        // Momentum carries a trend across candles so the walk *sweeps*
+        // toward / away from the barrier instead of dead-flat jitter.
+        let momentum = 0;
 
         // Position state, set on press.
         let currentPosition: PositionState | null = null;
@@ -306,35 +352,51 @@ export function useRideGesture(opts: RideGestureOptions) {
           }
         };
 
-        // ── Candle synthesis ───────────────────────────────────────────────
-        const synthCandle = (): Candle => {
-          // Drift slowly toward the live oracle spot when one is supplied.
+        // ── Price walk — one sub-price per PRICE_TICK_MS ───────────────────
+        // A momentum random walk: a slow-varying trend term makes the chart
+        // *sweep* organically (runs that build, decay, reverse); a gentle
+        // pull toward the live oracle keeps it honest and on-screen. Tuned
+        // so a held ride has a real but not certain shot at the barrier.
+        const nextPrice = (): number => {
           const live = stateRef.current.liveSpot;
-          let drift = 0;
-          if (live && live > 0 && Number.isFinite(live)) {
-            if (Math.abs(live - lastSyncSpot) > lastSyncSpot * 0.02) {
-              // Big move from the oracle since we last looked — bias the
-              // walk hard toward the new spot so we don't lie to the user
-              // about where the market is.
-              drift = (live - lastClose) * 0.25;
-              lastSyncSpot = live;
-            } else {
-              drift = (live - lastClose) * 0.05;
-            }
-          }
-          const vol = Math.max(0.2, lastClose * 0.003);
-          const open = lastClose;
-          const close = open + drift + (Math.random() - 0.5) * vol * 2;
-          const high = Math.max(open, close) + Math.random() * vol;
-          const low = Math.min(open, close) - Math.random() * vol;
-          lastClose = close;
-          return { open, high, low, close, animation: 0 };
+          const anchor =
+            live && live > 0 && Number.isFinite(live) ? live : lastClose;
+          momentum += (Math.random() - 0.5) * lastClose * 0.0007;
+          momentum *= 0.93;
+          const mcap = lastClose * 0.004;
+          momentum = Math.max(-mcap, Math.min(mcap, momentum));
+          const revert = (anchor - lastClose) * 0.004;
+          const vol = Math.max(0.2, lastClose * 0.001);
+          lastClose =
+            lastClose + momentum + revert + (Math.random() - 0.5) * vol;
+          if (lastClose < 1) lastClose = 1;
+          return lastClose;
         };
 
-        const addCandle = () => {
-          const c = synthCandle();
-          if (candles.length >= maxCandles) candles.shift();
-          candles.push(c);
+        const newLiveCandle = (seed: number): Candle => ({
+          open: seed,
+          high: seed,
+          low: seed,
+          close: seed,
+          animation: 0,
+        });
+
+        // Fold one sub-price into the live (right-most) candle — it grows
+        // in place, exactly like the forming candle on a real chart.
+        const feedLiveCandle = (price: number) => {
+          const live = candles[candles.length - 1];
+          if (!live) return;
+          live.close = price;
+          if (price > live.high) live.high = price;
+          if (price < live.low) live.low = price;
+        };
+
+        // Freeze the live candle (it just stays put in the array) and open a
+        // fresh one. Closed candles never move again — the chart scrolls one
+        // candle per period, it does not snake.
+        const rollCandle = () => {
+          candles.push(newLiveCandle(lastClose));
+          if (candles.length > maxCandles) candles.shift();
           if (currentPosition) currentPosition.candlesElapsed++;
           for (const t of completedTrades) {
             t.candlesElapsed++;
@@ -367,8 +429,19 @@ export function useRideGesture(opts: RideGestureOptions) {
           const isMobile = p.windowWidth < 768;
           const topPadding = range * (isMobile ? 0.12 : 0.15);
           const bottomPadding = range * (isMobile ? 0.15 : 0.18);
-          priceScale.min = Math.max(0, min - bottomPadding);
-          priceScale.max = max + topPadding;
+          const targetMin = Math.max(0, min - bottomPadding);
+          const targetMax = max + topPadding;
+          // Glide the axis toward its target instead of snapping it every
+          // frame — a hard re-fit each tick is what made the whole chart
+          // slide up and down like a snake.
+          if (!priceScaleInit) {
+            priceScale.min = targetMin;
+            priceScale.max = targetMax;
+            priceScaleInit = true;
+          } else {
+            priceScale.min = p.lerp(priceScale.min, targetMin, 0.06);
+            priceScale.max = p.lerp(priceScale.max, targetMax, 0.06);
+          }
         };
 
         // ── Drawing primitives ─────────────────────────────────────────────
@@ -675,6 +748,9 @@ export function useRideGesture(opts: RideGestureOptions) {
             entryPrice: last.close,
             candlesElapsed: 0,
           };
+          positionOpenedAtMs = p.millis();
+          lastPnlReportMs = 0;
+          stateRef.current.pnl = 0;
           callbacksRef.current.onPress(last.close);
         };
 
@@ -708,6 +784,8 @@ export function useRideGesture(opts: RideGestureOptions) {
           }
           currentPosition = null;
           pnlLineEndPos = null;
+          stateRef.current.pnl = 0;
+          onPnlChangeRef.current?.({ pnl: 0, staked: 0 });
           callbacksRef.current.onRelease();
         };
 
@@ -720,6 +798,41 @@ export function useRideGesture(opts: RideGestureOptions) {
             });
           } catch {
             // ignore
+          }
+        };
+
+        // ── Live PnL ───────────────────────────────────────────────────────
+        // The number the user sees is a mark-to-market of the touch
+        // position, derived from the *chart they are watching* — not a laggy
+        // chain poll of a static object — so it moves every single tick.
+        // It is an estimate; the realized result is whatever the chain
+        // settles at close (shown in the settlement card).
+        const updateLivePnl = (now: number) => {
+          if (!currentPosition) return;
+          const s = stateRef.current;
+          const elapsedSec = Math.max(0, (now - positionOpenedAtMs) / 1000);
+          const staked = elapsedSec * s.stakeRatePerSec;
+          const mult = s.multiplierBps / 10000;
+          const live = candles[candles.length - 1];
+          const spot = live ? live.close : currentPosition.entryPrice;
+          const entry = currentPosition.entryPrice;
+          const b = s.barrier;
+          let proximity = 0;
+          if (b && Number.isFinite(b) && b > 0 && b !== entry) {
+            // 0 at entry, 1 at the barrier, negative if price runs away.
+            proximity =
+              s.barrierDirection === 1
+                ? (entry - spot) / (entry - b)
+                : (spot - entry) / (b - entry);
+          }
+          proximity = Math.max(-1.2, Math.min(1.05, proximity));
+          // Mark scales with premium burned (hold time) and progress to
+          // the barrier — green as you close in, red as price runs away.
+          const livePnl = staked * (mult - 1) * proximity;
+          s.pnl = livePnl;
+          if (now - lastPnlReportMs >= 80) {
+            lastPnlReportMs = now;
+            onPnlChangeRef.current?.({ pnl: livePnl, staked });
           }
         };
 
@@ -746,8 +859,26 @@ export function useRideGesture(opts: RideGestureOptions) {
           candleWidth = isMobile ? 6 : 9;
           candleSpacing = isMobile ? 9 : 13;
           maxCandles = Math.floor(chartArea.width / candleSpacing);
-          // Seed a few candles so the chart isn't empty on first paint.
-          for (let i = 0; i < 30; i++) addCandle();
+          // Pre-build a full screen of CLOSED candles so the chart opens
+          // already scrolling — each one a genuine OHLC of ~9 sub-prices.
+          const ticksPerCandle = Math.round(CANDLE_PERIOD_MS / PRICE_TICK_MS);
+          const seedCount = Math.max(20, maxCandles - 1);
+          for (let i = 0; i < seedCount; i++) {
+            const open = lastClose;
+            let hi = open;
+            let lo = open;
+            let close = open;
+            for (let k = 0; k < ticksPerCandle; k++) {
+              close = nextPrice();
+              if (close > hi) hi = close;
+              if (close < lo) lo = close;
+            }
+            candles.push({ open, high: hi, low: lo, close, animation: 1 });
+          }
+          // The live candle the feed grows from here on.
+          candles.push(newLiveCandle(lastClose));
+          liveCandleStartMs = p.millis();
+          lastTickMs = p.millis();
         };
 
         p.draw = () => {
@@ -769,10 +900,25 @@ export function useRideGesture(opts: RideGestureOptions) {
           }
           pulseAnimation += 0.1;
           const now = p.millis();
-          if (now - lastUpdate > intervalMs) {
-            addCandle();
-            lastUpdate = now;
+
+          // ── Two-clock candle feed ────────────────────────────────────────
+          // If the tab was backgrounded, resync rather than replay a flood.
+          if (now - lastTickMs > 1500) lastTickMs = now - PRICE_TICK_MS;
+          if (now - liveCandleStartMs > 5000) liveCandleStartMs = now;
+          // Fast clock: fold sub-prices into the live candle (it grows).
+          while (now - lastTickMs >= PRICE_TICK_MS) {
+            lastTickMs += PRICE_TICK_MS;
+            feedLiveCandle(nextPrice());
           }
+          // Slow clock: freeze the live candle, open a fresh one.
+          if (now - liveCandleStartMs >= CANDLE_PERIOD_MS) {
+            rollCandle();
+            liveCandleStartMs = now;
+          }
+
+          // Live PnL — mark-to-market of the chart, reported ~12x/sec.
+          updateLivePnl(now);
+
           updatePriceScale();
           drawGrid();
           drawBarrier();
