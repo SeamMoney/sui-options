@@ -54,7 +54,7 @@ This is a hard dependency on `14_ride_economics`, and the segment economics must
 ## 6. Architecture specifics
 
 ### 6.1 The per-segment draw — grinding resistance
-`record_segment(mkt, k, &Random, &Clock)` is an `entry` function (Sui requires this for `Random`). It asserts `k` is the next unrecorded segment, draws `sui::random`, runs the walk, stores — **with no value-dependent branch**, so it cannot be aborted *based on* the drawn value. The open threat is a PTB that wraps it (`record_segment` then read-and-abort). **A0 is a spike to confirm Sui blocks this** (entry-function outputs do not flow to later PTB commands; failed txs reveal no drawn value; dry-run yields no real randomness). **Fallback if A0 fails:** keeper commit-reveal — the keeper commits `H(nonce)` one segment ahead; `segment_key = H(nonce ‖ sui_random)`; the keeper is bound to `nonce` before the draw, so it cannot grind.
+`record_segment(mkt, k, &Random, &Clock)` is an `entry` function (Sui requires this for `Random`). It asserts `k` is the next unrecorded segment, draws `sui::random`, runs the walk, stores — **with no value-dependent branch**, so it cannot be aborted *based on* the drawn value. The open threat is a PTB that wraps it (`record_segment` then read-and-abort). **A0 (resolved 2026-05-22 — see `17a_sui_randomness_spike.md`) confirmed Sui structurally blocks this:** a PTB is rejected at validity-check time if any command other than `TransferObjects`/`MergeCoins` follows a `&Random`-consuming MoveCall — so the read-and-abort step can never execute, and there is nothing to retry. The one binding requirement is that `record_segment` be **constant-gas** (no value-dependent control flow), which closes the residual undergasing variant. No keeper commit-reveal fallback is needed — building one would re-introduce a trusted-ish party to a mechanism already trustless via Sui's structural rule.
 
 ### 6.2 `record_segment` runs the walk
 `record_segment` draws the key, runs `seeded_path::expand_segment` (6 candles of integer fixed-point math — cheap), and stores: `segment_key[k]`, the checkpointed `walk_state` after k, and the segment's `(min_price, max_price)`. **Settlement is then a cheap scan** of stored extremes over `[entry..exit]` for a barrier cross — no replay. Bonus: the Move walk runs in production every segment, so it is continuously exercised.
@@ -73,7 +73,7 @@ The ride currently accrues stake by wall-time (`stake_rate_micro_usd_per_sec`, `
 Six phases, each with a hard gate; build order = dependency order.
 
 ### Phase A — deterministic walk + conformance harness
-- **A0 (spike, gates everything):** confirm the Sui `Random` API and that `record_segment` is not test-and-abortable (§6.1); if not, adopt the commit-reveal fallback.
+- **A0 (spike — DONE 2026-05-22, `17a_sui_randomness_spike.md`):** confirmed Sui structurally blocks the test-and-abort PTB (§6.1). Commit-before-roll stands; no commit-reveal fallback. Binding requirement carried into Phase B: `record_segment` must be constant-gas.
 - **A1:** spec the walk in **integer fixed-point** — fixed scale, hash = `blake2b256` (Sui-native + `noble-hashes` in TS), defined byte→int endianness, defined rounding, defined overflow. Port the momentum + volatility-regime + fat-tail walk from `useRideGesture`.
 - **A2:** Move `seeded_path::expand_segment(state, key) → (candles, new_state, min, max)`.
 - **A3:** TS port `seededPath.ts` — **must use BigInt** (JS `number` cannot hold the u128/u256 intermediates).
