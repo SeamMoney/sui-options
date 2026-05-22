@@ -230,6 +230,56 @@ function CenterHero(props: {
   );
 }
 
+/**
+ * FundCta — the funding gate shown when the burner is too low to ride.
+ * Unlike the old dead "Get test SUI" hero text, this is a real, tappable
+ * panel; the chart's hold target is disabled in this state so the user
+ * cannot accidentally fire a doomed ride by holding the centre.
+ */
+function FundCta(props: {
+  balanceMist: bigint | null;
+  address: string;
+  onFunded: () => void;
+}) {
+  return (
+    <div
+      className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[1650] w-full max-w-[400px] px-6 text-center pointer-events-auto"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="text-[11px] uppercase tracking-[0.22em] mb-2 text-amber-300/90">
+        One tap to start
+      </div>
+      <div
+        className="text-3xl font-bold text-white leading-none mb-3"
+        style={{ textShadow: "0 2px 28px rgba(0,0,0,0.7)" }}
+      >
+        Add test SUI to ride
+      </div>
+      <div className="text-xs text-white/60 mb-5 leading-relaxed">
+        You have {fmtSui(props.balanceMist)} SUI — a ride needs about 0.03.
+        It’s free testnet SUI, no wallet required.
+      </div>
+      <div className="flex flex-col items-center gap-3">
+        <FaucetButton
+          recipient={props.address}
+          onFunded={props.onFunded}
+          size="lg"
+          label="Get free test SUI"
+        />
+        <a
+          href={`https://faucet.sui.io/?address=${props.address}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[11px] text-white/45 underline underline-offset-2"
+        >
+          or top up at the Sui faucet →
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export function Ride() {
   const picked = useMemo(() => pickRideEnabledMarket(), []);
   const oracle = useLiveOraclePrice(picked?.market.oracle);
@@ -331,6 +381,7 @@ export function Ride() {
           multiplierBps={RIDE_MULTIPLIER_BPS}
           stakeRatePerSec={RIDE_STAKE_RATE_USD_PER_SEC}
           onPnlChange={setRidePnl}
+          disabled={needsFunds}
         />
       </div>
 
@@ -354,12 +405,7 @@ export function Ride() {
         </div>
 
         <div className="pointer-events-auto">
-          {needsFunds ? (
-            <FaucetButton
-              recipient={session.address}
-              onFunded={session.refreshBalance}
-            />
-          ) : session.balanceMist !== null ? (
+          {!needsFunds && session.balanceMist !== null ? (
             <div className="glass-container px-3 py-2 rounded-lg font-mono">
               <div className="glass-filter" />
               <div className="glass-overlay" />
@@ -372,8 +418,14 @@ export function Ride() {
         </div>
       </div>
 
-      {/* ── Center hero ─────────────────────────────────────────────────── */}
-      {!settlementToast && (
+      {/* ── Center: fund CTA when broke, else the state hero ─────────────── */}
+      {needsFunds && ride.phase === "idle" && !settlementToast ? (
+        <FundCta
+          balanceMist={session.balanceMist}
+          address={session.address}
+          onFunded={session.refreshBalance}
+        />
+      ) : !settlementToast ? (
         <CenterHero
           needsFunds={needsFunds}
           phase={ride.phase}
@@ -383,7 +435,7 @@ export function Ride() {
           barrierLabel={barrierLabel}
           spotLabel={spotLabel}
         />
-      )}
+      ) : null}
 
       {/* ── Settlement result ───────────────────────────────────────────── */}
       {settlementToast && (

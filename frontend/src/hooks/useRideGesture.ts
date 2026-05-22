@@ -65,8 +65,8 @@ export interface RideGestureOptions {
 // as sub-prices arrive, then freezes when the period rolls. Closed candles
 // never move again. That is what makes the chart read as a stock trading
 // organically instead of a snake of pop-in candles sliding back and forth.
-const PRICE_TICK_MS = 100; // a new sub-price arrives this often
-const CANDLE_PERIOD_MS = 900; // the live candle freezes + a fresh one opens
+const PRICE_TICK_MS = 70; // a new sub-price arrives this often
+const CANDLE_PERIOD_MS = 400; // the live candle freezes + a fresh one opens
 const MAX_VISIBLE_CANDLES_MOBILE = 4;
 const MAX_VISIBLE_CANDLES_DESKTOP = 6;
 
@@ -197,9 +197,11 @@ export function useRideGesture(opts: RideGestureOptions) {
           return 100;
         };
         let lastClose = seedClose();
-        // Momentum carries a trend across candles so the walk *sweeps*
-        // toward / away from the barrier instead of dead-flat jitter.
+        // Momentum carries a trend across candles so the walk *sweeps*;
+        // volRegime clusters quiet vs wild stretches so candle heights
+        // vary wildly — huge candles, tiny ones, everything between.
         let momentum = 0;
+        let volRegime = 1;
 
         // Position state, set on press.
         let currentPosition: PositionState | null = null;
@@ -361,14 +363,32 @@ export function useRideGesture(opts: RideGestureOptions) {
           const live = stateRef.current.liveSpot;
           const anchor =
             live && live > 0 && Number.isFinite(live) ? live : lastClose;
-          momentum += (Math.random() - 0.5) * lastClose * 0.0007;
-          momentum *= 0.93;
-          const mcap = lastClose * 0.004;
+
+          // Volatility regime — clusters quiet and wild stretches so the
+          // candle stream has huge candles, tiny ones, and everything in
+          // between. Without it every candle comes out the same height.
+          volRegime += (Math.random() - 0.5) * 0.3;
+          if (Math.random() < 0.04) volRegime += (Math.random() - 0.5) * 3.0;
+          volRegime += (1 - volRegime) * 0.045; // mean-revert toward calm
+          volRegime = Math.max(0.25, Math.min(3.6, volRegime));
+
+          // Momentum, scaled by the regime so wild stretches also trend hard.
+          momentum += (Math.random() - 0.5) * lastClose * 0.0026 * volRegime;
+          momentum *= 0.82; // fast decay → direction flips often
+          const mcap = lastClose * 0.013;
           momentum = Math.max(-mcap, Math.min(mcap, momentum));
-          const revert = (anchor - lastClose) * 0.004;
-          const vol = Math.max(0.2, lastClose * 0.001);
-          lastClose =
-            lastClose + momentum + revert + (Math.random() - 0.5) * vol;
+
+          const revert = (anchor - lastClose) * 0.007;
+
+          // Per-tick noise with a fat tail — ~7% of ticks spike hard,
+          // which is what punches out the occasional huge single candle.
+          let vol = Math.max(0.4, lastClose * 0.006) * volRegime;
+          if (Math.random() < 0.07) vol *= 2.5 + Math.random() * 2.5;
+
+          let delta = momentum + revert + (Math.random() - 0.5) * vol;
+          const maxDelta = lastClose * 0.06; // ceiling: one tick ≤ 6%
+          delta = Math.max(-maxDelta, Math.min(maxDelta, delta));
+          lastClose += delta;
           if (lastClose < 1) lastClose = 1;
           return lastClose;
         };
@@ -439,8 +459,8 @@ export function useRideGesture(opts: RideGestureOptions) {
             priceScale.max = targetMax;
             priceScaleInit = true;
           } else {
-            priceScale.min = p.lerp(priceScale.min, targetMin, 0.06);
-            priceScale.max = p.lerp(priceScale.max, targetMax, 0.06);
+            priceScale.min = p.lerp(priceScale.min, targetMin, 0.1);
+            priceScale.max = p.lerp(priceScale.max, targetMax, 0.1);
           }
         };
 
@@ -840,9 +860,9 @@ export function useRideGesture(opts: RideGestureOptions) {
         p.setup = () => {
           p.createCanvas(p.windowWidth, p.windowHeight);
           p.strokeCap(p.ROUND);
-          // Use the system Geist font that the document already loads — no
+          // Use the Bai Jamjuree webfont the document already loads — no
           // need to load a webfont via p.loadFont (which would block).
-          p.textFont("Geist, system-ui, sans-serif");
+          p.textFont("Bai Jamjuree, system-ui, sans-serif");
           const isMobile = p.windowWidth < 768;
           const leftMargin = isMobile ? 4 : 8;
           const rightMargin = isMobile ? 40 : 56;

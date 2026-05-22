@@ -33,6 +33,8 @@ export function FaucetButton(props: {
   onFunded?: () => void;
   /** Optional label override. */
   label?: string;
+  /** Button size — "lg" for the prominent center funding CTA. */
+  size?: "sm" | "lg";
 }) {
   const { recipient, onFunded } = props;
   const toast = useToast();
@@ -84,7 +86,7 @@ export function FaucetButton(props: {
       }
       toast.update(toastId, {
         title: "Test SUI sent",
-        description: "Funded with 0.05 SUI — ready to ride.",
+        description: "Funded — ready to ride.",
         tone: "success",
         href: explorerTxUrl(data.digest),
         hrefLabel: "view tx",
@@ -118,10 +120,10 @@ export function FaucetButton(props: {
 
   return (
     <Button
-      size="sm"
+      size={props.size ?? "sm"}
       onClick={() => void onClick()}
       disabled={disabled}
-      title="Drips 0.05 testnet SUI from the Wick demo wallet"
+      title="Drips free testnet SUI from the Wick demo wallet"
     >
       {label}
     </Button>

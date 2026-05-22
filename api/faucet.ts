@@ -30,9 +30,9 @@ import { Transaction } from "@mysten/sui/transactions";
 import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
 
 // Amounts are denominated in MIST. 1 SUI = 1e9 MIST.
-const DRIP_MIST = 50_000_000n; // 0.05 SUI
+const DRIP_MIST = 100_000_000n; // 0.1 SUI — ~10 rides per tap
 const GAS_BUFFER_MIST = 20_000_000n; // ~0.02 SUI; ample headroom for one transfer
-const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes per recipient
+const COOLDOWN_MS = 90 * 1000; // 90s per recipient
 
 // Module-scoped rate-limit map. Persists across warm invocations only.
 // Module load is rare on Vercel so this gives us "minutes of memory" — fine

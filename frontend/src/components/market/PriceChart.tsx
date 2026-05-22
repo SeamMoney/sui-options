@@ -117,7 +117,7 @@ function BarrierLine({ price, label }: { price: number; label: string }) {
         textAnchor="end"
         fill="#f59e0b"
         fontSize={10}
-        fontFamily="Geist Mono, ui-monospace, monospace"
+        fontFamily="Bai Jamjuree, ui-monospace, monospace"
       >
         {label} {price.toLocaleString()}
       </text>
