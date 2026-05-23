@@ -196,7 +196,9 @@
       "min_stake_per_segment": 1000000,
       "max_stake_per_segment": 100000000,
       "max_concurrent_rides": 50,
-      "max_rides_per_user": 5
+      "max_rides_per_user": 5,
+      "name": "WICK-SEG-75-1000bps",
+      "collateral": "0x2::sui::SUI"
     },
     {
       "market": "0x2f74fbdb20560206617c711a454dc29d4d6b000cc9ab2e4537400d80f88d1e45",
@@ -215,7 +217,9 @@
       "min_stake_per_segment": 1000000,
       "max_stake_per_segment": 100000000,
       "max_concurrent_rides": 50,
-      "max_rides_per_user": 5
+      "max_rides_per_user": 5,
+      "name": "WICK-SEG-20-1000bps",
+      "collateral": "0x2::sui::SUI"
     }
   ]
 }

@@ -68,6 +68,10 @@ MAX_RIDES_PER_USER="${MAX_RIDES_PER_USER:-5}"
 SUI_COIN_TYPE="0x2::sui::SUI"
 CLOCK_ID="0x6"
 
+# Default name follows the arcade_markets convention: WICK-SEG-{round}-{barrier_bps}.
+# Override via NAME env var.
+NAME="${NAME:-WICK-SEG-${ROUND_DURATION_SEGMENTS}-${BARRIER_OFFSET_BPS}bps}"
+
 # ── input validation ──────────────────────────────────────────────────────────
 # Mirror the Move asserts in segment_market::new_segment_market so we fail
 # fast on garbage params before paying gas for an on-chain abort.
@@ -224,7 +228,9 @@ path = "$ARTIFACT"
 tmp  = path + ".tmp"
 d = json.load(open(path))
 entry = {
+    "name":                      "$NAME",
     "market":                    "$SEG_MARKET",
+    "collateral":                "$SUI_COIN_TYPE",
     "vault":                     "$VAULT",
     "home_price":                $HOME_PRICE,
     "vol_regime_init":           $VOL_REGIME_INIT,
