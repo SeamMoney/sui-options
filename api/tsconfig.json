@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["src/**/*", "faucet.ts"]
+  "include": ["src/**/*", "faucet.ts", "sponsor.ts", "sponsor.test.ts"]
 }
