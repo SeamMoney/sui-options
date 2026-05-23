@@ -100,13 +100,20 @@ module wick::prune_proto {
     ) {
         assert!(!table::contains(&ledger.pruned, k), EAlreadyPruned);
 
+        // Reviewer SEV-2 #A fix (2026-05-23): only mark the key as pruned
+        // when a record actually existed. Previously prune_one(k) on a
+        // non-existent k still added k to `pruned`, which (a) cost storage
+        // and reclaimed nothing — a negative-EV self-grief — and (b)
+        // permanently orphaned the slot: any subsequent fill that assigned
+        // a record to that same k would find prune_one rejecting with
+        // EAlreadyPruned and prune_range skipping k because !is_pruned was
+        // false. Now the function is symmetric with prune_range below.
         if (table::contains(&ledger.records, k)) {
             let _record = table::remove(&mut ledger.records, k);
             // Sui auto-handles the BigRecord drop and credits the storage
             // rebate to the tx's gas object (which is ctx.sender()'s coin).
+            table::add(&mut ledger.pruned, k, true);
         };
-
-        table::add(&mut ledger.pruned, k, true);
     }
 
     /// Permissionless. Removes records[from..to). Loop variant — proves
