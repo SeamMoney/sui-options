@@ -30,6 +30,7 @@ const EZeroAmount: u64 = 1;
 const EBucketUnknown: u64 = 2;
 const ENotAdmin: u64 = 3;
 const EShareOutOfRange: u64 = 4;
+const EInsufficientProtocolBucket: u64 = 5;
 
 const BPS_DENOMINATOR: u64 = 10_000;
 
@@ -277,6 +278,38 @@ public fun crank_bucket<C>(
     } else {
         abort EBucketUnknown
     }
+}
+
+/// Withdraw up to `amount` from the protocol bucket. Returns the actual
+/// Balance withdrawn (clamped to `min(amount, protocol_pending)`). If the
+/// bucket is empty this returns a zero balance.
+///
+/// Added in v3.1 for `wick::sponsor::harvest_to_sponsor` (doc 22 §3.1).
+/// Scoped `public(package)` so only same-package consumers can pull bounded
+/// amounts without draining the whole bucket the way `crank_bucket` does.
+/// The existing public ABI is unchanged.
+///
+/// SAFETY: `amount > 0` required (aborts `EZeroAmount` on misuse). If the
+/// protocol bucket is smaller than the requested amount the returned
+/// balance is silently clamped — callers should re-check `value()` if
+/// they need the exact requested amount.
+public(package) fun withdraw_protocol<C>(
+    router: &mut FeeRouter<C>,
+    amount: u64,
+): Balance<C> {
+    assert!(amount > 0, EZeroAmount);
+    let available = balance::value(&router.protocol_pending);
+    if (available == 0) {
+        return balance::zero<C>()
+    };
+    let take = if (amount > available) available else amount;
+    let drained = balance::split(&mut router.protocol_pending, take);
+    sui::event::emit(FeeCranked {
+        router_id: object::id(router),
+        bucket: BUCKET_PROTOCOL,
+        drained: take,
+    });
+    drained
 }
 
 // === Admin ===

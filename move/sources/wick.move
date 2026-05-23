@@ -412,6 +412,28 @@ public fun abort_segment_ride<C>(
     sm::abort_segment_ride<C>(ride, market, vault, clock, ctx)
 }
 
+// === Sponsored cranking (v3.1) — SDK re-export ===
+//
+// Per docs/design/v2/22_sponsored_cranking_v3.md §3.1. Sponsored txs let
+// the user sign intent from their burner while a protocol-funded sponsor
+// wallet pays the gas. `harvest_to_sponsor` is the on-chain refill path:
+// permissionless, threshold + daily-cap gated, drains from
+// `fee_router::protocol_pending` into the sponsor wallet. Admin tweaks
+// (cap, address, targets, reset) live in `wick::sponsor` directly under
+// `SponsorCap`; only the harvest is mirrored here for the SDK.
+
+public entry fun harvest_to_sponsor(
+    policy: &mut wick::sponsor::SponsorPolicy,
+    fee_router: &mut FeeRouter<sui::sui::SUI>,
+    current_sponsor_balance_mist: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    wick::sponsor::harvest_to_sponsor(
+        policy, fee_router, current_sponsor_balance_mist, clock, ctx,
+    );
+}
+
 #[test_only]
 public fun share_random_walk_for_testing(rw: RandomWalk) {
     random_walk_driver::share(rw);
