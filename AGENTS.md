@@ -26,6 +26,13 @@ In scope and shipped:
 - Ride streaming primitive — `open_ride` / `close_ride` / `crank_expired_ride` (lives only while the user holds the screen)
 - Martingaler vault + asymmetric impact fee + WICK fair-launch token (Phase C.3)
 
+**v3 architecture is LOCKED, not yet IMPLEMENTED** (as of 2026-05-23). Design specs:
+- [`docs/design/v2/22_sponsored_cranking_v3.md`](docs/design/v2/22_sponsored_cranking_v3.md) — gas sponsorship via `/api/sponsor` + `wick::sponsor` module
+- [`docs/design/v2/23_storage_rebate_pruning_v3.md`](docs/design/v2/23_storage_rebate_pruning_v3.md) — `prune_settled_segments` for positive-EV storage reclamation
+- [`docs/design/v2/24_walrus_archive_v3.md`](docs/design/v2/24_walrus_archive_v3.md) — permanent decentralized round archive via Walrus
+
+The current shipped surface is v2. The `wick::segment_market_v3` module, `wick::sponsor` module, sponsor service, archiver bot, and Walrus integration are **not yet on testnet**. Do not write v3 production code unless the user explicitly asks for the v3 implementation phase.
+
 Do **not** write code for any of these unless the user explicitly says we're past MVP:
 
 - Range / Breakout markets
@@ -107,6 +114,17 @@ For rides:
 open_ride  →  (close_ride | crank_expired_ride)
 ```
 
+**v3 lifecycle additions (design-only — not yet on testnet, see docs/design/v2/22+23+24):**
+
+```
+open_ride  →  /api/sponsor co-signs cranking → record_segment (sponsored)
+            →  (close_ride | crank_expired_ride)
+            →  record_walrus_archive (per round, by archiver bot)
+            →  prune_settled_segments (positive-EV permissionless call)
+```
+
+Sponsored cranking moves gas to a protocol-funded sponsor wallet (doc 22). `prune_settled_segments` is permissionless, pays the caller via Sui's storage rebate, and keeps `SegmentMarketV3` storage bounded (doc 23). `record_walrus_archive` writes the round's segment keys to Walrus before pruning, so `/verify` works permanently without any indexer (doc 24). All three flagged "v3 — not yet shipped."
+
 Touch is **oracle-observed**. The product definition is "price as observed by the oracle crossed the buffered + deadbanded barrier" — not "any off-chain exchange tick." This must be honest in the README, the UI, and the threat model.
 
 ## Darbitex / Desnet / D — reference only, never imported
@@ -146,3 +164,4 @@ It checks branch, worktree, `sui move test`, frontend `tsc --noEmit`, keeper `ts
 - Day-by-day milestones: `docs/hackathon-plan.md`
 - Granular agent-sized tasks: `TASKS.md`
 - Originally-deferred MVP shortcuts are now all addressed in code (2026-05-23): keeper TS wired to segment_market ABI via SegmentCranker (commit 27c6f1a + config fallback); FeeSnapshot's DNT impact-fee path verified end-to-end (`decisiveness_bps_for_side` dispatches on `is_dnt`, 15/15 DNT tests pass); DNT PWE replaces the placeholder `0` with the union-bound Bachelier model `compute_pwe_dnt` (commit 2d2050c — code in, needs the next Move upgrade to take effect on testnet); frontend tap-hold ride gesture shipped in commit 79e85c1.
+- v3 architecture spec landed 2026-05-23: [`docs/design/v2/22_sponsored_cranking_v3.md`](docs/design/v2/22_sponsored_cranking_v3.md) + [`23_storage_rebate_pruning_v3.md`](docs/design/v2/23_storage_rebate_pruning_v3.md) + [`24_walrus_archive_v3.md`](docs/design/v2/24_walrus_archive_v3.md). Implementation roadmap tracked under tasks #166–172 (sponsor module, segment_market_v3, /api/sponsor, archiver bot, Walrus integration, v3 smoke). v2 stays in production until v3 is shipped + smoked.
