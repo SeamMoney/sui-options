@@ -351,4 +351,8 @@ The adversarial suite must include, as the concrete discharge of this spike:
 
 *Spike A0 complete. 2026-05-22.*
 
-Empirical gas-spread measurement: see `scripts/measure_gas_spread.py`, mean 12,800,000 analytic gas units, spread 0.0000%, within VM noise.
+**Source-shape verification (R2, static half — discharged).** `scripts/verify_record_segment_shape.py` asserts the constant-gas SHAPE of `record_segment`: single 32-byte `random::generate_bytes` draw, one `expand_segment` call, no `_in_range`/`shuffle` calls inside the function body, pinned `seeded_path` constants (`CANDLES_PER_SEGMENT=6`, `TICKS_PER_CANDLE=6`, `DRAWS_PER_TICK=7`). This is a static-source regression guard; if anyone adds a value-dependent loop inside `record_segment` the script fails.
+
+**Empirical gas-spread measurement (R2, dynamic half — deferred).** The earlier `scripts/measure_gas_spread.py` reported "0.0000% spread" from a hardcoded constant function (`return MEAN_GAS_UNITS`, key parameter unused) and was deleted in 2026-05-23 review fallout. An honest empirical measurement requires a deployed-package + `devInspect` (or `sui client call --dry-run`) driver against testnet, varying `segment_key` material and reading actual gas costs. This harness is **deferred — out of scope for the hackathon window**. The §6.3 tests #2 (PTB-rejection live test) and #3 (abort-leak test) are deferred for the same reason.
+
+**The spike's safety conclusion rests on R1 (PTB-Random structural rejection)**, which is enforced by the Sui bytecode verifier at compile time and is independent of R2. R2 is defense-in-depth: SHAPE-verified statically here, gas-equivalence un-measured empirically. Production deployment SHOULD ship the empirical harness as a follow-up; the hackathon submission states this limitation openly in the threat-model doc.
