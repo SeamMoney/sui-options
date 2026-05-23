@@ -196,32 +196,6 @@ body {
   justify-content: center;
 }
 
-.wick-grid-bg {
-  background-image:
-    linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
-  background-size: 56px 56px;
-}
-
-header [data-dapp-kit] {
-  min-height: 40px !important;
-  height: 40px !important;
-  border-radius: 8px !important;
-  padding: 0 16px !important;
-  white-space: nowrap !important;
-  font-size: 14px !important;
-  font-weight: 600 !important;
-}
-
-@media (max-width: 480px) {
-  header [data-dapp-kit] {
-    min-height: 36px !important;
-    height: 36px !important;
-    padding: 0 12px !important;
-    font-size: 13px !important;
-  }
-}
-
 @theme inline {
   --color-chart-1: var(----chart-1);
   --color-chart-2: var(----chart-2);
