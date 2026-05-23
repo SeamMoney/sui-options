@@ -12,6 +12,11 @@ import { loadKeeperSigner, makeClient } from "./sui.js";
 import { tickOnce, emitLogs, type KeeperState } from "./keeper.js";
 import { findRidesOwnedBy, type RideRecord } from "./ride.js";
 import { createHealth, recordTick, startHealthServer } from "./health.js";
+import {
+  SegmentCranker,
+  parseSegmentMarketsEnv,
+  type SegmentMarketBinding,
+} from "./segmentCranker.js";
 
 const cmd = process.argv[2] ?? "watch";
 
@@ -116,6 +121,29 @@ async function main() {
     });
     const server = startHealthServer(health, cfg.healthPort);
 
+    // Segment-market cranker (C1). Optional — driven by env var. Each item:
+    //   "<marketId>" (uses default package + collateral) or
+    //   "<marketId>@<packageId>:<collateralType>". Comma-separated.
+    let segmentCranker: SegmentCranker | null = null;
+    const segmentBindings: SegmentMarketBinding[] = parseSegmentMarketsEnv(
+      process.env.WICK_KEEPER_SEGMENT_MARKETS,
+      cfg.packageId,
+      cfg.collateralType,
+    );
+    if (segmentBindings.length > 0) {
+      segmentCranker = new SegmentCranker(client, signer.keypair, {
+        intervalMs: Number(process.env.WICK_KEEPER_SEGMENT_INTERVAL_MS ?? 400),
+        gasBudget: process.env.WICK_KEEPER_GAS_RECORD_SEGMENT
+          ? BigInt(process.env.WICK_KEEPER_GAS_RECORD_SEGMENT)
+          : undefined,
+      });
+      try {
+        await segmentCranker.start(segmentBindings);
+      } catch (err) {
+        log("warn", "segment-cranker-start-failed", { error: String(err) });
+      }
+    }
+
     let stop = false;
     let backoffMs = cfg.rpcBackoffInitialMs;
     process.on("SIGINT", () => {
@@ -158,6 +186,9 @@ async function main() {
       const elapsed = Date.now() - t0;
       const wait = Math.max(0, cfg.pollIntervalMs - elapsed);
       if (wait > 0 && !stop) await sleep(wait);
+    }
+    if (segmentCranker != null) {
+      segmentCranker.stop();
     }
     server.close();
     log("info", "exit", { msg: "watch loop exited cleanly" });
