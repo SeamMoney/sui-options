@@ -68,6 +68,8 @@ export function BarrierOrderbookGrid(props: BarrierOrderbookGridProps) {
   useEffect(() => {
     if (!marketId) return;
     let cancelled = false;
+    let intervalId: number | null = null;
+
     const refresh = async () => {
       try {
         const next = await fetchSegmentMarket(client, marketId);
@@ -94,11 +96,38 @@ export function BarrierOrderbookGrid(props: BarrierOrderbookGridProps) {
         console.warn("[BarrierOrderbookGrid] fetchSegmentMarket:", err);
       }
     };
+
+    // Tab-visibility guard (D6 SEV-2 #2): pause the 1s poll when the
+    // tab is hidden, resume when it becomes visible. Hidden tabs don't
+    // need fresh aggregate-stake bars and the RPC bill / battery
+    // shouldn't pay for invisible polls. On resume we kick a single
+    // immediate refresh so the first visible paint isn't stale.
+    const startInterval = () => {
+      if (intervalId !== null) return;
+      intervalId = window.setInterval(() => void refresh(), SNAPSHOT_POLL_MS);
+    };
+    const stopInterval = () => {
+      if (intervalId === null) return;
+      window.clearInterval(intervalId);
+      intervalId = null;
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        stopInterval();
+      } else {
+        void refresh();
+        startInterval();
+      }
+    };
+
     void refresh();
-    const id = window.setInterval(() => void refresh(), SNAPSHOT_POLL_MS);
+    if (!document.hidden) startInterval();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopInterval();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [client, marketId]);
 
