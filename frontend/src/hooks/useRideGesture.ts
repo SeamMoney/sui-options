@@ -935,20 +935,11 @@ export function useRideGesture(opts: RideGestureOptions) {
             }
             const candleTop = Math.min(highY, lowY, bodyY);
             const candleBottom = Math.max(highY, lowY, bodyY + Math.max(bodyHeight, 1));
+            // Post-hoc pattern rendering removed 2026-05-23 (user feedback:
+            // "remove the weird red rings, candles should just be white/green").
+            // Detection still runs (cheap) and feeds the hover tooltip below,
+            // but the rose-ring overlay no longer draws around the candle.
             const postHoc = c.postHocPatterns?.[c.postHocPatterns.length - 1];
-            if (postHoc) {
-              const strength = Math.max(0.35, Math.min(1, postHoc.strength));
-              p.noFill();
-              p.stroke(244, 63, 94, (95 + strength * 90) * c.animation);
-              p.strokeWeight(1.2 + strength * 1.2);
-              p.rect(
-                x - 3,
-                candleTop - 4,
-                candleWidth + 6,
-                Math.max(8, candleBottom - candleTop + 8),
-                3,
-              );
-            }
             if (c.armedPattern) {
               const pulse = 1.5 + Math.sin(p.millis() * 0.012) * 0.9;
               const ctx = p.drawingContext as CanvasRenderingContext2D;
