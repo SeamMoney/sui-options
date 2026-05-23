@@ -209,6 +209,87 @@ Every rider opens at segment 0 with `stake_per_segment = MAX_STAKE_PER_SEGMENT`.
 
 **The per-barrier cap behaves exactly as designed.** No round breached the cap, even under the most aggressive pile-on (max stake on every rider on both barriers). The worst-case vault liability per round is bounded by **2 × `MAX_PAYOUT_PER_BARRIER`** (one full pile per barrier), which at the provisional 10 %-of-seed cap leaves the vault still adequately collateralised against the seed treasury after one pessimistic round.
 
+### 12.4 Joint (offset × multiplier) sweep — finding the sweet spot
+
+§12.1's 1-D tier sweep varied `MULTIPLIER_BPS` alone at the fixed `BARRIER_OFFSET_BPS = 500` (±5 %). §13 below recommends *either* dropping multiplier to 1.10× *or* widening barriers to ±15 %, but does **not** measure the joint surface. This sub-section does — and the result is a single, defensible cell that satisfies all three game-design constraints simultaneously.
+
+**Grid.** 5 × 5 cells: `BARRIER_OFFSET_BPS ∈ {500, 750, 1 000, 1 500, 2 000}` × `MULTIPLIER_BPS ∈ {11 000, 13 000, 15 000, 17 500, 20 000}`. **5 000 rounds × 8 uniform riders per round per cell = 40 000 rides per cell, 1 000 000 rides total.** Same `seeded_path` walk as §§12.1–12.3; same uniform-opener profile (random `segment_into_round` in `[0, OPEN_WINDOW)`, random barrier coin-flip).
+
+**Vault edge per dollar staked** (mean across rides; positive = vault wins, negative = vault bleeds):
+
+| ± offset \ multiplier | 1.10× | 1.30× | 1.50× | 1.75× | **2.00×** |
+|---|---|---|---|---|---|
+| **±5 % (500 bps)** | +5.94 % | −11.34 % | −29.19 % | −49.66 % | **−70.43 %** |
+| ±7.5 % (750 bps) | +22.11 % | +8.16 % | −6.76 % | −24.51 % | −41.35 % |
+| **±10 % (1 000 bps)** | +43.87 % | +34.10 % | +22.37 % | **+11.24 %** | −2.32 % |
+| ±15 % (1 500 bps) | +81.04 % | +76.36 % | +73.46 % | +67.31 % | +65.67 % |
+| ±20 % (2 000 bps) | +95.32 % | +94.57 % | +93.97 % | +93.26 % | +92.22 % |
+
+**Realised P(touch)** (per ride):
+
+| ± offset \ multiplier | 1.10× | 1.30× | 1.50× | 1.75× | 2.00× |
+|---|---|---|---|---|---|
+| ±5 % | 85.48 % | 85.60 % | 86.08 % | 85.47 % | 85.17 % |
+| ±7.5 % | 70.77 % | 70.61 % | 71.13 % | 71.10 % | 70.62 % |
+| **±10 %** | 50.99 % | 50.64 % | 51.74 % | **50.67 %** | 51.11 % |
+| ±15 % | 17.22 % | 18.17 % | 17.69 % | 18.66 % | 17.15 % |
+| ±20 % | 4.25 % | 4.18 % | 4.02 % | 3.84 % | 3.89 % |
+
+Note `P(touch)` is essentially flat across the multiplier axis for each row, as expected — the multiplier doesn't change the walk's barrier-hit physics, only the vault's payout obligation. The ±5 % and ±7.5 % rows reproduce the §12.1 finding (high touch rate → only 1.10× ish multipliers survive). The ±15 % and ±20 % rows reproduce the §9 / §13 "widen the barriers" finding (touch rate collapses → vault edge is enormous *but* the game becomes a grind: 4 % touch rate at ±20 % means a rider waits ~25 rounds (≈ 12.5 minutes) for one win).
+
+**Mean vault payout per round** (raw collateral units, round flow size):
+
+| ± offset \ multiplier | 1.10× | 1.30× | 1.50× | 1.75× | 2.00× |
+|---|---|---|---|---|---|
+| ±5 % | 519 181 | 614 855 | 713 061 | 826 638 | 941 200 |
+| ±7.5 % | 430 052 | 507 069 | 589 424 | 687 204 | 780 072 |
+| **±10 %** | 309 973 | 363 973 | 428 540 | **489 917** | 565 133 |
+| ±15 % | 104 687 | 130 514 | 146 582 | 180 234 | 189 411 |
+| ±20 % | 25 810 | 29 945 | 33 258 | 37 271 | 42 923 |
+
+**Mean stake paid per round** (raw collateral units) — essentially constant ≈ 552 000 across the grid (8 riders × ~75 segments × 1 000 stake/segment, modulo open-window-shortened riders). This isolates the edge effect: cell-to-cell payout differences are pure multiplier × P(touch), not stake-volume artefacts.
+
+**Sweet-spot filter.** Three constraints, all must hold:
+
+1. **vault edge ∈ [5 %, 15 %]** — defensible house edge (Polymarket-ish), but not extractive enough to drive users away.
+2. **multiplier ≥ 1.5×** — meaningful payout feel ("Coin-flip" or "Lottery" flavour, not "Grind"). A 1.10× tier reads on the UI as "win 10 cents on the dollar" — closer to a fee than a wager.
+3. **P(touch) ∈ [30 %, 65 %]** — the game has to feel alive. A 4 % hit rate ✗ (one win every 25 rounds); an 85 % hit rate ✗ (touch is automatic, the lottery is whether you cashed out in time).
+
+**Exactly one cell satisfies all three:** **`BARRIER_OFFSET_BPS = 1 000` × `MULTIPLIER_BPS = 17 500`** — i.e., **±10 % barriers × 1.75× multiplier**:
+
+- vault edge per dollar staked: **+11.24 %** (centre of the [5 %, 15 %] band)
+- realised P(touch): **50.67 %** (centre of the [30 %, 65 %] band)
+- mean vault payout per round: 489 917 collateral units (~88 % of mean stake paid, sustainable)
+- fair-value check `1 − M·P_touch`: `1 − 1.75 × 0.5067 = +11.34 %` — matches realised edge to 0.10 pp, confirming the simulator's wager accounting.
+
+**Why this cell, vs the §13 recommendation?**
+
+§13 recommended either (1) `MULTIPLIER_BPS = 11 000` (1.10×) at the existing ±5 % barrier or (2) `BARRIER_OFFSET_BPS = 1 500` (±15 %) at the original 2×. The joint sweep shows:
+
+- (1) `±5 % × 1.10×` produces +5.94 % edge — *just barely* in zone, but the 1.10× multiplier fails the ≥ 1.5× game-feel filter. A user betting $1 wins $0.10 net on a touch. That's the price of a snack, not a wager. The product becomes a grind.
+- (2) `±15 % × 2.00×` produces +65.67 % edge — wildly **over-corrected**. The vault wins two-thirds of every dollar staked, P(touch) is 17 %, and the round is dead air ~83 % of the time. No one would play.
+- **Joint sweet spot `±10 % × 1.75×`** sits in the middle of both knobs: barriers are wide enough that the walk's open-window drift (~470 bps from §12.2) is half the barrier offset (so selection edge collapses meaningfully), the multiplier preserves a "real win" feel, and P(touch) is a true coin-flip — every round feels live, half resolve on a touch, half resolve on expiry.
+
+**Edge-of-zone neighbours** (informative for tuning under live data):
+
+| Cell | edge | P(touch) | game feel | why excluded |
+|---|---|---|---|---|
+| ±10 % × 1.50× | +22.37 % | 51.74 % | OK | edge exceeds 15 % ceiling — too extractive |
+| ±10 % × 2.00× | −2.32 % | 51.11 % | OK | edge negative — vault subsidises riders (~2 ¢/$) |
+| ±7.5 % × 1.30× | +8.16 % | 70.61 % | weak | multiplier < 1.5× ("Coin-flip" floor) |
+| ±15 % × 1.10× | +81.04 % | 17.22 % | grind | edge extractive, touch rate too low |
+
+The asymmetry around `±10 % × 1.75×` is the punchline: moving one notch wider (±15 %) cuts P(touch) by **>3×** and moves edge well outside the band; moving one notch tighter (±5 %) does the opposite. The grid step from ±10 % to ±15 % straddles the (`seeded_path`) walk's natural ~6 % per-round stdev — once barriers cross that threshold the game changes character abruptly.
+
+**Recommendation supersedes §13's two-knob compromise.** Ship doc 19 §4 with:
+
+- **`BARRIER_OFFSET_BPS = 1_000`** (±10 % from spot at round start)
+- **`MULTIPLIER_BPS = 17_500`** (1.75× payout on touch)
+- `MAX_PAYOUT_PER_BARRIER` unchanged (10 % of seed treasury — §12.3 result intact)
+- `ROUND_DURATION_SEGMENTS`, `OPEN_WINDOW_SEGMENTS` unchanged for v1 (revisit if §12.2's selection edge persists with the new barriers — the wider barriers should collapse it; re-measure under live tape).
+
+This is a doc 19 §4 amendment: revise the v1 defaults from `BARRIER_OFFSET_BPS = 500` / `MULTIPLIER_BPS = 20_000` to `1_000` / `17_500`. The §13 fallbacks (1.10× at ±5 %, or 2× at ±15 %) remain available as conservative-edge or maximum-frequency variants if a market template wants to lean one way or the other.
+
 ## 13. Interpretation — does the data support shipping with doc 19 §4 parameters?
 
 **Cap (c):** ship as-is. The cap is structurally sound; the 10 % provisional value is conservative.
@@ -239,6 +320,15 @@ python3 scripts/simulate_segment_protocol.py --rounds 10000 --seed 42 \
 
 # Fast smoke (~30 s)
 python3 scripts/simulate_segment_protocol.py --rounds 500 --seed 42
+
+# Joint (offset × multiplier) sweep — §12.4 result (5 × 5 grid,
+# 5 000 rounds/cell × 8 riders/round = 1 000 000 rides total, ~3 min)
+python3 scripts/simulate_segment_protocol.py --rounds 500 \
+    --joint-sweep-rounds 5000 --seed 42 --json-out /tmp/joint.json
+
+# Skip the joint sweep entirely (only run the original (a)/(b)/(c))
+python3 scripts/simulate_segment_protocol.py --rounds 10000 --seed 42 \
+    --skip-joint-sweep
 ```
 
 The simulator does an in-process determinism self-test against the Move walk constants on startup; any drift in the lifted constants will fail loudly before any rounds run.

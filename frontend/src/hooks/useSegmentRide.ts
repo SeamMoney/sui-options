@@ -321,11 +321,11 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
   const closeQueuedRef = useRef(false);
 
   // ── Derived market parameters ────────────────────────────────────────
-  const stakePerSegmentMicroUsd =
+  const stakePerSegmentMicroUsd: bigint =
     config.stakePerSegmentMicroUsd ??
     (marketSnapshot
       ? marketSnapshot.minStakePerSegment
-      : DEFAULT_STAKE_PER_SEGMENT_MICROUSD);
+      : BigInt(DEFAULT_STAKE_PER_SEGMENT_MICROUSD));
   const multiplierBps = marketSnapshot
     ? Number(marketSnapshot.multiplierBps)
     : DEFAULT_MULTIPLIER_BPS;

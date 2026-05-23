@@ -43,11 +43,17 @@ Round shape (LOCKED, B7-validated):
 - `OPEN_WINDOW_SEGMENTS: u64 = 13` → ~5.2 seconds open window
 - `MAX_PAYOUT_PER_BARRIER` — per-market cap. Provisional 10% of seed treasury — B7 confirmed the cap is a hard ceiling with zero violations across 2 000 saturating rounds (see `15_montecarlo_validation_report.md` §12.3).
 
-Economic shape (**RECALIBRATION REQUIRED before any bootstrap script ships**):
-- `BARRIER_OFFSET_BPS` — provisional 500 (±5%). **DO NOT SHIP at 500.**
-- `MULTIPLIER_BPS` — provisional 20_000 (2×). **DO NOT SHIP at 20_000.**
+Economic shape (CALIBRATED via the B7 joint sweep — see `15_montecarlo_validation_report.md` §12.4):
+- `BARRIER_OFFSET_BPS = 1_000` → ±10% from spot at round start (Coin-flip sweet spot)
+- `MULTIPLIER_BPS = 17_500` → 1.75× shared by both barriers
 
-B7 (see `15_montecarlo_validation_report.md` §§12.1–12.2) measured realised P(touch) = 86% and vault edge = **−71.66% per $ staked** at ±5% / 2× — catastrophic bleed. A first-pass over-corrected recommendation (±15% × 1.10×) would land near +67% vault edge — equally broken in the opposite direction (user bleed). The actual recalibration requires a JOINT sweep over `(BARRIER_OFFSET_BPS, MULTIPLIER_BPS)` to find the Pareto-optimal point. That sweep is a B7 follow-up extending `scripts/simulate_segment_protocol.py`; updated §4 values land in `15_montecarlo_validation_report.md` §12.4 + an amendment here when the sweep returns.
+Joint sweep findings (5×5 grid over `(offset, multiplier)`; 5 000 rounds × 8 riders per cell):
+- **±10% × 1.75× yields +11.24% vault edge / 50.67% touch rate** — centre of both the [5%, 15%] edge band and the [30%, 65%] touch band. Exactly one cell in the grid satisfies all three player + vault constraints simultaneously.
+- ±5% rows are below break-even at any multiplier ≥ 1.30× (the original v1 default of ±5% × 2× was −70.43%).
+- ±15% rows over-correct: +65% edge or higher (players essentially never win).
+- The grid step from ±10% to ±15% straddles the walk's natural ~6% per-round stdev, which is why P(touch) crashes >3× across that boundary.
+
+The earlier §13 fallback pairs (±5% × 1.10× at +5.94% edge with 1.10× reading as a fee, ±15% × 2× at +65.67% edge with 17% touch rate) both miss the sweet spot in opposite directions; the joint sweep found the only cell satisfying all three constraints simultaneously.
 
 ## 4a. The excitement ↔ house-edge tradeoff
 

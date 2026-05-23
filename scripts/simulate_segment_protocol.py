@@ -905,6 +905,216 @@ def scenario_a_calibration(seed: int, n_rounds: int, riders_per_round: int
 
 
 # =========================================================================
+# Joint (offset × multiplier) sweep — B7 follow-up
+#
+# Earlier B7 work showed:
+#   - Doc 19 §4 defaults (±5 % × 2×) yield edge ≈ −70 % (catastrophic bleed).
+#   - A 1-D sweep of multiplier alone at ±5 % flagged 1.10× as the only safe
+#     tier — but that recommendation is over-corrected. 1.10× kills the
+#     "fun money" feel (closer to a grind than a coin-flip).
+#   - The full joint surface was never measured.
+#
+# This sweep measures the 5×5 grid (BARRIER_OFFSET_BPS × MULTIPLIER_BPS)
+# and finds the cell(s) that satisfy the trifecta:
+#   1. vault edge ∈ [5 %, 15 %] — defensible, not extractive
+#   2. multiplier ≥ 1.5× — meaningful "Coin-flip" or "Lottery" payout feel
+#   3. P(touch) ∈ [30 %, 65 %] — game feels alive, not boring or trivial
+# =========================================================================
+
+def joint_sweep_cell(seed: int, n_rounds: int, riders_per_round: int,
+                     barrier_offset_bps: int, mult_bps: int) -> dict:
+    """Run `n_rounds` of `riders_per_round` uniform openers at the given
+    (offset, multiplier) and return per-cell economics."""
+    rng = random.Random(seed)
+    walk = fresh_walk()
+
+    edges: list[float] = []                      # vault_pnl / total_stake_paid
+    pnls: list[int] = []
+    touch_count = 0
+    expired_count = 0
+    payouts_per_round: list[int] = []
+    stake_paid_per_round: list[int] = []
+
+    for _ in range(n_rounds):
+        result, walk = _settle_one_round_with_multiplier(
+            walk, rng, riders_per_round, mult_bps,
+            barrier_offset_bps=barrier_offset_bps,
+        )
+        total_stake = sum(r.stake_paid for r in result.rides) or 1
+        edges.append(result.vault_pnl / total_stake)
+        pnls.append(result.vault_pnl)
+        round_payout = 0
+        round_stake = 0
+        for r in result.rides:
+            round_stake += r.stake_paid
+            if r.settlement_kind == SETTLE_TOUCH_WIN:
+                touch_count += 1
+                round_payout += r.payout
+            elif r.settlement_kind == SETTLE_EXPIRED_LOSS:
+                expired_count += 1
+        payouts_per_round.append(round_payout)
+        stake_paid_per_round.append(round_stake)
+
+    edges.sort()
+    pnls.sort()
+    n_rides = touch_count + expired_count
+    p_touch = touch_count / max(1, n_rides)
+
+    return {
+        "barrier_offset_bps": barrier_offset_bps,
+        "multiplier_bps": mult_bps,
+        "n_rounds": n_rounds,
+        "n_rides": n_rides,
+        "realised_p_touch": p_touch,
+        "mean_edge_per_dollar": sum(edges) / max(1, len(edges)),
+        "edge_p05": edges[int(len(edges) * 0.05)] if edges else 0.0,
+        "edge_p95": edges[int(len(edges) * 0.95)] if edges else 0.0,
+        "mean_pnl_per_round": sum(pnls) / max(1, len(pnls)),
+        "mean_payout_per_round": sum(payouts_per_round) / max(1, len(payouts_per_round)),
+        "mean_stake_paid_per_round": (sum(stake_paid_per_round)
+                                       / max(1, len(stake_paid_per_round))),
+        "fair_value_edge_check": 1.0 - (mult_bps / BPS) * p_touch,
+    }
+
+
+# Grid per the B7 follow-up brief.
+JOINT_SWEEP_OFFSETS = (500, 750, 1000, 1500, 2000)
+JOINT_SWEEP_MULTIPLIERS = (11_000, 13_000, 15_000, 17_500, 20_000)
+
+
+def scenario_joint_sweep(seed: int, n_rounds: int, riders_per_round: int,
+                         offsets: tuple[int, ...] = JOINT_SWEEP_OFFSETS,
+                         multipliers: tuple[int, ...] = JOINT_SWEEP_MULTIPLIERS,
+                         ) -> dict:
+    """Run the full 5 × 5 grid and return a structured result for the
+    report writer + a sweet-spot recommendation."""
+    cells: list[dict] = []
+    cell_idx = 0
+    for offset in offsets:
+        for mult in multipliers:
+            cell_seed = seed + cell_idx
+            cells.append(joint_sweep_cell(
+                seed=cell_seed, n_rounds=n_rounds,
+                riders_per_round=riders_per_round,
+                barrier_offset_bps=offset, mult_bps=mult,
+            ))
+            cell_idx += 1
+
+    # Sweet-spot filter — all three must hold.
+    def in_zone(cell: dict) -> bool:
+        edge = cell["mean_edge_per_dollar"]
+        m = cell["multiplier_bps"] / BPS
+        p = cell["realised_p_touch"]
+        return (0.05 <= edge <= 0.15
+                and m >= 1.5
+                and 0.30 <= p <= 0.65)
+
+    sweet_cells = [c for c in cells if in_zone(c)]
+
+    # Closest-to-zone fallback ranking (Manhattan distance from the box).
+    def distance_to_zone(cell: dict) -> float:
+        edge = cell["mean_edge_per_dollar"]
+        m = cell["multiplier_bps"] / BPS
+        p = cell["realised_p_touch"]
+        d_edge = max(0.0, 0.05 - edge) + max(0.0, edge - 0.15)
+        d_m = max(0.0, 1.5 - m)
+        d_p = max(0.0, 0.30 - p) + max(0.0, p - 0.65)
+        return d_edge + d_m + d_p
+
+    cells_by_distance = sorted(cells, key=distance_to_zone)
+
+    return {
+        "scenario": "joint_offset_x_multiplier_sweep",
+        "n_rounds_per_cell": n_rounds,
+        "riders_per_round": riders_per_round,
+        "offsets_bps": list(offsets),
+        "multipliers_bps": list(multipliers),
+        "cells": cells,
+        "sweet_cells": sweet_cells,
+        "closest_to_zone_if_empty": cells_by_distance[:3],
+    }
+
+
+def print_joint_sweep(result: dict) -> None:
+    offsets = result["offsets_bps"]
+    mults = result["multipliers_bps"]
+    cells_by_key = {(c["barrier_offset_bps"], c["multiplier_bps"]): c
+                    for c in result["cells"]}
+
+    # ---- Vault edge matrix ----
+    print("\n  EDGE matrix  (mean vault edge per $ staked, "
+          f"{result['n_rounds_per_cell']:,} rounds × "
+          f"{result['riders_per_round']} riders/round per cell):")
+    print(f"    rows = barrier ± offset (bps), cols = multiplier (×)")
+    header = "    offset \\ mult".ljust(20) + "".join(
+        f"{m / BPS:>10.2f}×" for m in mults)
+    print(header)
+    for offset in offsets:
+        row = f"    ±{offset:>4d} bps".ljust(20)
+        for m in mults:
+            cell = cells_by_key[(offset, m)]
+            row += f"{format_pct(cell['mean_edge_per_dollar']):>11s}"
+        print(row)
+
+    # ---- Realised P(touch) matrix ----
+    print("\n  P(TOUCH) matrix  (realised per ride):")
+    header = "    offset \\ mult".ljust(20) + "".join(
+        f"{m / BPS:>10.2f}×" for m in mults)
+    print(header)
+    for offset in offsets:
+        row = f"    ±{offset:>4d} bps".ljust(20)
+        for m in mults:
+            cell = cells_by_key[(offset, m)]
+            row += f"{format_pct(cell['realised_p_touch']):>11s}"
+        print(row)
+
+    # ---- Mean payout / stake matrix (size of round flows) ----
+    print("\n  MEAN PAYOUT matrix  (mean vault payout per round, raw units):")
+    header = "    offset \\ mult".ljust(20) + "".join(
+        f"{m / BPS:>11.2f}×" for m in mults)
+    print(header)
+    for offset in offsets:
+        row = f"    ±{offset:>4d} bps".ljust(20)
+        for m in mults:
+            cell = cells_by_key[(offset, m)]
+            row += f"{cell['mean_payout_per_round']:>12,.0f}"
+        print(row)
+
+    print("\n  MEAN STAKE_PAID matrix  (mean stake paid per round, raw units):")
+    header = "    offset \\ mult".ljust(20) + "".join(
+        f"{m / BPS:>11.2f}×" for m in mults)
+    print(header)
+    for offset in offsets:
+        row = f"    ±{offset:>4d} bps".ljust(20)
+        for m in mults:
+            cell = cells_by_key[(offset, m)]
+            row += f"{cell['mean_stake_paid_per_round']:>12,.0f}"
+        print(row)
+
+    # ---- Sweet-spot recommendation ----
+    print("\n  Sweet-spot filter:")
+    print("    edge ∈ [5%, 15%]   AND   multiplier ≥ 1.5×   AND   "
+          "P(touch) ∈ [30%, 65%]")
+    sweet = result["sweet_cells"]
+    if sweet:
+        print(f"  → {len(sweet)} cell(s) satisfy all three constraints:")
+        for c in sweet:
+            print(f"      ±{c['barrier_offset_bps']:>4d} bps × "
+                  f"{c['multiplier_bps'] / BPS:.2f}×   "
+                  f"edge={format_pct(c['mean_edge_per_dollar'])}   "
+                  f"P(touch)={format_pct(c['realised_p_touch'])}   "
+                  f"mean payout/round={c['mean_payout_per_round']:,.0f}")
+    else:
+        print("  → NO cell satisfies all three constraints.")
+        print("    Closest-to-zone cells (Manhattan distance, smaller = closer):")
+        for c in result["closest_to_zone_if_empty"]:
+            print(f"      ±{c['barrier_offset_bps']:>4d} bps × "
+                  f"{c['multiplier_bps'] / BPS:.2f}×   "
+                  f"edge={format_pct(c['mean_edge_per_dollar'])}   "
+                  f"P(touch)={format_pct(c['realised_p_touch'])}")
+
+
+# =========================================================================
 # Scenario (b) — open-window selection bot
 # =========================================================================
 
@@ -1220,6 +1430,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="Riders per round for scenario (a)")
     p.add_argument("--json-out", type=str, default=None,
                    help="Optional JSON dump")
+    p.add_argument("--joint-sweep-rounds", type=int, default=5_000,
+                   help="Rounds per cell for the joint (offset × multiplier) "
+                        "sweep (default 5000)")
+    p.add_argument("--skip-joint-sweep", action="store_true",
+                   help="Skip the 5×5 joint sweep (saves ~30s)")
     args = p.parse_args(argv)
 
     print("=" * 78)
@@ -1346,6 +1561,21 @@ def main(argv: list[str] | None = None) -> int:
                 else "FAIL (cap was breached)")
     print(f"  interpretation: {interp_c}")
 
+    # ---- Joint (offset × multiplier) sweep — B7 follow-up ----
+    if not args.skip_joint_sweep:
+        print(f"\n[joint sweep] (barrier_offset × multiplier) — "
+              f"5 × 5 grid, {args.joint_sweep_rounds:,} rounds/cell, "
+              f"{args.riders_per_round} riders/round")
+        joint = scenario_joint_sweep(
+            seed=args.seed + 100,
+            n_rounds=args.joint_sweep_rounds,
+            riders_per_round=args.riders_per_round,
+        )
+        results["joint_sweep"] = joint
+        print_joint_sweep(joint)
+    else:
+        joint = None
+
     # ---- Summary ----
     print("\n" + "=" * 78)
     print("SUMMARY")
@@ -1359,6 +1589,22 @@ def main(argv: list[str] | None = None) -> int:
     print(f"(c) max barrier obl.: {c['max_per_barrier_obligation_observed']:,} / "
           f"{MAX_PAYOUT_PER_BARRIER:,}    "
           f"({c['ratio_max_obligation_vs_cap'] * 100:.2f}% of cap)")
+    if joint is not None:
+        if joint["sweet_cells"]:
+            head = joint["sweet_cells"][0]
+            print(f"(joint) sweet spot found: "
+                  f"±{head['barrier_offset_bps']} bps × "
+                  f"{head['multiplier_bps'] / BPS:.2f}×   "
+                  f"edge={format_pct(head['mean_edge_per_dollar'])}   "
+                  f"P(touch)={format_pct(head['realised_p_touch'])}   "
+                  f"({len(joint['sweet_cells'])} cell(s) in zone)")
+        else:
+            head = joint["closest_to_zone_if_empty"][0]
+            print(f"(joint) no cell in [5%,15%] × ≥1.5× × [30%,65%].   "
+                  f"closest: ±{head['barrier_offset_bps']} × "
+                  f"{head['multiplier_bps'] / BPS:.2f}×   "
+                  f"edge={format_pct(head['mean_edge_per_dollar'])}   "
+                  f"P(touch)={format_pct(head['realised_p_touch'])}")
     print("=" * 78)
 
     if args.json_out:
