@@ -1,6 +1,6 @@
 {
   "network": "testnet",
-  "package_id": "0x9f0320d08c2025c57720b6f9b64fdc767441acb1ef778512abbf00c12e1ee8ba",
+  "package_id": "0x0b94e3daa9ca156f2e541caa177ae27abd40aaacbe599a8f93b3a5a136700e70",
   "publisher": "0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455",
   "publish_digest": "7kUBQmP6kFfN1ePFDz9iNYQKRDkFiXdzwqYZ46rgSMiV",
   "published_at": "20260520T050846Z",
@@ -167,5 +167,55 @@
   "fee_router_sui": "0xe9a3f0919de13146e4cc0ef451084954c9518e1761af44b4ec44553e45a68c20",
   "usd_price_oracle": "0x11c742d91273eb293726f20e9aee0eb1ab696702c9fb8fa4d033cad31118da46",
   "wick_staking_pool": "0x0d23ac7733f83be7b5a1905b4413ae055c6c7afb60cb2f7a41ca0e730c8b8e67",
-  "wick_token_state": "0xbce483cc0392ae8207ce24d3cf77564913ab38fa2b8fbf024841c833d7213892"
+  "wick_token_state": "0xbce483cc0392ae8207ce24d3cf77564913ab38fa2b8fbf024841c833d7213892",
+  "upgrade_history": [
+    {
+      "from_package_id": "0x9f0320d08c2025c57720b6f9b64fdc767441acb1ef778512abbf00c12e1ee8ba",
+      "to_package_id": "0x0b94e3daa9ca156f2e541caa177ae27abd40aaacbe599a8f93b3a5a136700e70",
+      "upgraded_at": "20260523T074046Z",
+      "upgrade_digest": "6PUSDbPqRRMAYaJwDq7CM9De5SQpK7SXTCPLrLh75LXi",
+      "upgrade_capability": "0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590",
+      "version": 2
+    }
+  ],
+  "segment_markets": [
+    {
+      "market": "0x0c2bdb9ecafe70cc6c09a3cee6cac29d9a9da0f9618864ad8922d676c05e71f9",
+      "vault": "0x73d3a17ab1e1cdc173b8cde1ae7d9789a29d1a177ebfd415196a04a6a10e5b9f",
+      "home_price": 1000000000,
+      "vol_regime_init": 1000000,
+      "round_duration_segments": 75,
+      "open_window_segments": 13,
+      "barrier_offset_bps": 1000,
+      "multiplier_bps": 17500,
+      "max_payout_per_barrier": 20000000,
+      "deadband_bps": 20,
+      "sigma_bps_per_sqrt_sec": 100,
+      "cashout_spread_bps": 200,
+      "abort_segment_deadline_ms": 30000,
+      "min_stake_per_segment": 1000000,
+      "max_stake_per_segment": 100000000,
+      "max_concurrent_rides": 50,
+      "max_rides_per_user": 5
+    },
+    {
+      "market": "0x2f74fbdb20560206617c711a454dc29d4d6b000cc9ab2e4537400d80f88d1e45",
+      "vault": "0x73d3a17ab1e1cdc173b8cde1ae7d9789a29d1a177ebfd415196a04a6a10e5b9f",
+      "home_price": 1000000000,
+      "vol_regime_init": 1000000,
+      "round_duration_segments": 20,
+      "open_window_segments": 5,
+      "barrier_offset_bps": 1000,
+      "multiplier_bps": 17500,
+      "max_payout_per_barrier": 50000000,
+      "deadband_bps": 20,
+      "sigma_bps_per_sqrt_sec": 100,
+      "cashout_spread_bps": 200,
+      "abort_segment_deadline_ms": 30000,
+      "min_stake_per_segment": 1000000,
+      "max_stake_per_segment": 100000000,
+      "max_concurrent_rides": 50,
+      "max_rides_per_user": 5
+    }
+  ]
 }
