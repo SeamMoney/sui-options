@@ -174,7 +174,17 @@ async function queryParsedEvents<T>(
   eventType: string,
   parse: (json: Record<string, unknown>) => T,
   filter: (event: T) => boolean,
-  opts: { order?: EventOrder; limit?: number; maxPages?: number } = {},
+  opts: {
+    order?: EventOrder;
+    limit?: number;
+    maxPages?: number;
+    /**
+     * Stop paginating as soon as the first match is found. Used by
+     * `firstEvent` so a single-event lookup doesn't exhaust
+     * maxPages × limit events (= 20,000 by default) on every call.
+     */
+    earlyExit?: boolean;
+  } = {},
 ): Promise<T[]> {
   const out: T[] = [];
   const limit = opts.limit ?? 100;
@@ -190,7 +200,10 @@ async function queryParsedEvents<T>(
     for (const ev of page.data) {
       const json = asObject(ev.parsedJson);
       const parsed = parse(json);
-      if (filter(parsed)) out.push(parsed);
+      if (filter(parsed)) {
+        out.push(parsed);
+        if (opts.earlyExit) return out;
+      }
     }
     if (!page.hasNextPage || !page.nextCursor) break;
     cursor = page.nextCursor;
@@ -208,6 +221,7 @@ async function firstEvent<T>(
   const matches = await queryParsedEvents(client, eventType, parse, filter, {
     order,
     maxPages: 200,
+    earlyExit: true,
   });
   return matches[0] ?? null;
 }
