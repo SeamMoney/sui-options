@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "tick": "tsx src/index.ts tick",
     "watch": "tsx src/index.ts watch",
-    "setup-key": "tsx src/setup-key.ts"
+    "setup-key": "tsx src/setup-key.ts",
+    "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "@mysten/sui": "^2.16.0"
