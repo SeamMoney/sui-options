@@ -1,11 +1,16 @@
 # Wick Markets — Public Threat Model
 
-> Status: v1.0 (post-redteam, pre-mainnet).
+> Status: v1.1 (post-redteam, pre-mainnet, segment-arcade update).
 > Audience: auditors, sophisticated users, integrators, judges.
-> Last reviewed: 2026-05-12.
+> Last reviewed: 2026-05-23.
 > Source artifacts: ten internal red-team passes in [`docs/redteam/`](redteam/),
-> design v2 hardening specs (H1–H12), and the live testnet artifact in
-> `deployments/testnet.json`.
+> design v2 hardening specs (H1–H12), segment arcade specs
+> [`17`](design/v2/17_provably_fair_arcade.md),
+> [`17a`](design/v2/17a_sui_randomness_spike.md),
+> [`18`](design/v2/18_segment_market_design.md),
+> [`19`](design/v2/19_round_shared_grid_design.md), the B7 Monte Carlo report
+> [`15`](design/v2/15_montecarlo_validation_report.md), and the live testnet
+> artifact in `deployments/testnet.json`.
 
 This document is the public-facing version of the work we did to try to break
 our own protocol before anyone else does. We ran ten adversarial reviews
@@ -19,6 +24,79 @@ so plainly.
 The principle is: **production-honest beats production-confident**. A
 protocol whose threat model fits on a slide is one whose adversaries haven't
 read it yet.
+
+---
+
+## 2026-05-23 segment arcade update
+
+This update covers the new provably-fair segment arcade track: deterministic
+segments recorded from Sui randomness, round-based shared barriers, `/verify`
+replay, and the current A0 randomness status. It does not replace the older
+oracle/Lazer threat model for real-underlying markets.
+
+### Randomness security (A0)
+
+A0's primary defense is structural. `record_segment` consumes Sui `Random`, and
+Sui rejects the compositional shape needed for the classic test-and-abort
+grinder: a public wrapper around `&Random` is blocked by the bytecode verifier,
+and a PTB with a value-checking MoveCall after a `Random` MoveCall is rejected
+by Sui's PTB validity rules. That is the R1 defense in
+[`17a_sui_randomness_spike.md`](design/v2/17a_sui_randomness_spike.md).
+
+R2 is the remaining gas-side-channel obligation. The static source-shape half
+is discharged by `scripts/verify_record_segment_shape.py`: single 32-byte draw,
+one `expand_segment` call, fixed walk constants, no `_in_range` or `shuffle`
+inside `record_segment`. The dynamic half is not done: gas-spread measurement,
+the live PTB-rejection test in §6.3 #2, and the abort-leak test in §6.3 #3 all
+require a deployed-package `devInspect`/dry-run harness and are deferred beyond
+the hackathon window.
+
+### Provably-fair claim boundary
+
+What we claim:
+
+- Every segment-market candle is deterministic from publicly recorded segment
+  keys via `seeded_path::expand_segment`.
+- The Move and TypeScript `expandSegment` implementations are conformance-tested
+  over 10,000 generated vectors in `move/tests/seeded_path_conformance.move`.
+- Closed rides can be replayed with `npx tsx scripts/verify.ts --market ... --ride ...`;
+  the CLI recomputes candles/extremes from on-chain keys and compares its
+  verdict to the on-chain `RideClosed.settlement_kind`.
+
+What we do not claim:
+
+- A fully audited, gas-side-channel-free implementation.
+- Production-grade key-grinding resistance under adversarial gas pricing until
+  the dynamic R2 gas-spread harness lands.
+- That `/verify` is a production indexer. It is a replay CLI with known
+  pagination and race-condition follow-ups listed below.
+
+### Segment-market vault solvency
+
+B7 Monte Carlo locked the default round parameters at ±10% barriers and a 1.75x
+touch multiplier. The joint sweep reports **+11.24% vault edge** and **50.67%
+touch rate** at that cell; see
+[`15_montecarlo_validation_report.md` §12.4](design/v2/15_montecarlo_validation_report.md)
+and [`19_round_shared_grid_design.md` §4](design/v2/19_round_shared_grid_design.md).
+Worst-case same-round pile-on is bounded at open by `MAX_PAYOUT_PER_BARRIER`,
+set by the bootstrap script to 10% of the seed treasury by default. With two
+barriers, the pessimistic per-round liability cap is therefore `2 ×
+MAX_PAYOUT_PER_BARRIER`; the B7 pile-on simulation observed zero cap violations.
+
+### Known segment-arcade deferrals
+
+- Keeper TypeScript update for the latest `segment_market` ABI.
+- `FeeSnapshot` extension for DNT impact-fee wiring; DNT winners pay the base
+  fee for MVP.
+- PWE for DNT remains `0`; per-position caps still bind.
+- Frontend tap-hold ride gesture polish remains acceptable-for-demo deferred
+  work.
+- E1 `/verify` SEV-2 follow-ups: closure race, pagination cost, and ID-case
+  normalization.
+- E2 spine-test coverage gaps: lower-barrier verdicts, `EXPIRED_LOSS`, and
+  multi-round ride replay.
+- Empirical gas-spread measurement, live PTB-rejection, and abort-leak tests
+  from `17a` §6.3.
 
 ---
 
