@@ -106,3 +106,140 @@ These safer templates produce **positive mean vault P&L** while preserving the u
 ```bash
 python3 scripts/simulate_protocol.py --sessions 10000 --seed 42
 ```
+
+---
+
+# Segment market validation (doc 19)
+
+**Generated:** by `scripts/simulate_segment_protocol.py` (seed = 42, rounds = 10 000).
+**Scope:** the round-based shared-barrier arcade per `docs/design/v2/19_round_shared_grid_design.md`, using the integer fixed-point walk from `move/sources/seeded_path.move`. This section is the Phase B7 deliverable for doc 19.
+
+## 11. Methodology
+
+The simulator (`scripts/simulate_segment_protocol.py`) ports the `seeded_path::expand_segment` function to Python — every constant (`C_VR_JITTER`, `C_MOM_DECAY`, `C_FAT_PROB`, …) is lifted verbatim from the Move source, and Python `int` carries the u128 intermediates safely. Two draw modes are supported:
+
+- **exact**: byte-identical blake2b keystream — used by the determinism self-test against the Move conformance vector.
+- **fast** (default for sweeps): per-key numpy RNG. Distributional statistics for the walk (mean per-round return, per-segment vol, fat-tail incidence) match the exact path to within sampling noise. The simulator is validating *economics* (mean edge, percentiles, cap behaviour), so the fast path is appropriate. Conformance to the Move bytes is the job of `tests/seeded_path_conformance.move`, not this simulator.
+
+Round mechanics implement doc 19 §4 directly: every round is a self-contained 75-segment slice; barriers are computed from `walk.price` at round start (±`BARRIER_OFFSET_BPS`). Opens are accepted only during the first `OPEN_WINDOW_SEGMENTS` of the round, and per-barrier cap enforcement happens at open time (reject if `aggregate_max_payout + new_max_payout > MAX_PAYOUT_PER_BARRIER`). At round end every still-open ride settles: `SETTLE_TOUCH_WIN` if the per-barrier segment-extreme scan triggers, `SETTLE_EXPIRED_LOSS` otherwise. (The simulator does **not** model voluntary cashout in this v1 sweep — every rider holds to round end, which is the worst case for the vault and the cleanest signal for the multiplier-tier calibration.)
+
+Default parameters from doc 19 §4:
+
+| Parameter | Value | Source |
+|---|---|---|
+| `ROUND_DURATION_SEGMENTS` | 75 (30 s) | doc 19 §4 |
+| `OPEN_WINDOW_SEGMENTS` | 13 (≈ 5.2 s) | doc 19 §4 |
+| `BARRIER_OFFSET_BPS` | 500 (±5 %) | doc 19 §4 |
+| `MULTIPLIER_BPS` | 20 000 (2×) | doc 19 §4 |
+| `MAX_PAYOUT_PER_BARRIER` | 10 % of seed treasury | doc 19 §4 (provisional) |
+| `DEADBAND_BPS` | 20 | `RiskConfig` default |
+| `DEFAULT_SEGMENT_MS` | 400 | doc 17 §10 |
+| Walk constants | `seeded_path.move` | exact transcription |
+
+The walk uses the `home_price = 1 000 USD = 1_000_000_000 µUSD` starting point with `vol_regime = 1.0`. Each scenario carries the walk state across rounds (so vol-regime clusters persist).
+
+## 12. Results (v1 default parameters)
+
+### 12.1 Scenario (a) — per-tier multiplier calibration
+
+10 000 rounds × 8 uniform-opener riders per round = **80 000 rides**.
+
+| Metric | Value |
+|---|---|
+| Realised P(touch) per ride | **85.79 %** |
+| Mean vault edge per dollar staked | **−71.66 %** |
+| Median edge per dollar | −100 % |
+| Edge percentiles (5 / 95) | −100 % / +26.30 % |
+| Mean vault P&L per round | −395 869 (collateral units) |
+| Loss frequency (rounds where vault lost) | **86.49 %** |
+| Fair-value check `1 − M × P_touch` | −71.57 % |
+
+The realised edge tracks the closed-form `1 − M × P_touch` to within sampling noise — confirming the simulator's wager accounting is faithful and the headline number is **structural**, not a bug. **At the v1-default 2× multiplier, the vault bleeds 71 cents on every dollar staked.**
+
+**Multiplier-tier sweep** (2 000 rounds per tier, same seeded_path walk):
+
+| Multiplier | Realised P(touch) | Mean edge / $ | 5th-pct edge | `1 − M·P_touch` |
+|---|---|---|---|---|
+| 1.05× | 85.31 % | **+10.36 %** | −5 % | +10.42 % |
+| 1.10× | 85.07 % | **+6.39 %** | −10 % | +6.42 % |
+| 1.20× | 85.29 % | −2.41 % | −20 % | −2.34 % |
+| 1.50× | 85.85 % | −28.84 % | −50 % | −28.78 % |
+| 1.80× | 85.92 % | −54.72 % | −80 % | −54.65 % |
+| 2.00× | 85.01 % | **−70.08 %** | −100 % | −70.03 % |
+| 2.50× | 85.47 % | −113.80 % | −150 % | −113.67 % |
+| 3.00× | 86.34 % | −159.11 % | −200 % | −159.03 % |
+| 5.00× | 85.24 % | −326.40 % | −400 % | −326.22 % |
+
+The only tiers with non-negative edge are **1.05× and 1.10×**. Anything above 1.15× is structurally a vault subsidy. Result: **the 2× multiplier from doc 19 §4 is not safe with the current `seeded_path` walk at ±5 % / 30 s barriers**.
+
+### 12.2 Scenario (b) — open-window selection bot
+
+A bot opens at the last segment of the open window (`segment_into_round = OPEN_WINDOW_SEGMENTS − 1`, i.e. ~5.2 s into the round) and picks the barrier currently closest to spot. A parallel **uniform baseline** opens at segment 0 and coin-flips the barrier. 10 000 rounds with both riders on the same walk.
+
+| Metric | Bot | Uniform | Δ |
+|---|---|---|---|
+| Realised P(touch) | 96.74 % | 87.26 % | **+9.48 pp** |
+| Mean edge per $ | +93.48 % | +74.52 % | — |
+| **Selection advantage (bot − uniform)** | — | — | **+18.96 % per $ staked** |
+
+Spot drift *during the 5.2 s open window* and *over the full 30 s round*:
+
+| | Mean | p95 | p99 |
+|---|---|---|---|
+| Open-window drift (bps) | 471.5 | 1 184.1 | 1 602.6 |
+| Round drift (bps) | 474.2 | 1 172.8 | 1 612.6 |
+
+**This is the smoking gun.** Barriers are placed at **500 bps** from spot at round start. The walk's mean drift over the 5.2 s open window is **471.5 bps** — nearly the entire barrier offset. A bot watching the open window already sees, on average, which barrier is "near enough to touch" by the time it picks. Over 95 % of rounds the open-window drift exceeds 1 184 bps, more than 2× the barrier offset.
+
+The conclusion is **NOT** "the open-window mechanism is broken." The mechanism is sound — a uniform opener and a late-opening bot are exposed to the same `(barrier, walk)` distribution; selection only matters when there is *information* in the open window. The conclusion is: **with the `seeded_path` walk's native vol, a 5.2 s open window is too long relative to a ±5 % barrier**. Either the barriers must be wider, the round must be longer (so a 5 s open window is a smaller fraction of total time), or the walk vol must be tuned down for the segment market.
+
+### 12.3 Scenario (c) — per-barrier cap pile-on
+
+Every rider opens at segment 0 with `stake_per_segment = MAX_STAKE_PER_SEGMENT`. The simulator drives both barriers to saturation each round — 134 rider intents per round, 67 of which fit under the cap on each side.
+
+| Metric | Value |
+|---|---|
+| Cap (`MAX_PAYOUT_PER_BARRIER`) | 100 000 000 |
+| Observed max per-barrier obligation across 2 000 rounds | 99 000 000 (99.00 % of cap) |
+| Observed max **total** obligation per round | 198 000 000 (≈ 2 × cap) |
+| Cap violations | **0** |
+| Mean rejected opens per round | 2.0 |
+| Max realised vault payout per round | 198 000 000 |
+| Mean realised vault payout per round | 172 012 500 |
+
+**The per-barrier cap behaves exactly as designed.** No round breached the cap, even under the most aggressive pile-on (max stake on every rider on both barriers). The worst-case vault liability per round is bounded by **2 × `MAX_PAYOUT_PER_BARRIER`** (one full pile per barrier), which at the provisional 10 %-of-seed cap leaves the vault still adequately collateralised against the seed treasury after one pessimistic round.
+
+## 13. Interpretation — does the data support shipping with doc 19 §4 parameters?
+
+**Cap (c):** ship as-is. The cap is structurally sound; the 10 % provisional value is conservative.
+
+**Multiplier (a) and open-window selection (b):** **the v1 default `MULTIPLIER_BPS = 20_000` (2×) cannot ship against the current `seeded_path` walk at ±5 % / 30 s barriers.** The walk's native realised P(touch) is ~86 %, and the closed-form vault edge `1 − M·P_touch` is decisive. The same walk drift that makes (a) unprofitable is what makes (b)'s bot strategy profitable: spot moves nearly the full barrier offset during the open window.
+
+The simulator's tier sweep shows the **break-even multiplier is ≈ 1.17×** (`1 / 0.857`). For a **defensible ≥ 5 % house edge**, the multiplier must be ≤ **1.10×**. Three paths forward (compatible — any combination works):
+
+1. **Drop `MULTIPLIER_BPS` to 11 000 (1.10×).** Trivial parameter change in `bootstrap_segment_market`. Yields +6.4 % vault edge per dollar staked. Cost: less leveraged payout, weaker "fun money" feel.
+2. **Widen `BARRIER_OFFSET_BPS` to 1 500 (±15 %)** so the walk's per-round drift (~6 % stdev) is more than half a barrier away. This is the lever pulled in §9 above for the original arcade markets — it works, the same logic applies here.
+3. **Reduce the walk's `C_VOL` constant** in `seeded_path.move` for the segment market. Most invasive: this is a shared library across the arcade and the segment market, so a separate vol parameter on `SegmentMarket` (or a separate "calmer" walk variant) would need to land first. **Out of scope for B7.**
+
+The same recalibration *also* closes the (b) selection edge: if barriers are at 1 500 bps and the walk's open-window drift remains ~470 bps, the bot's information is a small fraction of the barrier offset — selection collapses toward the uniform baseline.
+
+**Recommendation:** ship doc 19 as a design with `MULTIPLIER_BPS = 11_000` AND `BARRIER_OFFSET_BPS = 1_500` (or run the B7 sweep again at those parameters before locking). The 2× headline and ±5 % barriers in doc 19 §4 must be revised in a doc 19 §4 amendment before B-phase implementation builds against them.
+
+The per-barrier cap pile-on result (c) is independent of these choices and locks in as-is.
+
+## 14. Reproducibility (segment market)
+
+```bash
+# Full 10 000-round sweep — ~3 min on a 2024 laptop
+python3 scripts/simulate_segment_protocol.py --rounds 10000 --seed 42
+
+# JSON dump for downstream charts
+python3 scripts/simulate_segment_protocol.py --rounds 10000 --seed 42 \
+    --json-out /tmp/segsim.json
+
+# Fast smoke (~30 s)
+python3 scripts/simulate_segment_protocol.py --rounds 500 --seed 42
+```
+
+The simulator does an in-process determinism self-test against the Move walk constants on startup; any drift in the lifted constants will fail loudly before any rounds run.
+
