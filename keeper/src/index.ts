@@ -17,6 +17,7 @@ import {
   parseSegmentMarketsEnv,
   type SegmentMarketBinding,
 } from "./segmentCranker.js";
+import { SegmentArchiver } from "./segmentArchiver.js";
 
 const cmd = process.argv[2] ?? "watch";
 
@@ -144,6 +145,49 @@ async function main() {
       }
     }
 
+    // v3.5 — Walrus archive bot. Optional, env-driven. Each item:
+    //   "<marketId>" (uses default package) or
+    //   "<marketId>@<packageId>". Comma-separated.
+    //
+    // Per docs/design/v2/24_walrus_archive_v3.md, the bot polls every market,
+    // detects archive-eligible rounds (R + SETTLEMENT_LAG_ROUNDS <=
+    // cached_round_index), uploads a BCS-encoded WickRoundArchive to a
+    // Walrus publisher, then STUBS the on-chain record_walrus_archive call
+    // (until the v3 Move surface ships).
+    const archivers: SegmentArchiver[] = [];
+    const archiverBindings = parseSegmentMarketsEnv(
+      process.env.WICK_KEEPER_ARCHIVER_MARKETS,
+      cfg.packageId,
+      cfg.collateralType,
+    );
+    if (archiverBindings.length > 0) {
+      const walrusEndpoint = process.env.WALRUS_PUBLISHER_URL;
+      const retentionEpochs = process.env.WALRUS_RETENTION_EPOCHS
+        ? Number(process.env.WALRUS_RETENTION_EPOCHS)
+        : undefined;
+      const pollIntervalMs = process.env.WICK_KEEPER_ARCHIVER_POLL_MS
+        ? Number(process.env.WICK_KEEPER_ARCHIVER_POLL_MS)
+        : undefined;
+      for (const b of archiverBindings) {
+        const archiver = new SegmentArchiver(client, signer.keypair, {
+          marketId: b.marketId,
+          packageId: b.packageId,
+          walrusEndpoint,
+          retentionEpochs,
+          pollIntervalMs,
+        });
+        try {
+          await archiver.start();
+          archivers.push(archiver);
+        } catch (err) {
+          log("warn", "segment-archiver-start-failed", {
+            market_id: b.marketId,
+            error: String(err),
+          });
+        }
+      }
+    }
+
     let stop = false;
     let backoffMs = cfg.rpcBackoffInitialMs;
     process.on("SIGINT", () => {
@@ -189,6 +233,13 @@ async function main() {
     }
     if (segmentCranker != null) {
       segmentCranker.stop();
+    }
+    for (const a of archivers) {
+      try {
+        a.stop();
+      } catch (err) {
+        log("warn", "segment-archiver-stop-failed", { error: String(err) });
+      }
     }
     server.close();
     log("info", "exit", { msg: "watch loop exited cleanly" });
