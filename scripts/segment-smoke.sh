@@ -19,7 +19,10 @@ cd "$(dirname "$0")/.."
 ARTIFACT="deployments/testnet.json"
 SUI_COIN_TYPE="${SUI_COIN_TYPE:-0x2::sui::SUI}"
 CLOCK="0x6"
-RANDOM="0x8"
+# `RANDOM` is a bash special variable (returns a fresh pseudo-random int on
+# every read; assignment SETS THE SEED, not the value). Don't use it as a
+# named constant. RANDOM_OBJ is the sui::random::Random system object id.
+RANDOM_OBJ="0x8"
 BARRIER_INDEX="${BARRIER_INDEX:-0}"
 GAS_BUDGET="${GAS_BUDGET:-200000000}"
 KEEPER_WAIT_S="${KEEPER_WAIT_S:-8}"
@@ -216,7 +219,7 @@ market_field() {
   local json
   json=$(market_json)
   jq -r --arg f "$field" --arg d "$default" \
-    '(.data.content.fields[$f] // .content.fields[$f] // $d)' "$json"
+    '(.content[$f] // .data.content.fields[$f] // .content.fields[$f] // $d)' "$json"
 }
 
 calc_product() {
@@ -346,7 +349,7 @@ if [ "${KEEPER_DONE:-0}" != "1" ]; then
     OUT=$(run_tx "record-segment-${idx}" \
       sui client ptb \
         --move-call "${PKG}::wick::record_segment" "<$SUI_COIN_TYPE>" \
-          "@${MARKET_ID}" "@${RANDOM}" "@${CLOCK}" \
+          "@${MARKET_ID}" "@${RANDOM_OBJ}" "@${CLOCK}" \
         --gas-budget "$GAS_BUDGET" --json)
     note "record_segment #$idx digest: $(tx_digest "$OUT")"
     CURRENT_NEXT=$(market_field next_segment_index "$CURRENT_NEXT")
