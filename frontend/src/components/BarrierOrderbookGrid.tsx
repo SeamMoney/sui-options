@@ -19,7 +19,7 @@
  *
  * Render budget: 1 fetch + 2 small DOM bars per poll = effectively free.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchSegmentMarket,
   type SegmentMarketSnapshot,
@@ -68,6 +68,8 @@ export function BarrierOrderbookGrid(props: BarrierOrderbookGridProps) {
   useEffect(() => {
     if (!marketId) return;
     let cancelled = false;
+    let intervalId: number | null = null;
+
     const refresh = async () => {
       try {
         const next = await fetchSegmentMarket(client, marketId);
@@ -94,13 +96,78 @@ export function BarrierOrderbookGrid(props: BarrierOrderbookGridProps) {
         console.warn("[BarrierOrderbookGrid] fetchSegmentMarket:", err);
       }
     };
+
+    // Tab-visibility guard (D6 SEV-2 #2): pause the 1s poll when the
+    // tab is hidden, resume when it becomes visible. Hidden tabs don't
+    // need fresh aggregate-stake bars and the RPC bill / battery
+    // shouldn't pay for invisible polls. On resume we kick a single
+    // immediate refresh so the first visible paint isn't stale.
+    const startInterval = () => {
+      if (intervalId !== null) return;
+      intervalId = window.setInterval(() => void refresh(), SNAPSHOT_POLL_MS);
+    };
+    const stopInterval = () => {
+      if (intervalId === null) return;
+      window.clearInterval(intervalId);
+      intervalId = null;
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        stopInterval();
+      } else {
+        void refresh();
+        startInterval();
+      }
+    };
+
     void refresh();
-    const id = window.setInterval(() => void refresh(), SNAPSHOT_POLL_MS);
+    if (!document.hidden) startInterval();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopInterval();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [client, marketId]);
+
+  // Round-rollover pulse suppression (D6 SEV-2 #1): when the chain
+  // ticks over to a new round, ensure_round_current zeroes the four
+  // aggregate-stake counters and bumps cached_round_index. Without
+  // this guard, the OrderbookBar pulse would fire because stake went
+  // N→0 — even though no RideOpened/RideClosed actually landed. We
+  // remember the last snapshot we forwarded to the bars and, on the
+  // next render where prev>0, curr===0, AND roundIndex changed, mark
+  // the affected side(s) as suppressPulse=true for that single update.
+  // After this one-shot suppression the normal pulse-on-change
+  // behavior resumes.
+  //
+  // The ref is written inside an effect (post-commit) so render stays
+  // pure; the comparison itself is a no-op cost in render.
+  const lastSnapshotRef = useRef<SegmentMarketSnapshot | null>(null);
+  useEffect(() => {
+    lastSnapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  let suppressUpperPulse = false;
+  let suppressLowerPulse = false;
+  if (snapshot) {
+    const prev = lastSnapshotRef.current;
+    if (prev && prev.cachedRoundIndex !== snapshot.cachedRoundIndex) {
+      if (
+        prev.upperAggregateStake > 0n &&
+        snapshot.upperAggregateStake === 0n
+      ) {
+        suppressUpperPulse = true;
+      }
+      if (
+        prev.lowerAggregateStake > 0n &&
+        snapshot.lowerAggregateStake === 0n
+      ) {
+        suppressLowerPulse = true;
+      }
+    }
+  }
 
   // Empty surface until the first snapshot lands. Render nothing rather
   // than a placeholder so the chart underneath stays uncluttered.
@@ -123,6 +190,7 @@ export function BarrierOrderbookGrid(props: BarrierOrderbookGridProps) {
         riderCount={Number(snapshot.upperRiderCount)}
         isFull={upperIsFull}
         maxStakeMicroUsd={maxStake}
+        suppressPulse={suppressUpperPulse}
       />
       <OrderbookBar
         side="lower"
@@ -132,6 +200,7 @@ export function BarrierOrderbookGrid(props: BarrierOrderbookGridProps) {
         riderCount={Number(snapshot.lowerRiderCount)}
         isFull={lowerIsFull}
         maxStakeMicroUsd={maxStake}
+        suppressPulse={suppressLowerPulse}
       />
     </div>
   );

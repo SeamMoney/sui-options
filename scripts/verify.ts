@@ -24,6 +24,7 @@ import {
   rideOpenedEventType,
   roundStartedEventType,
   segmentMarketCreatedEventType,
+  segmentRecordedEventType,
   type RideClosedEvent,
   type RideOpenedEvent,
   type RoundStartedEvent,
@@ -34,13 +35,28 @@ import {
 type EventCursor = { txDigest: string; eventSeq: string };
 type EventOrder = "ascending" | "descending";
 
+interface RpcEvent {
+  /** Sui event id — supplied by suix_queryEvents; synthesized by the mock. */
+  id?: EventCursor;
+  parsedJson?: unknown;
+}
+
 interface RpcClient {
   getObject(args: unknown): Promise<unknown>;
   queryEvents(args: unknown): Promise<{
-    data: Array<{ parsedJson?: unknown }>;
+    data: Array<RpcEvent>;
     hasNextPage: boolean;
     nextCursor?: EventCursor | null;
   }>;
+}
+
+function asEventId(v: unknown): EventCursor | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  if (typeof o.txDigest !== "string" || typeof o.eventSeq !== "string") {
+    return undefined;
+  }
+  return { txDigest: o.txDigest, eventSeq: o.eventSeq };
 }
 
 interface Args {
@@ -169,17 +185,40 @@ async function getMarketObjectInfo(
   return { packageId: type.slice(0, idx), type };
 }
 
-async function queryParsedEvents<T>(
+interface MatchedEvent<T> {
+  event: T;
+  /** Cursor id of the underlying RPC event, when the source provides one. */
+  id: EventCursor | undefined;
+}
+
+async function queryParsedEventsWithIds<T>(
   client: RpcClient,
   eventType: string,
   parse: (json: Record<string, unknown>) => T,
   filter: (event: T) => boolean,
-  opts: { order?: EventOrder; limit?: number; maxPages?: number } = {},
-): Promise<T[]> {
-  const out: T[] = [];
+  opts: {
+    order?: EventOrder;
+    limit?: number;
+    maxPages?: number;
+    /**
+     * Stop paginating as soon as the first match is found. Used by
+     * `firstEvent` so a single-event lookup doesn't exhaust
+     * maxPages × limit events (= 20,000 by default) on every call.
+     */
+    earlyExit?: boolean;
+    /**
+     * Pagination start cursor. Combined with `order: "descending"`, lets
+     * callers scan events that landed strictly before a known cursor —
+     * used to apply a chain-order cutoff that doesn't depend on
+     * wall-clock timestamps.
+     */
+    startCursor?: EventCursor | null;
+  } = {},
+): Promise<MatchedEvent<T>[]> {
+  const out: MatchedEvent<T>[] = [];
   const limit = opts.limit ?? 100;
   const maxPages = opts.maxPages ?? 200;
-  let cursor: EventCursor | null = null;
+  let cursor: EventCursor | null = opts.startCursor ?? null;
   for (let pageNo = 0; pageNo < maxPages; pageNo++) {
     const page = await client.queryEvents({
       query: { MoveEventType: eventType },
@@ -190,12 +229,55 @@ async function queryParsedEvents<T>(
     for (const ev of page.data) {
       const json = asObject(ev.parsedJson);
       const parsed = parse(json);
-      if (filter(parsed)) out.push(parsed);
+      if (filter(parsed)) {
+        out.push({ event: parsed, id: asEventId(ev.id) });
+        if (opts.earlyExit) return out;
+      }
     }
     if (!page.hasNextPage || !page.nextCursor) break;
     cursor = page.nextCursor;
   }
   return out;
+}
+
+async function queryParsedEvents<T>(
+  client: RpcClient,
+  eventType: string,
+  parse: (json: Record<string, unknown>) => T,
+  filter: (event: T) => boolean,
+  opts: {
+    order?: EventOrder;
+    limit?: number;
+    maxPages?: number;
+    earlyExit?: boolean;
+    startCursor?: EventCursor | null;
+  } = {},
+): Promise<T[]> {
+  const matches = await queryParsedEventsWithIds(
+    client,
+    eventType,
+    parse,
+    filter,
+    opts,
+  );
+  return matches.map((m) => m.event);
+}
+
+async function firstEventWithId<T>(
+  client: RpcClient,
+  eventType: string,
+  parse: (json: Record<string, unknown>) => T,
+  filter: (event: T) => boolean,
+  order: EventOrder,
+): Promise<MatchedEvent<T> | null> {
+  const matches = await queryParsedEventsWithIds(
+    client,
+    eventType,
+    parse,
+    filter,
+    { order, maxPages: 200, earlyExit: true },
+  );
+  return matches[0] ?? null;
 }
 
 async function firstEvent<T>(
@@ -205,11 +287,8 @@ async function firstEvent<T>(
   filter: (event: T) => boolean,
   order: EventOrder,
 ): Promise<T | null> {
-  const matches = await queryParsedEvents(client, eventType, parse, filter, {
-    order,
-    maxPages: 200,
-  });
-  return matches[0] ?? null;
+  const m = await firstEventWithId(client, eventType, parse, filter, order);
+  return m ? m.event : null;
 }
 
 async function fetchRideEvents(
@@ -217,7 +296,13 @@ async function fetchRideEvents(
   packageId: string,
   marketId: string,
   rideId: string,
-): Promise<{ opened: RideOpenedEvent; closed: RideClosedEvent }> {
+): Promise<{
+  opened: RideOpenedEvent;
+  closed: RideClosedEvent;
+  /** Cursor id of the RideClosed event — used as the chain-order cutoff
+   * when fetching SegmentRecorded events (E1 SEV-2 #A). */
+  closedEventId: EventCursor | undefined;
+}> {
   const opened = await firstEvent(
     client,
     rideOpenedEventType(packageId),
@@ -227,7 +312,7 @@ async function fetchRideEvents(
   );
   if (!opened) throw new Error(`RideOpened event not found for ride ${rideId}`);
 
-  const closed = await firstEvent(
+  const closed = await firstEventWithId(
     client,
     rideClosedEventType(packageId),
     parseRideClosedEvent,
@@ -236,7 +321,58 @@ async function fetchRideEvents(
   );
   if (!closed) throw new Error(`RideClosed event not found for ride ${rideId}`);
 
-  return { opened, closed };
+  return { opened, closed: closed.event, closedEventId: closed.id };
+}
+
+/**
+ * Build the set of SegmentRecorded `k`s that landed strictly before
+ * the RideClosed event in Sui's chain order.
+ *
+ * Why this exists (E1 SEV-2 #A): the previous implementation filtered
+ * eligibility with `s.recordedAtMs > closedAt`, which loses precision
+ * when a segment's `recorded_at_ms` matches the ride's `closed_at_ms`
+ * to the millisecond (e.g. when the same keeper tick both records and
+ * closes, or when two `clock::timestamp_ms` reads share the checkpoint).
+ * That race produced false MISMATCH verdicts. By starting the
+ * descending pagination *from* the close event's cursor
+ * (`{ txDigest, eventSeq }`), the fullnode returns only events
+ * strictly earlier in checkpoint order — no wall-clock comparisons.
+ *
+ * When the RPC doesn't supply a close cursor (e.g. the synthetic
+ * mock), we fall back to "include every k" — preserving the
+ * pre-cursor behavior of the test mock.
+ */
+async function fetchSegmentKsBeforeClose(
+  client: RpcClient,
+  opts: {
+    packageId: string;
+    marketId: string;
+    closedEventId: EventCursor | undefined;
+    pageLimit?: number;
+    maxPages?: number;
+  },
+): Promise<{ ks: Set<string>; bounded: boolean }> {
+  // Without a cursor we can't bound the scan; signal the caller that
+  // the eligibility set is "trust all segments in range".
+  if (!opts.closedEventId) return { ks: new Set(), bounded: false };
+
+  const ks = new Set<string>();
+  await queryParsedEvents(
+    client,
+    segmentRecordedEventType(opts.packageId),
+    (j) => ({ marketId: asString(j.market_id), k: asString(j.k) }),
+    (rec) => {
+      if (sameId(rec.marketId, opts.marketId)) ks.add(rec.k);
+      return false;
+    },
+    {
+      order: "descending",
+      limit: opts.pageLimit ?? 100,
+      maxPages: opts.maxPages ?? 1_000,
+      startCursor: opts.closedEventId,
+    },
+  );
+  return { ks, bounded: true };
 }
 
 async function fetchCreationEvent(
@@ -381,7 +517,7 @@ async function verify(args: Args): Promise<boolean> {
     `note: verify.ts seeds the walk with vol_regime_init = ${DEFAULT_INITIAL_VOL_REGIME}n (the bootstrap default). If this market was deployed with a non-default value, extrema replay will mismatch from k=0 even on an honest chain.`,
   );
 
-  const { opened, closed } = await fetchRideEvents(
+  const { opened, closed, closedEventId } = await fetchRideEvents(
     client,
     marketInfo.packageId,
     args.market,
@@ -399,12 +535,25 @@ async function verify(args: Args): Promise<boolean> {
     maxPages: 1_000,
   });
 
-  const closedAt = closed.closedAtMs;
+  // Cursor-based eligibility cutoff (E1 SEV-2 #A): the previous filter
+  // `s.recordedAtMs > closedAt` is wrong when a segment's
+  // `recorded_at_ms` ties the ride's `closed_at_ms` to the millisecond
+  // (same keeper tick, shared clock snapshot). Use the RideClosed
+  // event's `{ txDigest, eventSeq }` as the chain-order cutoff instead.
+  // For the bounty branch the cutoff is rideRoundEnd (the keeper
+  // drained every segment up to the round end) so we don't need the
+  // cursor scan there.
+  const closeCutoff = await fetchSegmentKsBeforeClose(client, {
+    packageId: marketInfo.packageId,
+    marketId: args.market,
+    closedEventId: closed.bounty > 0n ? undefined : closedEventId,
+  });
+
   const eligible = allSegments.filter((s) => {
     if (s.k < opened.entrySegmentIndex) return false;
     if (closed.bounty > 0n) return s.k < rideRoundEnd;
-    if (closedAt > 0n && s.recordedAtMs > closedAt) return false;
-    return true;
+    if (!closeCutoff.bounded) return true;
+    return closeCutoff.ks.has(s.k.toString());
   });
   const scanEndExclusive =
     eligible.length === 0
@@ -520,23 +669,28 @@ function buildSyntheticClient(marketId: string, rideId: string): RpcClient {
   const deadbandBps = 0n;
   const keys = [bytes32(1), bytes32(2), bytes32(3)];
   let state = newState(home, DEFAULT_INITIAL_VOL_REGIME, home);
-  const segmentEvents = keys.map((key, i) => {
-    const result = expandSegment(state, key);
-    state = result.newState;
-    return {
-      type: `${packageId}::segment_market::SegmentRecorded`,
-      parsedJson: {
+  const segmentEvents = keys.map((key, i) => ({
+    type: `${packageId}::segment_market::SegmentRecorded`,
+    parsedJson: (() => {
+      const result = expandSegment(state, key);
+      state = result.newState;
+      return {
         market_id: marketId,
         k: String(i),
         key: hex(key),
         min_price: result.min.toString(),
         max_price: result.max.toString(),
         recorded_at_ms: String(1_000 + i * 400),
-      },
-    };
-  });
+      };
+    })(),
+  }));
 
-  const events = [
+  // Assign each event a synthetic, globally-monotonic id so the
+  // cursor-bounded scan (E1 SEV-2 #A) has something to pivot on. Order
+  // matches emission order: created < opened < segment[0] < ... <
+  // segment[N-1] < closed.
+  type Ev = { type: string; parsedJson: Record<string, unknown>; id: EventCursor };
+  const rawEvents: Array<Omit<Ev, "id">> = [
     {
       type: `${packageId}::segment_market::SegmentMarketCreated`,
       parsedJson: {
@@ -585,6 +739,19 @@ function buildSyntheticClient(marketId: string, rideId: string): RpcClient {
       },
     },
   ];
+  const events: Ev[] = rawEvents.map((e, i) => ({
+    ...e,
+    id: { txDigest: `0xtx${String(i).padStart(4, "0")}`, eventSeq: "0" },
+  }));
+
+  function compareCursor(a: EventCursor, b: EventCursor): number {
+    if (a.txDigest === b.txDigest) {
+      const ae = BigInt(a.eventSeq);
+      const be = BigInt(b.eventSeq);
+      return ae < be ? -1 : ae > be ? 1 : 0;
+    }
+    return a.txDigest < b.txDigest ? -1 : 1;
+  }
 
   return {
     async getObject(args: unknown): Promise<unknown> {
@@ -661,14 +828,33 @@ function buildSyntheticClient(marketId: string, rideId: string): RpcClient {
       return { data: null };
     },
     async queryEvents(args: unknown): Promise<{
-      data: Array<{ parsedJson?: unknown }>;
+      data: Array<RpcEvent>;
       hasNextPage: boolean;
-      nextCursor: null;
+      nextCursor: EventCursor | null;
     }> {
-      const query = asObject(asObject(args).query);
+      const a = asObject(args);
+      const query = asObject(a.query);
       const eventType = asString(query.MoveEventType);
+      const order: EventOrder =
+        a.order === "ascending" ? "ascending" : "descending";
+      const startCursor = asEventId(a.cursor);
+      let matches = events.filter((e) => e.type === eventType);
+      if (startCursor) {
+        // Sui semantics: cursor is exclusive — pagination returns
+        // events strictly before/after the cursor depending on order.
+        matches = matches.filter((e) =>
+          order === "descending"
+            ? compareCursor(e.id, startCursor) < 0
+            : compareCursor(e.id, startCursor) > 0,
+        );
+      }
+      matches.sort((x, y) =>
+        order === "descending"
+          ? compareCursor(y.id, x.id)
+          : compareCursor(x.id, y.id),
+      );
       return {
-        data: events.filter((e) => e.type === eventType),
+        data: matches.map((e) => ({ id: e.id, parsedJson: e.parsedJson })),
         hasNextPage: false,
         nextCursor: null,
       };

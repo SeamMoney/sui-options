@@ -40,6 +40,13 @@ export interface OrderbookBarProps {
   /** Max stake we'll fill the bar to (micro-USD). Used to normalise the
    *  width — usually `max_payout_per_barrier / multiplier`. */
   readonly maxStakeMicroUsd: bigint;
+  /** When true, sync the change-detector state without firing the pulse.
+   *  Used by the grid container when the next snapshot reflects a
+   *  round-rollover reset (prev>0 → 0 on a new round_index) — that
+   *  N→0 transition is structural, not a real RideOpened/RideClosed
+   *  reconciliation, so the visual pulse would be a false positive
+   *  (D6 SEV-2 #1). */
+  readonly suppressPulse?: boolean;
 }
 
 /** Display micro-USD as "$1,234.56" (no $ for tiny values). */
@@ -68,6 +75,7 @@ export function OrderbookBar(props: OrderbookBarProps) {
     riderCount,
     isFull,
     maxStakeMicroUsd,
+    suppressPulse,
   } = props;
 
   // ── Pulse trigger ───────────────────────────────────────────────────
@@ -84,10 +92,11 @@ export function OrderbookBar(props: OrderbookBarProps) {
     const next = stakeMicroUsd.toString();
     if (next === lastStakeStrRef.current) return;
     lastStakeStrRef.current = next;
+    if (suppressPulse) return;
     setIsPulsing(true);
     const id = window.setTimeout(() => setIsPulsing(false), PULSE_MS);
     return () => window.clearTimeout(id);
-  }, [stakeMicroUsd]);
+  }, [stakeMicroUsd, suppressPulse]);
 
   // ── Width normalisation ─────────────────────────────────────────────
   // Width = stakeMicroUsd / maxStakeMicroUsd × 100%. Clamp [0, 100].
