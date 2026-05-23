@@ -35,6 +35,7 @@ use wick::pull_oracle_driver::{Self, KeeperCap, PullFeed};
 use wick::random_walk_driver::{Self, RandomWalk};
 use wick::risk_config::RiskConfig;
 use wick::segment_market::{Self as sm, SegmentMarket, SegmentRidePosition};
+use wick::segment_market_v3::{Self as sm3, SegmentMarketV3, SegmentRidePositionV3};
 use wick::usd_price_oracle::UsdPriceOracle;
 use wick::wick_oracle::WickOracle;
 use wick::wick_staking::WickStakingPool;
@@ -410,6 +411,159 @@ public fun abort_segment_ride<C>(
     ctx: &mut TxContext,
 ): Coin<C> {
     sm::abort_segment_ride<C>(ride, market, vault, clock, ctx)
+}
+
+// === Segment-market arcade v3 — SDK re-exports ===
+//
+// Per docs/design/v2/23_storage_rebate_pruning_v3.md +
+// docs/design/v2/24_walrus_archive_v3.md. The v3 module
+// (`wick::segment_market_v3`) is a parallel track to the v2
+// `wick::segment_market` so existing testnet markets keep working; new
+// deployments wire through these entries.
+//
+// New on top of v2:
+//   - `record_walrus_archive_v3` — permissionless. Records the 32-byte
+//     Walrus blob ID for a round's archive (doc 24 §5).
+//   - `prune_settled_segments_v3` — permissionless. Deletes a settled
+//     round's SegmentRecord rows; caller pockets the storage rebate
+//     (doc 23 §3.2).
+//
+// `record_segment_v3` mirrors v2's `record_segment` (both are
+// `public(package) entry` per the verifier's `&Random` rule); the
+// router declares its own `entry` form so the keeper can call it.
+
+/// Admin bootstrap: construct + share a SegmentMarketV3<C>.
+public entry fun bootstrap_segment_market_v3<C>(
+    home_price: u64,
+    vol_regime_init: u64,
+    round_duration_segments: u64,
+    open_window_segments: u64,
+    barrier_offset_bps: u64,
+    multiplier_bps: u64,
+    max_payout_per_barrier: u64,
+    deadband_bps: u64,
+    sigma_bps_per_sqrt_sec: u64,
+    cashout_spread_bps: u64,
+    abort_segment_deadline_ms: u64,
+    min_stake_per_segment: u64,
+    max_stake_per_segment: u64,
+    max_concurrent_rides: u64,
+    max_rides_per_user: u64,
+    vault: &MartingalerVault<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let market = sm3::new_segment_market_v3<C>(
+        vault,
+        home_price,
+        vol_regime_init,
+        round_duration_segments,
+        open_window_segments,
+        barrier_offset_bps,
+        multiplier_bps,
+        max_payout_per_barrier,
+        deadband_bps,
+        sigma_bps_per_sqrt_sec,
+        cashout_spread_bps,
+        abort_segment_deadline_ms,
+        min_stake_per_segment,
+        max_stake_per_segment,
+        max_concurrent_rides,
+        max_rides_per_user,
+        clock,
+        ctx,
+    );
+    sm3::share_segment_market_v3<C>(market);
+}
+
+/// Permissionless v3 cranker entry — `record_segment` on a v3 market.
+public entry fun record_segment_v3<C>(
+    market: &mut SegmentMarketV3<C>,
+    r: &Random,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    sm3::record_segment<C>(market, r, clock, ctx);
+}
+
+public fun open_segment_ride_v3<C>(
+    market: &mut SegmentMarketV3<C>,
+    vault: &mut MartingalerVault<C>,
+    bot_registry: &BotRegistry,
+    barrier_index: u8,
+    stake_per_segment: u64,
+    escrow: Coin<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): SegmentRidePositionV3 {
+    sm3::open_segment_ride_v3<C>(
+        market, vault, bot_registry, barrier_index,
+        stake_per_segment, escrow, clock, ctx,
+    )
+}
+
+public fun close_segment_ride_v3<C>(
+    ride: &mut SegmentRidePositionV3,
+    market: &mut SegmentMarketV3<C>,
+    vault: &mut MartingalerVault<C>,
+    price_oracle: &UsdPriceOracle,
+    token_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm3::close_segment_ride_v3<C>(
+        ride, market, vault, price_oracle, token_state, staking_pool, clock, ctx,
+    )
+}
+
+public fun crank_expired_segment_ride_v3<C>(
+    ride: &mut SegmentRidePositionV3,
+    market: &mut SegmentMarketV3<C>,
+    vault: &mut MartingalerVault<C>,
+    price_oracle: &UsdPriceOracle,
+    token_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm3::crank_expired_segment_ride_v3<C>(
+        ride, market, vault, price_oracle, token_state, staking_pool, clock, ctx,
+    )
+}
+
+public fun abort_segment_ride_v3<C>(
+    ride: &mut SegmentRidePositionV3,
+    market: &mut SegmentMarketV3<C>,
+    vault: &mut MartingalerVault<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm3::abort_segment_ride_v3<C>(ride, market, vault, clock, ctx)
+}
+
+/// Permissionless. Record the Walrus blob ID for a round's archive
+/// (doc 24 §5). Archiver bots call this after writing the BCS blob to
+/// Walrus and BEFORE `prune_settled_segments_v3` for the same round.
+public entry fun record_walrus_archive_v3<C>(
+    market: &mut SegmentMarketV3<C>,
+    round_index: u64,
+    walrus_blob_id: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    sm3::record_walrus_archive<C>(market, round_index, walrus_blob_id, ctx);
+}
+
+/// Permissionless. Delete a settled round's SegmentRecord rows; caller
+/// pockets the storage rebate (doc 23 §3.2). Gated on
+/// SETTLEMENT_LAG_ROUNDS, zero unsettled rides, no prior prune for
+/// the round, and presence of a Walrus archive entry.
+public entry fun prune_settled_segments_v3<C>(
+    market: &mut SegmentMarketV3<C>,
+    round_index: u64,
+    ctx: &mut TxContext,
+) {
+    sm3::prune_settled_segments<C>(market, round_index, ctx);
 }
 
 // === Sponsored cranking (v3.1) — SDK re-export ===
