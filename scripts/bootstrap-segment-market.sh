@@ -60,8 +60,15 @@ DEADBAND_BPS="${DEADBAND_BPS:-20}"
 SIGMA_BPS_PER_SQRT_SEC="${SIGMA_BPS_PER_SQRT_SEC:-100}"
 CASHOUT_SPREAD_BPS="${CASHOUT_SPREAD_BPS:-200}"
 ABORT_SEGMENT_DEADLINE_MS="${ABORT_SEGMENT_DEADLINE_MS:-30000}"
-MIN_STAKE_PER_SEGMENT="${MIN_STAKE_PER_SEGMENT:-1000000}"
-MAX_STAKE_PER_SEGMENT="${MAX_STAKE_PER_SEGMENT:-100000000}"
+# Stake bounds re-tuned 2026-05-23 after F1 surfaced a min-stake × round
+# inconsistency with the 20M cap on the B7 default. With round=75 + mult=1.75x
+# + cap=20M, the bounds-binding max stake is:
+#     max_stake ≤ cap × 10_000 / (round × multiplier_bps)
+#                = 20_000_000 × 10_000 / (75 × 17_500) ≈ 152_381 MIST.
+# Default MAX is set just under that; MIN is set ~15x smaller so the user
+# has a real stake-size range without immediately tripping the cap.
+MIN_STAKE_PER_SEGMENT="${MIN_STAKE_PER_SEGMENT:-10000}"
+MAX_STAKE_PER_SEGMENT="${MAX_STAKE_PER_SEGMENT:-150000}"
 MAX_CONCURRENT_RIDES="${MAX_CONCURRENT_RIDES:-50}"
 MAX_RIDES_PER_USER="${MAX_RIDES_PER_USER:-5}"
 
@@ -112,6 +119,27 @@ fi
 # MIN_STAKE_PER_SEGMENT <= MAX_STAKE_PER_SEGMENT:
 if [ "$MIN_STAKE_PER_SEGMENT" -gt "$MAX_STAKE_PER_SEGMENT" ]; then
   red "MIN_STAKE_PER_SEGMENT ($MIN_STAKE_PER_SEGMENT) > MAX_STAKE_PER_SEGMENT ($MAX_STAKE_PER_SEGMENT)"; exit 1
+fi
+
+# Self-consistency: a single ride at MIN_STAKE × ROUND_DURATION must satisfy
+# Move's EInsufficientEscrow guard (escrow >= required_escrow) AND fit under
+# the per-barrier cap (escrow × multiplier ≤ cap). If either ride bound
+# can't open, the market is unusable on its first tx. F1 deploy surfaced
+# this trap with the prior MIN=1M default (75 × 1M = 75M escrow → 131M
+# payout > 20M cap), so we now refuse to bootstrap such a market.
+MIN_RIDE_PAYOUT=$(( MIN_STAKE_PER_SEGMENT * ROUND_DURATION_SEGMENTS * MULTIPLIER_BPS / 10000 ))
+MAX_RIDE_PAYOUT=$(( MAX_STAKE_PER_SEGMENT * ROUND_DURATION_SEGMENTS * MULTIPLIER_BPS / 10000 ))
+if [ "$MIN_RIDE_PAYOUT" -gt "$MAX_PAYOUT_PER_BARRIER" ]; then
+  red "MIN-stake ride payout ($MIN_RIDE_PAYOUT MIST) exceeds MAX_PAYOUT_PER_BARRIER ($MAX_PAYOUT_PER_BARRIER MIST)"
+  red "  - no valid ride could ever open against this market"
+  red "  - either lower MIN_STAKE_PER_SEGMENT, shorten ROUND_DURATION_SEGMENTS, or raise MAX_PAYOUT_PER_BARRIER"
+  exit 1
+fi
+if [ "$MAX_RIDE_PAYOUT" -gt "$MAX_PAYOUT_PER_BARRIER" ]; then
+  red "MAX-stake ride payout ($MAX_RIDE_PAYOUT MIST) exceeds MAX_PAYOUT_PER_BARRIER ($MAX_PAYOUT_PER_BARRIER MIST)"
+  red "  - the largest valid stake would abort with EBarrierCapExceeded"
+  red "  - either lower MAX_STAKE_PER_SEGMENT, shorten ROUND_DURATION_SEGMENTS, or raise MAX_PAYOUT_PER_BARRIER"
+  exit 1
 fi
 
 # ── load deployment artifact ─────────────────────────────────────────────────
