@@ -185,3 +185,62 @@ curl -X POST http://localhost:3000/api/faucet \
 # repeat within 5 minutes
 # → 429 {"error":"rate-limited","retry_after_ms":…,"cooldown_ms":300000}
 ```
+
+---
+
+## Sponsor — `api/sponsor.ts` (Vercel serverless function)
+
+`POST /api/sponsor` co-signs allowlisted v3 SegmentMarket transactions so
+the Wick sponsor wallet pays gas while the user remains the transaction
+sender. The function targets Sui testnet only and reads the Wick package id
+from `deployments/testnet.json`.
+
+```
+POST /api/sponsor
+Content-Type: application/json
+{
+  "sender": "0x<64-hex Sui address>",
+  "txBytes": "<base64 TransactionData>",
+  "userSig": "<base64 serialized user signature>"
+}
+```
+
+Responses:
+
+| Status | Body | Meaning |
+|---|---|---|
+| `200` | `{ digest }` | Sponsored tx submitted and succeeded onchain |
+| `400` | `{ error }` | Request body, address, or base64 validation failed |
+| `403` | `{ error }` | Tx failed allowlist or gas-owner validation |
+| `429` | `{ error, retry_after_ms, limit, window_ms }` | Sender exceeded 5 sponsored calls per minute |
+| `503` | `{ error }` | Sponsor env, RPC, daily cap, or execution unavailable |
+
+Allowlist semantics:
+
+- Exactly one Move call is permitted.
+- Target must be `segment_market_v3::record_segment`,
+  `segment_market_v3::open_segment_ride`, or
+  `segment_market_v3::close_segment_ride` on the configured testnet package.
+- The market object argument must be a
+  `segment_market_v3::SegmentMarketV3<...>` object from that same package.
+- `tx.gas.owner` must equal the sponsor address derived from
+  `WICK_SPONSOR_PRIVATE_KEY`.
+- The only auxiliary command allowed is transferring the whitelisted Move
+  call's own result back to `sender`; sponsor gas coins are never transferred
+  to the user.
+
+Required env vars:
+
+- `WICK_SPONSOR_PRIVATE_KEY` - bech32 Ed25519 private key for the sponsor gas
+  wallet (`suiprivkey1...`). Never expose this to the frontend.
+- `WICK_SPONSOR_MAX_DAILY_MIST` - maximum sponsored gas spend per UTC day,
+  tracked in process memory for v3.0. The counter resets at UTC midnight and
+  returns `503` once the cap is reached.
+
+Limitations:
+
+- The rate limit and spend cap use module-scoped memory. They survive warm
+  Vercel invocations only; v3.1 should back them with KV or Redis.
+- The happy path requires a deployed `SegmentMarketV3`; until that exists on
+  testnet, local smoke should use malformed or non-Wick transactions and expect
+  `403`.
