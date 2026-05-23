@@ -30,6 +30,7 @@ import { useEffect, useMemo, useState } from "react";
 import RideChart from "@/components/RideChart";
 import { FaucetButton } from "@/components/wallet/FaucetButton";
 import { RoundCountdown } from "@/components/RoundCountdown";
+import { BarrierOrderbookGrid } from "@/components/BarrierOrderbookGrid";
 import { useSegmentRide } from "@/hooks/useSegmentRide";
 import type { RidePhase } from "@/hooks/useRideGesture";
 import { useSessionWallet } from "@/hooks/useSessionWallet";
@@ -370,6 +371,11 @@ export function Ride() {
             </div>
           ) : null}
         </div>
+      </div>
+
+      {/* ── Right edge: barrier orderbook (doc 19 §14) ───────────────────── */}
+      <div className="fixed right-3 z-[1550] pointer-events-none" style={{ top: `calc(env(safe-area-inset-top) + 80px)` }}>
+        <BarrierOrderbookGrid marketId={picked.market} client={session.client} />
       </div>
 
       {/* ── Center: fund CTA when broke, else the state hero ─────────────── */}
