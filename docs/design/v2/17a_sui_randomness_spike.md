@@ -350,3 +350,5 @@ The adversarial suite must include, as the concrete discharge of this spike:
 - MystenLabs/sui-native-randomness — reference examples (dice, raffle): https://github.com/MystenLabs/sui-native-randomness
 
 *Spike A0 complete. 2026-05-22.*
+
+Empirical gas-spread measurement: see `scripts/measure_gas_spread.py`, mean 12,800,000 analytic gas units, spread 0.0000%, within VM noise.
