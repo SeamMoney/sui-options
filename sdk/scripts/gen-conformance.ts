@@ -78,6 +78,10 @@ function deriveInput(i: number): { key: Uint8Array; state: WalkState } {
 }
 
 // ── Output folding — must match Move `fold_outputs` ─────────────────────────
+// Field order: 24 candle OHLC u64s, then (price, momNeg, momMag, volRegime,
+// patternId, candlesRemaining, segMin, segMax). The two new FSM fields are
+// emitted as u64 (matching Move u8 -> u64 cast in fold_outputs) so the
+// digest is invariant under encoding width.
 function fold(acc: Uint8Array, i: number): Uint8Array {
   const { key, state } = deriveInput(i);
   const r = expandSegment(state, key);
@@ -87,6 +91,8 @@ function fold(acc: Uint8Array, i: number): Uint8Array {
   fields.push(r.newState.momentum.neg ? 1n : 0n);
   fields.push(r.newState.momentum.mag);
   fields.push(r.newState.volRegime);
+  fields.push(r.newState.patternId);
+  fields.push(r.newState.candlesRemaining);
   fields.push(r.min, r.max);
 
   const buf = new Uint8Array(32 + fields.length * 8);
@@ -187,10 +193,15 @@ fun fold_outputs(
     let mn: u64 = if (seeded_path::state_momentum_neg(new_st)) 1 else 0;
     let mm: u64 = (seeded_path::state_momentum_mag(new_st) as u64);
     let vr = seeded_path::state_vol_regime(new_st);
+    // FSM fields (u8 in Move, widened to u64 for the digest).
+    let pid: u64 = (seeded_path::state_pattern_id(new_st) as u64);
+    let cr:  u64 = (seeded_path::state_candles_remaining(new_st) as u64);
     vector::append(&mut buf, bcs::to_bytes(&p));
     vector::append(&mut buf, bcs::to_bytes(&mn));
     vector::append(&mut buf, bcs::to_bytes(&mm));
     vector::append(&mut buf, bcs::to_bytes(&vr));
+    vector::append(&mut buf, bcs::to_bytes(&pid));
+    vector::append(&mut buf, bcs::to_bytes(&cr));
     vector::append(&mut buf, bcs::to_bytes(&smin));
     vector::append(&mut buf, bcs::to_bytes(&smax));
     blake2b256(&buf)
