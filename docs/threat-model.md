@@ -605,11 +605,169 @@ of truth; this file is its public projection.
 
 ---
 
+## 14. v3 architecture (planned)
+
+> **Status:** design-only as of 2026-05-23. Not on testnet. The v2 threat
+> model above remains the live posture. This section names the threat
+> surface of the v3 architecture so it is on the public record before
+> implementation lands. Source docs:
+> [`22_sponsored_cranking_v3.md`](design/v2/22_sponsored_cranking_v3.md),
+> [`23_storage_rebate_pruning_v3.md`](design/v2/23_storage_rebate_pruning_v3.md),
+> [`24_walrus_archive_v3.md`](design/v2/24_walrus_archive_v3.md).
+
+### 14.1 Sponsored cranking (doc 22)
+
+v3 moves the gas burden for `record_segment` (and the open/close ride
+PTBs) off the user's burner wallet and onto a protocol-funded **sponsor
+wallet**. Mechanism is Sui's native sponsored-tx envelope: the user
+signs the intent, `/api/sponsor` co-signs as `gas_owner`, and the
+sponsor wallet pays gas. The sponsor wallet is refilled from
+`fee_router::protocol_bucket` via a permissionless `harvest_to_sponsor`
+Move entry. Goal: user pays $0 in cranking gas; the rest of the
+burner balance stays available for `escrow` and the open/close PTBs.
+
+Five enforced invariants protect the sponsor from being a free-money
+faucet:
+
+1. **Strict allowlist.** Sponsor service only co-signs MoveCalls whose
+   target is `wick::segment_market_v3::{record_segment | open_segment_ride
+   | close_segment_ride}` against a known SegmentMarketV3 ID. Any other
+   call → HTTP 403.
+2. **Gas-owner pin.** The user-supplied tx's `gas_owner` field must
+   equal the sponsor's published address. If a user submits a tx with a
+   different gas owner, the service rejects before signing.
+3. **Per-sender rate limit.** 5 sponsored calls / minute / sender in a
+   sliding window, persisted in Upstash KV.
+4. **Daily spend cap.** `SponsorPolicy.max_spend_per_day_mist` enforced
+   both off-chain (in `/api/sponsor`) and on-chain (in
+   `harvest_to_sponsor`). At cap, service halts and falls back to D4
+   client-side cranking with a "sponsor degraded" UI badge.
+5. **No user-funds path into the sponsor.** `harvest_to_sponsor` only
+   pulls from `fee_router::protocol_bucket`; the sponsor wallet is the
+   only recipient. There is no Move path for user funds to land in the
+   sponsor wallet.
+
+Net effect: worst-case attacker can drain at most the daily cap before
+the service halts, never the full sponsor balance. The user signs only
+their intended ride open/close/crank — they never authorize a generic
+"sponsor pays my gas" credential.
+
+### 14.2 Storage rebate pruning (doc 23)
+
+`prune_settled_segments` is a permissionless Move entry. After
+`SETTLEMENT_LAG_ROUNDS = 3` rounds and zero unsettled rides for the
+target round, anyone can call it; Sui's storage rebate (~99% of write
+cost) is paid to `ctx.sender()`, yielding ~74M MIST net profit per
+pruned round at typical params. The mechanism is self-incentivizing —
+either ops runs the pruner for free, or MEV-style searchers do; either
+way, storage stays bounded. Three Move-level guards:
+
+- `ETooSoonToPrune` — `round_index + SETTLEMENT_LAG_ROUNDS <=
+  cached_round_index` must hold.
+- `EUnsettledRidesRemain` — `unsettled_rides_per_round[round] == 0`
+  must hold; a stuck open ride blocks pruning until
+  `abort_segment_ride` past `ABORT_SEGMENT_DEADLINE_MS`.
+- `EAlreadyPruned` — idempotency via `pruned_rounds: Table<u64, bool>`.
+
+Worst-case **availability** attack is a malicious user who keeps
+opening rides and never closing to block pruning indefinitely; this is
+neutralized by `abort_segment_ride`, which is permissionless past the
+abort deadline and refunds the stuck ride 1:1 (no escrow loss to the
+malicious user, no permanent prune-block to the protocol).
+
+Data preservation: `/verify` reads from `SegmentRecorded` events (which
+Sui's archival nodes keep for years) and, in steady state v3.1+, from
+the Walrus archive (§14.3). Pruning never deletes information that
+`/verify` depends on, only the on-chain Table copy.
+
+### 14.3 Walrus archive (doc 24)
+
+Walrus is Sui's decentralized blob storage protocol (erasure-coded
+across N storage nodes, cryptographically-keyed blob IDs, permissionless
+reads). v3 writes one Walrus blob per round capturing all segment keys
++ extrema + walk-state-at-round-start, indexed on-chain via
+`ArchiveIndex: Table<u64, vector<u8>>` (round_index → 32-byte
+walrus_blob_id). Total per-round archive size: ~3 KB (round=20) to
+~12 KB (round=75). Default retention: 1 year on v3.0; perpetual on
+mainnet once economics justify.
+
+**Pruning safety invariant — "archive before prune."** In v3.0, the
+archiver bot uploads the blob, calls `record_walrus_archive(N,
+walrus_blob_id)`, then calls `prune_settled_segments(N)`, in that
+order, as one PTB or two sequential txs. In **v3.1+**, the ordering is
+enforced in Move:
+
+```move
+assert!(
+    table::contains(&market.archive_index.entries, round_index),
+    ENoWalrusArchive,
+);
+```
+
+This makes data loss structurally impossible: a round cannot be pruned
+unless its Walrus blob ID is on-chain.
+
+### 14.4 Open security questions for v3
+
+These are explicitly unresolved and must be answered before v3 hits
+mainnet:
+
+- **Sponsor key custody.** v3.0 ships with a 2-of-3 ops multisig on
+  `WICK_SPONSOR_PRIVATE_KEY`. Open: migrate to threshold-key
+  (e.g. `tss-ed25519`) once user count justifies. A compromised sponsor
+  key cannot mint user funds, but can drain the sponsor wallet's full
+  balance (capped by `SponsorPolicy.max_spend_per_day_mist`) and halt
+  the chart by paying spurious gas at unrelated targets until the
+  daily cap is hit. Mitigation: alerting + rotation playbook + the daily
+  cap acts as a fuse.
+- **Sponsor failover.** If `/api/sponsor` is down, the frontend falls
+  back to D4 client-side cranking from the user's burner — the user
+  again pays gas, and the "sponsor degraded" badge informs them. This
+  is graceful degradation, not loss of funds, but it does change the
+  user's economic experience without their explicit consent. Open:
+  should sponsor outages trigger an automatic in-UI pause of new ride
+  opens rather than silent fallback?
+- **Walrus availability on mainnet.** Walrus launched on Sui early
+  2026; production SLA at scale is not yet established. If Walrus is
+  down when the archiver runs, no pruning happens that day — storage
+  piles up temporarily. Brief outages are acceptable; permanent Walrus
+  collapse would require revisiting the archive strategy entirely. We
+  commit to running a full Walrus testnet integration before v3
+  mainnet.
+- **Archiver-bot honesty.** The archiver writes the blob and then
+  records the blob ID on-chain. Nothing in v3.0 cryptographically binds
+  the blob ID to the actual segment content the archiver should have
+  written. A malicious archiver could upload an empty/corrupted blob,
+  record its ID, and then trigger a prune — destroying the
+  reconstructible history. Mitigation pathway: in a follow-up v3.2,
+  derive the blob ID from a Merkle root of the segment keys that
+  Move itself can compute (using `sui::hash` over the segments before
+  delete), and assert the on-chain root matches the Walrus blob's
+  declared root. Until then, indexer redundancy + `SegmentRecorded`
+  event archival from full nodes is the secondary defense.
+
+### 14.5 What v3 does NOT change
+
+For full clarity: v3 is purely operational/infrastructural. The Move
+game logic in `record_segment`, the deterministic walk in
+`seeded_path::expand_segment`, the cashout curve, the impact fee, the
+Martingaler vault accounting, the per-side / per-position / per-barrier
+exposure caps — none of these change. The randomness-grinding posture
+(R1 PTB-structural defense + R2 gas-side-channel obligations) is
+identical between v2 and v3. The fairness claim — every candle is
+reproducible byte-for-byte via `/verify` — is preserved through the
+Walrus archive once v3.1's archive-before-prune invariant is enforced
+in Move.
+
+---
+
 *End of public threat model. Total: 137 named attacks across 10 redteam
 documents. v2 mitigations cover 100% of Critical and High severity
 attacks. Medium and Low are roadmapped or accepted with rationale. The
 bankruptcy clause is in the README. The multisig list is committed.
-The bounty program is funded.*
+The bounty program is funded. v3 architecture (§14) is locked in
+design but unshipped; its threat surface is named publicly before
+implementation lands.*
 
 *Wick is what you get when you take "the worst attack is the one your
 threat model doesn't name" seriously.*

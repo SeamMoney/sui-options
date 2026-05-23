@@ -179,6 +179,7 @@ Production deploy would address these; the hackathon submission states them open
 - **`verify.ts` walk-state seed.** Hardcoded `vol_regime_init = 1_000_000n` matching the bootstrap default; a market deployed with a non-default value would mismatch from k=0. Runtime warning emitted; the proper fix is to extend `SegmentMarketCreated` to also emit `vol_regime_init` or to expose `state_after` from the segments Table.
 - **B7-default market on testnet (`0x0c2bdb…71f9`)** uses the old stake bounds where `MIN_STAKE × ROUND_DURATION > cap`. Smoke market (`0x2f74…1e45`) and any future bootstrap use the new self-consistent defaults; the broken one stays for archive purposes.
 - **E1 verify SEV-2s** (closure-time race window, `firstEvent` full-pagination cost, ID case-sensitivity), **E2 spine-test breadth** (only one happy-path scenario), **D5/D6 SEV-2 polish** (phase-semantics on 1-candle patterns, round-transition false pulse, tab-visibility guard). Reviewer-noted; non-blocking.
+- **v3 architecture (sponsored cranking + storage rebate pruning + Walrus archive)** — design locked in [`docs/design/v2/22_sponsored_cranking_v3.md`](docs/design/v2/22_sponsored_cranking_v3.md), [`23_storage_rebate_pruning_v3.md`](docs/design/v2/23_storage_rebate_pruning_v3.md), and [`24_walrus_archive_v3.md`](docs/design/v2/24_walrus_archive_v3.md) (landed 2026-05-23). Implementation planned but not on testnet yet. Today's deploy is v2; users still pay their own cranking gas, segments still accrue on-chain forever, and `/verify` reads segments from the on-chain Table (not a Walrus blob).
 
 This is the part of the threat-model where a serious reviewer earns their keep. See [`docs/threat-model.md`](docs/threat-model.md) for the full inventory.
 
@@ -246,6 +247,7 @@ deployments/       testnet.json — read this for live IDs, never hardcode
 - **Tappr** for the tap-and-hold ride UI inspiration. Wick keeps the Move settlement; the UI is a layer. See [`docs/design/v2/21_tappr_ui_port.md`](docs/design/v2/21_tappr_ui_port.md).
 - **GPT-5 Codex** and **Claude Opus 4.7** as parallel co-implementors with cross-reviewing. The reviewer-agent pattern (one model implements, the other reviews) caught real shipping bugs in this sprint — including a non-functional gas-spread script that would have shipped with a misleading discharge claim.
 - **[Thesirix/github-readme-animated-chat-bubbles](https://github.com/Thesirix/github-readme-animated-chat-bubbles)** for the animated chat-bubble SVG generator powering this README's hero.
+- **Walrus** (Sui's decentralized blob storage) for the v3 archive design target: per-round segment keys written once at round-end as a Walrus blob, indexed on-chain in `ArchiveIndex`, fetched permanently and permissionlessly by `/verify` regardless of indexer status. v3 spec only — see [`docs/design/v2/24_walrus_archive_v3.md`](docs/design/v2/24_walrus_archive_v3.md).
 
 ---
 
