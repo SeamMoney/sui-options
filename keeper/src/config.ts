@@ -62,7 +62,9 @@ export interface Deployment {
   pull_markets?: PullMarketRecord[];
   // Shared singletons — required for redeem / crank paths but not for
   // lock_and_settle. Threaded via env vars if absent here.
-  registry?: string;            // GlobalExposureRegistry
+  registry?: string;            // GlobalExposureRegistry (legacy key)
+  global_exposure_registry?: string; // GlobalExposureRegistry (canonical
+                                     // key written by deploy/bootstrap)
   risk_config?: string;         // RiskConfig
   bot_registry?: string;        // BotRegistry
   fee_router_sui?: string;      // FeeRouter<SUI>
@@ -204,7 +206,10 @@ export function loadConfig(): Config {
     pullMarkets,
 
     vaultId: process.env.WICK_KEEPER_VAULT ?? dep.vault_sui,
-    registryId: process.env.WICK_KEEPER_REGISTRY ?? dep.registry,
+    registryId:
+      process.env.WICK_KEEPER_REGISTRY ??
+      dep.registry ??
+      dep.global_exposure_registry,
     riskConfigId: process.env.WICK_KEEPER_RISK_CONFIG ?? dep.risk_config,
     botRegistryId: process.env.WICK_KEEPER_BOT_REGISTRY ?? dep.bot_registry,
     feeRouterId: process.env.WICK_KEEPER_FEE_ROUTER ?? dep.fee_router_sui,
