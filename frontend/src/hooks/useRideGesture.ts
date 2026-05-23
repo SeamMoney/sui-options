@@ -45,9 +45,12 @@
 import { useEffect, useRef } from "react";
 import type p5 from "p5";
 import {
+  detectPostHocPattern,
   expandSegment,
   newState as newWalkState,
   type Candle as SeededCandle,
+  type PostHocPatternMatch,
+  type SegmentArmedPattern,
   type WalkState,
   BARRIER_UPPER,
   BARRIER_LOWER,
@@ -168,6 +171,23 @@ interface RenderCandle {
   animation: number;
   /** True until the next segment lands — the right-most candle "grows". */
   isLive: boolean;
+  armedPattern?: ArmedPatternCue;
+  postHocPatterns?: PostHocPatternCue[];
+}
+
+interface ArmedPatternCue {
+  patternId: number;
+  patternName: string;
+  candlesRemaining: number;
+  phase: SegmentArmedPattern["phase"];
+  patternCandleIndex: number;
+  patternCandleCount: number;
+}
+
+interface PostHocPatternCue {
+  name: string;
+  strength: number;
+  label: string;
 }
 
 interface PositionState {
@@ -199,8 +219,24 @@ function renderCandleFromSeeded(c: SeededCandle, animation: number): RenderCandl
     close: toDisplay(c.close),
     animation,
     isLive: false,
+    postHocPatterns: [],
   };
 }
+
+const armedCueFromSegment = (armed: SegmentArmedPattern): ArmedPatternCue => ({
+  patternId: armed.patternId,
+  patternName: armed.patternName,
+  candlesRemaining: armed.candlesRemaining,
+  phase: armed.phase,
+  patternCandleIndex: armed.patternCandleIndex,
+  patternCandleCount: armed.patternCandleCount,
+});
+
+const postHocCueFromMatch = (match: PostHocPatternMatch): PostHocPatternCue => ({
+  name: match.name,
+  strength: match.strength,
+  label: match.label,
+});
 
 export function useRideGesture(opts: RideGestureOptions) {
   const {
@@ -278,6 +314,7 @@ export function useRideGesture(opts: RideGestureOptions) {
       const sketch = (p: p5) => {
         // ── Local mutable state, scoped to this p5 instance ────────────────
         let candles: RenderCandle[] = [];
+        let seededCandles: SeededCandle[] = [];
         // The walk state we carry forward AS WE EXPAND segments. Rebuilt
         // from scratch any time the parent's `segments` ring buffer
         // semantically resets (round change, market swap, mount).
@@ -493,6 +530,7 @@ export function useRideGesture(opts: RideGestureOptions) {
           const s = stateRef.current;
           const segs = s.segments;
           candles = [];
+          seededCandles = [];
           highestExpandedK = null;
           // Seed walk state from the current round's spotAtRoll (or 100 as
           // a sane fallback for the empty / no-round case so the y-axis
@@ -515,22 +553,40 @@ export function useRideGesture(opts: RideGestureOptions) {
         const applySegment = (seg: SegmentInput) => {
           if (!walkState) return;
           const result = expandSegment(walkState, seg.key);
+          const armedByCandle = new Map(
+            result.armedPatterns.map((armed) => [armed.candleIndex, armed] as const),
+          );
           // expandSegment doesn't mutate; carry the result forward.
           walkState = result.newState;
           for (let i = 0; i < result.candles.length; i++) {
             const c = result.candles[i]!;
             const isLast = i === result.candles.length - 1;
             const rc = renderCandleFromSeeded(c, 1);
+            const armed = armedByCandle.get(i);
+            if (armed) rc.armedPattern = armedCueFromSegment(armed);
             // The very last candle of the latest segment is "live" — it
             // gets the growing animation until the next segment lands.
             rc.isLive = isLast;
             candles.push(rc);
+            seededCandles.push(c);
+            for (const match of detectPostHocPattern(seededCandles)) {
+              const cue = postHocCueFromMatch(match);
+              for (let j = match.startIndex; j <= match.endIndex; j++) {
+                const target = candles[j];
+                if (!target) continue;
+                const existing = target.postHocPatterns ?? [];
+                if (!existing.some((patt) => patt.label === cue.label)) {
+                  target.postHocPatterns = [...existing, cue].slice(-3);
+                }
+              }
+            }
           }
           highestExpandedK = seg.k;
           // Trim history.
           if (candles.length > maxCandles + CANDLES_PER_SEGMENT) {
             const drop = candles.length - (maxCandles + CANDLES_PER_SEGMENT);
             candles.splice(0, drop);
+            seededCandles.splice(0, drop);
             // Shift completedTrades & currentPosition entry index left.
             for (const t of completedTrades) {
               t.entryAgeCandles += drop;
@@ -744,7 +800,57 @@ export function useRideGesture(opts: RideGestureOptions) {
           }
         };
 
+        const armedPatternText = (cue: ArmedPatternCue): string => {
+          if (cue.phase === "fired") return `${cue.patternName} fired`;
+          const phase = cue.phase === "arming" ? "forming" : "firing";
+          const left = cue.candlesRemaining;
+          return `${cue.patternName} ${phase} — ${left} candle${left === 1 ? "" : "s"} left`;
+        };
+
+        const postHocPatternText = (cue: PostHocPatternCue): string =>
+          `${cue.name} detected`;
+
+        const drawPatternTooltip = (
+          tip: { x: number; y: number; lines: string[] } | null,
+        ) => {
+          if (!tip || tip.lines.length === 0) return;
+          const padX = 9;
+          const padY = 7;
+          const lineHeight = 15;
+          p.textSize(11);
+          p.textStyle(p.BOLD);
+          const width = Math.min(
+            230,
+            Math.max(...tip.lines.map((line) => p.textWidth(line))) + padX * 2,
+          );
+          const height = tip.lines.length * lineHeight + padY * 2;
+          const x = Math.max(
+            chartArea.x + 4,
+            Math.min(tip.x - width / 2, chartArea.x + chartArea.width - width - 4),
+          );
+          const y = Math.max(
+            chartArea.y + 4,
+            Math.min(tip.y - height - 12, chartArea.y + chartArea.height - height - 4),
+          );
+          p.noStroke();
+          p.fill(24, 24, 27, 238);
+          p.rect(x, y, width, height, 6);
+          p.stroke(212, 212, 216, 55);
+          p.strokeWeight(1);
+          p.noFill();
+          p.rect(x + 0.5, y + 0.5, width - 1, height - 1, 6);
+          p.noStroke();
+          p.textAlign(p.LEFT, p.CENTER);
+          for (let i = 0; i < tip.lines.length; i++) {
+            if (i === 0) p.fill(236, 253, 245);
+            else p.fill(244, 244, 245);
+            p.text(tip.lines[i]!, x + padX, y + padY + lineHeight * i + lineHeight / 2);
+          }
+          p.textStyle(p.NORMAL);
+        };
+
         const drawCandles = () => {
+          let patternTooltip: { x: number; y: number; lines: string[] } | null = null;
           for (let dist = 0; dist < candles.length; dist++) {
             const c = candles[candles.length - 1 - dist]!;
             c.animation = p.lerp(c.animation, 1, 0.12);
@@ -827,7 +933,58 @@ export function useRideGesture(opts: RideGestureOptions) {
               p.strokeWeight(1.5);
               p.line(x, openY, x + candleWidth, openY);
             }
+            const candleTop = Math.min(highY, lowY, bodyY);
+            const candleBottom = Math.max(highY, lowY, bodyY + Math.max(bodyHeight, 1));
+            const postHoc = c.postHocPatterns?.[c.postHocPatterns.length - 1];
+            if (postHoc) {
+              const strength = Math.max(0.35, Math.min(1, postHoc.strength));
+              p.noFill();
+              p.stroke(244, 63, 94, (95 + strength * 90) * c.animation);
+              p.strokeWeight(1.2 + strength * 1.2);
+              p.rect(
+                x - 3,
+                candleTop - 4,
+                candleWidth + 6,
+                Math.max(8, candleBottom - candleTop + 8),
+                3,
+              );
+            }
+            if (c.armedPattern) {
+              const pulse = 1.5 + Math.sin(p.millis() * 0.012) * 0.9;
+              const ctx = p.drawingContext as CanvasRenderingContext2D;
+              ctx.shadowBlur = 10 + pulse * 3;
+              ctx.shadowColor = "rgba(16, 185, 129, 0.75)";
+              p.noFill();
+              p.stroke(16, 185, 129, 190 * c.animation);
+              p.strokeWeight(2.5);
+              p.rect(
+                x - 5 - pulse,
+                candleTop - 6 - pulse,
+                candleWidth + 10 + pulse * 2,
+                Math.max(10, candleBottom - candleTop + 12 + pulse * 2),
+                4,
+              );
+              ctx.shadowBlur = 0;
+            }
+            if (
+              p.mouseX >= x - 6 &&
+              p.mouseX <= x + candleWidth + 6 &&
+              p.mouseY >= candleTop - 8 &&
+              p.mouseY <= candleBottom + 8
+            ) {
+              const lines: string[] = [];
+              if (c.armedPattern) lines.push(armedPatternText(c.armedPattern));
+              if (postHoc) lines.push(postHocPatternText(postHoc));
+              if (lines.length > 0) {
+                patternTooltip = {
+                  x: x + candleWidth / 2,
+                  y: candleTop,
+                  lines,
+                };
+              }
+            }
           }
+          drawPatternTooltip(patternTooltip);
         };
 
         const drawPriceLine = () => {
