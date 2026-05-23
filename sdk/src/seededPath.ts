@@ -147,12 +147,23 @@ export function detectArmedPattern(
   if (!patternName) return null;
   const candlesRemaining = Number(walkState.candlesRemaining);
   const total = Number(patternTotalCandles(BigInt(patternId)));
+  // D5 SEV-2 #1: for 1-candle patterns (Doji, Hammer, Shooting Star
+  // — 3 of the 6 hero shapers), the shape candle IS the firing
+  // candle; there's no separate "arming" step the user can perceive.
+  // Without this guard `candlesRemaining === total === 1` always
+  // resolves to "arming", and the tooltip would read
+  // "Doji forming — 1 candle left" forever while the doji IS the doji.
+  // Force `firing` whenever there's only one candle in the whole
+  // pattern. Multi-candle patterns still use the original
+  // arming-then-firing distinction.
   const phase: ArmedPatternPhase =
     candlesRemaining <= 0
       ? "fired"
-      : candlesRemaining === total
-        ? "arming"
-        : "firing";
+      : total === 1
+        ? "firing"
+        : candlesRemaining === total
+          ? "arming"
+          : "firing";
   return {
     patternId,
     patternName,
