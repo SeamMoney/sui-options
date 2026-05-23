@@ -18,6 +18,11 @@ import {
   type SegmentMarketBinding,
 } from "./segmentCranker.js";
 import { SegmentArchiver } from "./segmentArchiver.js";
+import {
+  SegmentSentinel,
+  parseSentinelMarketsEnv,
+  DEFAULT_SPONSOR_URL,
+} from "./segmentSentinel.js";
 
 const cmd = process.argv[2] ?? "watch";
 
@@ -188,6 +193,97 @@ async function main() {
       }
     }
 
+    // v3.6 — Sponsored sentinel runner. Optional, env-driven. Each item:
+    //   "<marketId>" (uses default package + collateral) or
+    //   "<marketId>@<packageId>:<collateralType>". Comma-separated.
+    //
+    // The sentinel opens-closes a tiny sentinel ride per round on each market
+    // via /api/sponsor (doc 22 §3.3), so the segment-market wake gate is
+    // always satisfied and the chart keeps rendering even when no human is
+    // riding. Funded from the protocol's sponsor budget, not the operator's
+    // wallet. See keeper/src/segmentSentinel.ts header for the v2-bridge
+    // caveat (the bot will hit /api/sponsor and get 403 until the v3 module
+    // deploys — that's expected and validates the flow).
+    const sentinels: SegmentSentinel[] = [];
+    const sentinelBindings = parseSentinelMarketsEnv(
+      process.env.WICK_KEEPER_SENTINEL_MARKETS,
+      cfg.packageId,
+      cfg.collateralType,
+    );
+    if (sentinelBindings.length > 0) {
+      const sponsorUrl = process.env.WICK_SPONSOR_URL ?? DEFAULT_SPONSOR_URL;
+      const sponsorAddress = process.env.WICK_SPONSOR_ADDRESS;
+      const sentinelInterval = process.env.WICK_KEEPER_SENTINEL_INTERVAL_MS
+        ? Number(process.env.WICK_KEEPER_SENTINEL_INTERVAL_MS)
+        : undefined;
+      const sentinelBarrierRaw = process.env.WICK_KEEPER_SENTINEL_BARRIER;
+      const sentinelBarrier =
+        sentinelBarrierRaw === "1" ? 1 : sentinelBarrierRaw === "0" ? 0 : undefined;
+      const sentinelGas = process.env.WICK_KEEPER_SENTINEL_GAS
+        ? BigInt(process.env.WICK_KEEPER_SENTINEL_GAS)
+        : undefined;
+
+      // The sentinel needs every shared singleton involved in open + close.
+      // Surface missing ids loudly so operators see what's wrong without
+      // having to read the source.
+      const missingShared: string[] = [];
+      if (!sponsorAddress) missingShared.push("WICK_SPONSOR_ADDRESS");
+      if (!cfg.botRegistryId) missingShared.push("bot_registry (env WICK_KEEPER_BOT_REGISTRY)");
+      if (!cfg.usdPriceOracleId) missingShared.push("usd_price_oracle (env WICK_KEEPER_USD_PRICE_ORACLE)");
+      if (!cfg.wickTokenStateId) missingShared.push("wick_token_state (env WICK_KEEPER_WICK_STATE)");
+      if (!cfg.stakingPoolId) missingShared.push("staking_pool (env WICK_KEEPER_STAKING_POOL)");
+      if (missingShared.length > 0) {
+        log("warn", "segment-sentinel-skip", {
+          msg:
+            "WICK_KEEPER_SENTINEL_MARKETS is set but required ids are missing; " +
+            "sentinel disabled. Set the missing ids and restart.",
+          missing: missingShared,
+        });
+      } else {
+        const segmentMarketRecords = cfg.deployment.segment_markets ?? [];
+        for (const b of sentinelBindings) {
+          // Prefer per-market vault from segment_markets[]; fall back to
+          // the global vault binding (cfg.vaultId / vault_sui).
+          const perMarketVault = segmentMarketRecords
+            .find((r) => r.market === b.marketId)?.vault;
+          const vaultId = perMarketVault ?? cfg.vaultId;
+          if (!vaultId) {
+            log("warn", "segment-sentinel-no-vault", {
+              market_id: b.marketId,
+              msg:
+                "no vault id resolvable for this market; set WICK_KEEPER_VAULT " +
+                "or add a deployments/testnet.json segment_markets[] entry",
+            });
+            continue;
+          }
+          const sentinel = new SegmentSentinel(client, signer.keypair, {
+            marketId: b.marketId,
+            vaultId,
+            botRegistryId: cfg.botRegistryId!,
+            priceOracleId: cfg.usdPriceOracleId!,
+            tokenStateId: cfg.wickTokenStateId!,
+            stakingPoolId: cfg.stakingPoolId!,
+            packageId: b.packageId,
+            collateralType: b.collateralType,
+            sponsorUrl,
+            sponsorAddress: sponsorAddress!,
+            ...(sentinelInterval !== undefined ? { intervalMs: sentinelInterval } : {}),
+            ...(sentinelBarrier !== undefined ? { barrierIndex: sentinelBarrier } : {}),
+            ...(sentinelGas !== undefined ? { gasBudget: sentinelGas } : {}),
+          });
+          try {
+            await sentinel.start();
+            sentinels.push(sentinel);
+          } catch (err) {
+            log("warn", "segment-sentinel-start-failed", {
+              market_id: b.marketId,
+              error: String(err),
+            });
+          }
+        }
+      }
+    }
+
     let stop = false;
     let backoffMs = cfg.rpcBackoffInitialMs;
     process.on("SIGINT", () => {
@@ -241,6 +337,16 @@ async function main() {
         log("warn", "segment-archiver-stop-failed", { error: String(err) });
       }
     }
+    // v3.6 — drain sentinels. stop() awaits the in-flight close attempt.
+    await Promise.all(
+      sentinels.map(async (s) => {
+        try {
+          await s.stop();
+        } catch (err) {
+          log("warn", "segment-sentinel-stop-failed", { error: String(err) });
+        }
+      }),
+    );
     server.close();
     log("info", "exit", { msg: "watch loop exited cleanly" });
     return;

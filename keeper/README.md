@@ -197,6 +197,128 @@ lag, you'll see `segment-archiver.archive-begin → .serialized → .walrus-stor
 → .record-walrus-archive-stub`. The loop is failure-tolerant: any error in
 the chain pauses one poll cycle and resumes on the next tick. Never crashes.
 
+## Sponsored sentinel runner (v3.6, optional)
+
+The 24/7 production successor to [`scripts/sentinel-runner.sh`](../scripts/sentinel-runner.sh).
+That bash bridge is a tonight-demo tool: it opens-closes a tiny sentinel ride
+each round from the operator's `sui client active-address`, debiting the
+operator's wallet for gas. The wallet drains in minutes; it cannot run
+unattended.
+
+This v3.6 module does the same dance but routes every PTB through
+[`/api/sponsor`](../api/sponsor.ts) (doc 22 §3.3, shipped at commit `69c02da`).
+The sentinel signs as sender; the Vercel sponsor service co-signs as `gas_owner`
+and the protocol's sponsor wallet pays for gas — refilled permissionlessly from
+`fee_router::protocol_bucket` via `wick::sponsor::harvest_to_sponsor`
+(shipped at commit `1244648`). The result: operator-free 24/7 chart liveness.
+
+Enable it by listing markets in `WICK_KEEPER_SENTINEL_MARKETS`:
+
+```bash
+# one market, default package + collateral
+export WICK_KEEPER_SENTINEL_MARKETS=0xmarket1
+export WICK_SPONSOR_ADDRESS=0xsponsor   # the address derived from WICK_SPONSOR_PRIVATE_KEY in Vercel
+export WICK_SPONSOR_URL=https://wick-markets.vercel.app/api/sponsor
+
+# many markets, possibly on different packages
+export WICK_KEEPER_SENTINEL_MARKETS=0xmarket1,0xmarket2@0xpkg:0x2::sui::SUI
+```
+
+| Var                                     | Default                                                  | Notes |
+|-----------------------------------------|----------------------------------------------------------|-------|
+| `WICK_KEEPER_SENTINEL_MARKETS`          | (empty — bot disabled)                                   | comma-separated `<marketId>[@<packageId>[:<collateral>]]` |
+| `WICK_SPONSOR_URL`                      | `https://wick-markets.vercel.app/api/sponsor`            | /api/sponsor endpoint |
+| `WICK_SPONSOR_ADDRESS`                  | (required)                                               | Sponsor wallet address — must match the wallet derived from `WICK_SPONSOR_PRIVATE_KEY` in Vercel env. The keeper never holds the sponsor's private key. |
+| `WICK_KEEPER_SENTINEL_INTERVAL_MS`      | `1000`                                                   | Floor cadence between snapshot reads when there's nothing to do |
+| `WICK_KEEPER_SENTINEL_BARRIER`          | `0` (upper)                                              | `0` = upper barrier, `1` = lower. Choice is arbitrary; sentinel is a backstop, not a position. |
+| `WICK_KEEPER_SENTINEL_GAS`              | `200000000`                                              | Per-PTB gas budget in MIST (the sponsor pays, but the budget still has to fit the network ceiling) |
+
+The bot also needs the standard shared singleton ids that `open_segment_ride`
+and `close_segment_ride` require: `bot_registry`, `usd_price_oracle`,
+`wick_token_state`, `staking_pool`. These are picked up from
+`deployments/testnet.json` or the corresponding `WICK_KEEPER_*` overrides
+listed in the "Required object IDs" table above. If any are missing the
+keeper logs `segment-sentinel-skip` with the missing list and continues
+running the rest of the subsystems.
+
+### Lifecycle
+
+For each market in `WICK_KEEPER_SENTINEL_MARKETS`, every loop iteration:
+
+1. Snapshot the market — read `active_ride_count`, `cached_round_*`,
+   `round_duration_segments`, `open_window_segments`, `next_segment_index`,
+   `min_stake_per_segment`.
+2. If `active_ride_count > 0` → sleep one round; another rider is already
+   keeping the chart alive.
+3. If we're past `open_window_segments` of the current round → sleep to
+   the next round.
+4. Otherwise build `wick::open_segment_ride<C>` PTB, sign locally,
+   POST `{ sender, txBytes, userSig }` to `/api/sponsor`. On success,
+   pull the ride id from the `RideOpened` event in the open tx.
+5. Sleep `(round_duration_segments - 2) × 400ms` — close just before
+   round-end so we don't drop into `EXPIRED_LOSS` (which would burn the
+   sponsor budget).
+6. Build `wick::close_segment_ride<C>` PTB, sign, POST to `/api/sponsor`.
+
+On SIGINT/SIGTERM the keeper drains the current step, then if a ride is
+still in flight attempts a best-effort sponsored close before exit.
+
+### Run alongside cranker + archiver for full v3 operations
+
+The three v3 subsystems compose:
+
+```bash
+# Full-stack v3 keeper — sentinel keeps the chart alive,
+# cranker pumps record_segment while rides are open,
+# archiver writes settled rounds to Walrus.
+export WICK_KEEPER_SEGMENT_MARKETS=0xmarket
+export WICK_KEEPER_SENTINEL_MARKETS=0xmarket
+export WICK_KEEPER_ARCHIVER_MARKETS=0xmarket
+export WICK_SPONSOR_ADDRESS=0xsponsor
+npm run watch
+```
+
+### v2-bridge caveat — expect 403 until v3 ships
+
+The on-chain `wick::segment_market_v3` module is not yet deployed on
+testnet. The sentinel deliberately targets the v2 router
+(`wick::open_segment_ride` / `wick::close_segment_ride`) so it can be
+smoke-tested against the existing v2 SegmentMarket. The
+`/api/sponsor` allowlist (`api/sponsor.ts` line 21-26) requires
+`segment_market_v3::*` — so every call from this sentinel returns
+**HTTP 403** ("MoveCall is not on the Wick SegmentMarketV3 allowlist")
+until v3 lands. That's the expected flow-validation signal: it proves
+the request shape is right and the sponsor is rejecting us for the
+right reason (allowlist), not the wrong reason (bad signature, missing
+key, etc.).
+
+If `WICK_SPONSOR_PRIVATE_KEY` isn't set in Vercel env, you'll see
+**HTTP 503** ("sponsor wallet is not configured") instead. Also expected.
+
+When v3 deploys, swap the PTB targets in `segmentSentinel.ts`'s
+`buildOpenSentinelRideTx` / `buildCloseSentinelRideTx` to
+`wick::segment_market_v3::open_segment_ride` and the allowlist will
+accept the calls.
+
+### Manual smoke
+
+```bash
+export WICK_KEEPER_SENTINEL_MARKETS=0xyour_smoke_segment_market_id
+export WICK_SPONSOR_ADDRESS=0xsponsor_addr_from_vercel_env
+npm run watch    # NDJSON logs — look for action=segment-sentinel.*
+```
+
+You should see:
+
+- `segment-sentinel.start` — boot log with sender, sponsor, sponsor URL,
+  and the v2-bridge note.
+- One of `segment-sentinel.skip-active` (someone else riding),
+  `segment-sentinel.skip-window-closed` (waiting for next round), or
+  `segment-sentinel.error` carrying the 403/503 response from
+  `/api/sponsor` (during the v2-bridge era).
+- After v3 ships: `segment-sentinel.open-ok → ...close-ok` once per round
+  forever.
+
 ## All env vars
 
 | Var                                  | Default                                  | Notes |
@@ -224,6 +346,15 @@ the chain pauses one poll cycle and resumes on the next tick. Never crashes.
 | `WALRUS_PUBLISHER_URL`               | `https://publisher.walrus-testnet.walrus.space` | Walrus publisher endpoint |
 | `WALRUS_RETENTION_EPOCHS`            | `14`                                     | blob lifetime in Walrus epochs (testnet = 1d) |
 | `WICK_KEEPER_ARCHIVER_POLL_MS`       | `5000`                                   | archiver eligibility-scan cadence |
+| `WICK_KEEPER_SEGMENT_MARKETS`        | (empty)                                  | enable segment-cranker (v3 / C1) |
+| `WICK_KEEPER_SEGMENT_INTERVAL_MS`    | `400`                                    | cranker per-market submit cadence |
+| `WICK_KEEPER_GAS_RECORD_SEGMENT`     | `20000000`                               | cranker per-tx gas budget |
+| `WICK_KEEPER_SENTINEL_MARKETS`       | (empty)                                  | enable sponsored sentinel runner (v3.6) |
+| `WICK_SPONSOR_URL`                   | `https://wick-markets.vercel.app/api/sponsor` | /api/sponsor endpoint |
+| `WICK_SPONSOR_ADDRESS`               | (required when sentinel enabled)         | sponsor wallet address — must match `WICK_SPONSOR_PRIVATE_KEY` on Vercel |
+| `WICK_KEEPER_SENTINEL_INTERVAL_MS`   | `1000`                                   | sentinel floor cadence between snapshot reads |
+| `WICK_KEEPER_SENTINEL_BARRIER`       | `0` (upper)                              | sentinel barrier choice (0/1) |
+| `WICK_KEEPER_SENTINEL_GAS`           | `200000000`                              | sentinel per-PTB gas budget (sponsor pays) |
 
 ## Logs
 
