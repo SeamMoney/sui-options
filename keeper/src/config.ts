@@ -49,6 +49,19 @@ export interface PullMarketRecord {
   expiry_ms?: number;
 }
 
+/// Segment-market entry as written by `scripts/bootstrap-segment-market.sh`.
+/// Read by the v3.6 sentinel runner to resolve the per-market vault id —
+/// many segment markets may share `vault_sui` but the script records each
+/// binding explicitly so the keeper can pick the right one per market.
+export interface SegmentMarketRecord {
+  name?: string;
+  market: string;
+  vault: string;
+  collateral?: string;
+  min_stake_per_segment?: number;
+  // …other fields are present in the JSON but the keeper doesn't need them.
+}
+
 export interface Deployment {
   network: Network;
   package_id: string;
@@ -60,6 +73,7 @@ export interface Deployment {
   vault_admin_cap_sui?: string;
   arcade_markets?: ArcadeMarketRecord[];
   pull_markets?: PullMarketRecord[];
+  segment_markets?: SegmentMarketRecord[];
   // Shared singletons — required for redeem / crank paths but not for
   // lock_and_settle. Threaded via env vars if absent here.
   registry?: string;            // GlobalExposureRegistry (legacy key)
