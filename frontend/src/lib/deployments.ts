@@ -19,11 +19,30 @@ export interface ArcadeMarketRecord {
   expiry_ms: number;
 }
 
+/**
+ * Per doc 19 — a SegmentMarket<C> singleton; one round-based barrier-grid
+ * arcade market per (collateral, instance). The fields here are a subset
+ * of what `bootstrap_segment_market` accepts — only what the frontend
+ * needs at runtime; the rest is read on demand via `fetchSegmentMarket`.
+ */
+export interface SegmentMarketRecord {
+  name: string;
+  /** Shared SegmentMarket<C> object id. */
+  market: string;
+  /** Collateral type tag, e.g. `0x2::sui::SUI`. */
+  collateral: string;
+  /** Vault the market binds to (`vault_sui` for SUI). */
+  vault: string;
+  /** Walk home price in micro-USD (display anchor pre-first-segment). */
+  home_price: number;
+}
+
 export interface TestnetDeployment {
   network: string;
   package_id: string;
   vault_sui?: string;
   arcade_markets?: ArcadeMarketRecord[];
+  segment_markets?: SegmentMarketRecord[];
   risk_config?: string;
   global_exposure_registry?: string;
   bot_registry?: string;

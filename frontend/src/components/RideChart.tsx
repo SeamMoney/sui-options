@@ -1,37 +1,41 @@
 /**
- * RideChart — React wrapper around `useRideGesture`.
+ * RideChart — React wrapper around the segment-arcade `useRideGesture`.
  *
- * Ported from /tmp/cash-trading-game/src/components/CandlestickChart.tsx.
- * Keeps the global `preventDefault` block (load-bearing for iOS Safari —
- * stops the page scrolling / showing the context menu while a finger is
- * down on the canvas).
+ * The chart's data source is the on-chain `SegmentRecorded` event ring
+ * buffer fed in via `segments` — the hook expands each one through
+ * `seededPath.expandSegment` to render the deterministic 6 candles. The
+ * chart you see IS the price you settle against (doc 17 §1, §15.1).
  *
- * The live PnL is computed INSIDE the gesture hook, from the chart the user
- * is watching, and surfaced through `onPnlChange` — there is no chain poll
- * in the hot path, so the number is genuinely real-time.
+ * The global `preventDefault` block is load-bearing for iOS Safari — it
+ * stops the page scrolling or showing the context menu while a finger is
+ * down on the canvas.
  */
 import { useEffect, useRef } from "react";
 import type p5 from "p5";
 import {
   useRideGesture,
   type RideGestureCallbacks,
+  type RidePhase,
+  type RoundInfo,
+  type SegmentInput,
 } from "@/hooks/useRideGesture";
+import type { BarrierIndex } from "@wick/sdk";
 
 export interface RideChartProps {
-  /** Press / release callbacks — pipe these into useWickRide. */
+  /** Press / release callbacks — pipe these into useSegmentRide. */
   callbacks: RideGestureCallbacks;
-  /** True while a ride is open on-chain. Drives PnL color + emoji burst. */
-  isHolding: boolean;
-  /** Most recent oracle spot (chart units). Optional — chart random-walks. */
-  liveSpot?: number;
-  /** Optional barrier price to draw on the chart. */
-  barrier?: number;
-  /** 0 = touch-from-below, 1 = touch-from-above. */
-  barrierDirection?: 0 | 1;
-  /** Touch payout multiplier in bps (20000 = 2.0x). Drives the live PnL. */
+  /** Lifecycle phase from useSegmentRide. */
+  phase: RidePhase;
+  /** Currently-picked barrier (driven by the parent). */
+  pickedBarrier: BarrierIndex | null;
+  /** Current round info — null until first RoundStarted event. */
+  round: RoundInfo | null;
+  /** Sorted ring buffer of recent SegmentRecorded events. */
+  segments: ReadonlyArray<SegmentInput>;
+  /** Touch payout multiplier in bps (20_000 = 2.0×). Drives the live PnL. */
   multiplierBps?: number;
-  /** Premium burn rate in $/sec — how fast a held position accrues stake. */
-  stakeRatePerSec?: number;
+  /** Per-segment stake in micro-USD (mirror of the on-chain market field). */
+  stakePerSegmentMicroUsd?: bigint;
   /** Live PnL — fires ~12x/sec while the chart is held. */
   onPnlChange?: (snap: { pnl: number; staked: number }) => void;
   /** Disable press handling. */
@@ -40,12 +44,12 @@ export interface RideChartProps {
 
 export function RideChart({
   callbacks,
-  isHolding,
-  liveSpot,
-  barrier,
-  barrierDirection,
+  phase,
+  pickedBarrier,
+  round,
+  segments,
   multiplierBps,
-  stakeRatePerSec,
+  stakePerSegmentMicroUsd,
   onPnlChange,
   disabled,
 }: RideChartProps) {
@@ -79,12 +83,12 @@ export function RideChart({
   useRideGesture({
     chartRef,
     p5InstanceRef,
-    isHolding,
-    liveSpot,
-    barrier,
-    barrierDirection,
+    phase,
+    pickedBarrier,
+    round,
+    segments,
     multiplierBps,
-    stakeRatePerSec,
+    stakePerSegmentMicroUsd,
     onPnlChange,
     callbacks,
     disabled,
