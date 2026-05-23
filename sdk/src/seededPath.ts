@@ -51,6 +51,16 @@ export const PATTERN_BULLISH_ENGULFING = 4;
 export const PATTERN_BEARISH_ENGULFING = 5;
 export const PATTERN_THREE_WHITE_SOLDIERS = 6;
 
+export const PATTERN_NAME: Readonly<Record<number, string>> = {
+  [PATTERN_NONE]: "None",
+  [PATTERN_DOJI]: "Doji",
+  [PATTERN_HAMMER]: "Hammer",
+  [PATTERN_SHOOTING_STAR]: "Shooting Star",
+  [PATTERN_BULLISH_ENGULFING]: "Bullish Engulfing",
+  [PATTERN_BEARISH_ENGULFING]: "Bearish Engulfing",
+  [PATTERN_THREE_WHITE_SOLDIERS]: "Three White Soldiers",
+};
+
 const FSM_ENTRY_PROB = 50_000n;     // 5% per NORMAL candle
 
 const W_DOJI = 30n;
@@ -104,12 +114,51 @@ export interface WalkState {
   candlesRemaining: bigint;
 }
 
+export type ArmedPatternPhase = "arming" | "firing" | "fired";
+
+export interface ArmedPatternDetection {
+  patternId: number;
+  patternName: string;
+  candlesRemaining: number;
+  phase: ArmedPatternPhase;
+}
+
+export interface SegmentArmedPattern extends ArmedPatternDetection {
+  candleIndex: number;
+  patternCandleIndex: number;
+  patternCandleCount: number;
+}
+
 /** Result of expanding one segment. */
 export interface SegmentResult {
   candles: Candle[];
   newState: WalkState;
   min: bigint;
   max: bigint;
+  armedPatterns: SegmentArmedPattern[];
+}
+
+export function detectArmedPattern(
+  walkState: WalkState,
+): ArmedPatternDetection | null {
+  const patternId = Number(walkState.patternId);
+  if (patternId === PATTERN_NONE) return null;
+  const patternName = PATTERN_NAME[patternId];
+  if (!patternName) return null;
+  const candlesRemaining = Number(walkState.candlesRemaining);
+  const total = Number(patternTotalCandles(BigInt(patternId)));
+  const phase: ArmedPatternPhase =
+    candlesRemaining <= 0
+      ? "fired"
+      : candlesRemaining === total
+        ? "arming"
+        : "firing";
+  return {
+    patternId,
+    patternName,
+    candlesRemaining,
+    phase,
+  };
 }
 
 // ── Signed arithmetic ───────────────────────────────────────────────────────
@@ -541,12 +590,24 @@ export function expandSegment(state: WalkState, key: Uint8Array): SegmentResult 
     candlesRemaining: state.candlesRemaining,
   };
   const candles: Candle[] = [];
+  const armedPatterns: SegmentArmedPattern[] = [];
   let segMin = st.price;
   let segMax = st.price;
   for (let ci = 0; ci < CANDLES_PER_SEGMENT; ci++) {
     let c: Candle;
     if (st.patternId !== BigInt(PATTERN_NONE)) {
+      const armed = detectArmedPattern(st);
+      const total = Number(patternTotalCandles(st.patternId));
+      const remaining = Number(st.candlesRemaining);
       c = shapeDispatch(st, key, ci);
+      if (armed) {
+        armedPatterns.push({
+          ...armed,
+          candleIndex: ci,
+          patternCandleIndex: total - remaining,
+          patternCandleCount: total,
+        });
+      }
     } else {
       const open = st.price;
       let high = open;
@@ -564,7 +625,7 @@ export function expandSegment(state: WalkState, key: Uint8Array): SegmentResult 
     if (c.high > segMax) segMax = c.high;
     candles.push(c);
   }
-  return { candles, newState: st, min: segMin, max: segMax };
+  return { candles, newState: st, min: segMin, max: segMax, armedPatterns };
 }
 
 // ── Constructors mirroring the Move API ─────────────────────────────────────

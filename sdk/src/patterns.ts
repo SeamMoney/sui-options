@@ -107,6 +107,11 @@ export interface PatternMatch {
   endIndex: number;
 }
 
+export interface PostHocPatternMatch extends PatternMatch {
+  label: string;
+  candleIndex: number;
+}
+
 // ---------------------------------------------------------------------------
 // BigInt helpers — kept tiny and inlined because they run on every tick
 // ---------------------------------------------------------------------------
@@ -1571,4 +1576,37 @@ export const detectPatternsAt = (
     if (hit) matches.push(hit);
   }
   return matches;
+};
+
+const MAX_DETECTOR_SIZE = Math.max(...DETECTORS.map((det) => det.size));
+
+const patternSlug = (name: Pattern): string =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+
+/**
+ * Live detector for the newest candle only.
+ *
+ * Scans the last N candles, where N is the largest catalog predicate window,
+ * and returns any predicates that fired because of the newest candle. Indices
+ * are lifted back into the original `candles` array so callers can highlight
+ * the matched span directly.
+ */
+export const detectPostHocPattern = (
+  candles: Candle[],
+): PostHocPatternMatch[] => {
+  if (candles.length === 0) return [];
+  const start = Math.max(0, candles.length - MAX_DETECTOR_SIZE);
+  const window = candles.slice(start);
+  const offset = window.length - 1;
+  return detectPatternsAt(window, offset).map((match) => {
+    const startIndex = start + match.startIndex;
+    const endIndex = start + match.endIndex;
+    return {
+      ...match,
+      startIndex,
+      endIndex,
+      candleIndex: endIndex,
+      label: `${patternSlug(match.name)} at k=${endIndex}`,
+    };
+  });
 };
