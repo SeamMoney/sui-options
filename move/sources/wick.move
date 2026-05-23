@@ -24,6 +24,7 @@ module wick::wick;
 use std::string::String;
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
+use sui::random::Random;
 use wick::bot_registry::BotRegistry;
 use wick::fee_router::FeeRouter;
 use wick::global_exposure_registry::GlobalExposureRegistry;
@@ -33,6 +34,7 @@ use wick::path_observation::{Self, PathObservation};
 use wick::pull_oracle_driver::{Self, KeeperCap, PullFeed};
 use wick::random_walk_driver::{Self, RandomWalk};
 use wick::risk_config::RiskConfig;
+use wick::segment_market::{Self as sm, SegmentMarket, SegmentRidePosition};
 use wick::usd_price_oracle::UsdPriceOracle;
 use wick::wick_oracle::WickOracle;
 use wick::wick_staking::WickStakingPool;
@@ -284,6 +286,130 @@ public fun crank_expired_ride<C>(
     wick::ride_position::crank_expired_ride<C>(
         ride, caps, path, vault, price_oracle, token_state, staking_pool, clock, ctx,
     )
+}
+
+// === Segment-market arcade (round-based shared barrier grid) ===
+//
+// Provably-fair arcade per docs/design/v2/18 + 19. The segment-market
+// arcade is a PARALLEL track to the legacy ride_position arcade — both
+// coexist; nothing about the legacy entrypoints changes here.
+//
+// `record_segment` is `entry` (not `public`) per doc 17a §1.4 — Sui's
+// verifier forbids `public` on functions taking `&Random`. The keeper /
+// frontend invokes it directly as a MoveCall; Sui's PTB-command rule
+// (only TransferObjects / MergeCoins after a Random MoveCall) closes the
+// test-and-abort grinder structurally.
+
+/// Admin bootstrap: construct + share a SegmentMarket<C>. Returns nothing;
+/// market ID is in the emitted `SegmentMarketCreated` event.
+public entry fun bootstrap_segment_market<C>(
+    home_price: u64,
+    vol_regime_init: u64,
+    round_duration_segments: u64,
+    open_window_segments: u64,
+    barrier_offset_bps: u64,
+    multiplier_bps: u64,
+    max_payout_per_barrier: u64,
+    deadband_bps: u64,
+    sigma_bps_per_sqrt_sec: u64,
+    cashout_spread_bps: u64,
+    abort_segment_deadline_ms: u64,
+    min_stake_per_segment: u64,
+    max_stake_per_segment: u64,
+    max_concurrent_rides: u64,
+    max_rides_per_user: u64,
+    vault: &MartingalerVault<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let market = sm::new_segment_market<C>(
+        vault,
+        home_price,
+        vol_regime_init,
+        round_duration_segments,
+        open_window_segments,
+        barrier_offset_bps,
+        multiplier_bps,
+        max_payout_per_barrier,
+        deadband_bps,
+        sigma_bps_per_sqrt_sec,
+        cashout_spread_bps,
+        abort_segment_deadline_ms,
+        min_stake_per_segment,
+        max_stake_per_segment,
+        max_concurrent_rides,
+        max_rides_per_user,
+        clock,
+        ctx,
+    );
+    sm::share_segment_market<C>(market);
+}
+
+/// Permissionless cranker entry — anyone (keeper or rider) calls this to
+/// record one segment. Wake-gated on `active_ride_count > 0`.
+public entry fun record_segment<C>(
+    market: &mut SegmentMarket<C>,
+    r: &Random,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    sm::record_segment<C>(market, r, clock, ctx);
+}
+
+public fun open_segment_ride<C>(
+    market: &mut SegmentMarket<C>,
+    vault: &mut MartingalerVault<C>,
+    bot_registry: &BotRegistry,
+    barrier_index: u8,
+    stake_per_segment: u64,
+    escrow: Coin<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): SegmentRidePosition {
+    sm::open_segment_ride<C>(
+        market, vault, bot_registry, barrier_index,
+        stake_per_segment, escrow, clock, ctx,
+    )
+}
+
+public fun close_segment_ride<C>(
+    ride: &mut SegmentRidePosition,
+    market: &mut SegmentMarket<C>,
+    vault: &mut MartingalerVault<C>,
+    price_oracle: &UsdPriceOracle,
+    token_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm::close_segment_ride<C>(
+        ride, market, vault, price_oracle, token_state, staking_pool, clock, ctx,
+    )
+}
+
+public fun crank_expired_segment_ride<C>(
+    ride: &mut SegmentRidePosition,
+    market: &mut SegmentMarket<C>,
+    vault: &mut MartingalerVault<C>,
+    price_oracle: &UsdPriceOracle,
+    token_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm::crank_expired_segment_ride<C>(
+        ride, market, vault, price_oracle, token_state, staking_pool, clock, ctx,
+    )
+}
+
+public fun abort_segment_ride<C>(
+    ride: &mut SegmentRidePosition,
+    market: &mut SegmentMarket<C>,
+    vault: &mut MartingalerVault<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm::abort_segment_ride<C>(ride, market, vault, clock, ctx)
 }
 
 #[test_only]
