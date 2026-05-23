@@ -218,9 +218,35 @@ The blob ID stays in the on-chain `ArchiveIndex` forever; only the actual blob e
 - **Blob ID storage as `vector<u8>` vs typed.** v3.0 keeps it as raw `vector<u8>` for forward compatibility. v3.1 may upgrade to a typed `WalrusBlobRef` struct if Walrus emits one.
 - **Archive index growth.** `archive_index: Table<u64, vector<u8>>` is ~40 bytes per round × 365 × 5 years = 73 KB total — negligible. Lives forever.
 
+## 10a. Walrus testnet endpoint corrections (verified 2026-05-23)
+
+During v3.5 archiver implementation the agent verified the actual
+Walrus testnet HTTP API against the upstream `MystenLabs/walrus`
+repo. Two corrections to earlier drafts of this doc:
+
+- **Publisher base URL:** `https://publisher.walrus-testnet.walrus.space`
+  (the earlier `publisher.walrus.testnet.cloud` host does not exist).
+- **Upload method + path:** `PUT /v1/blobs?epochs=N` (not
+  `POST /v1/store?epochs=N`). Body is the raw blob bytes.
+- **`blobId` encoding:** the response field is **base64url** (43-char
+  URL-safe base64 decoding to a 32-byte hash), not hex. Decode back
+  to a `vector<u8>` of length 32 before calling
+  `record_walrus_archive(... walrus_blob_id: vector<u8>)` so the
+  Move-side `assert!(length == 32)` per §5 holds.
+- **Response shape:** the blobId lives at `newlyCreated.blobObject.blobId`
+  (fresh upload) or `alreadyCertified.blobId` (dedup hit). The
+  archiver handles both.
+
+The `@mysten/walrus` SDK exists (v1.1.7) but requires a Sui wallet
+with WAL tokens to write directly; the HTTP publisher path is simpler
+and lets the publisher operator pay storage. v3.5 uses raw `fetch`
+against the publisher; no new keeper dep.
+
 ## 11. References
 
 - Walrus docs: https://docs.walrus.site/
+- Walrus HTTP API: https://docs.wal.app/usage/web-api.html
+- MystenLabs/walrus repo: https://github.com/MystenLabs/walrus
 - Sui storage rebate model: https://docs.sui.io/concepts/tokenomics/gas-in-sui#storage-rebate
 - BCS serialization: https://docs.sui.io/standard-library/sui/bcs
 - Companion: [`22_sponsored_cranking_v3.md`](22_sponsored_cranking_v3.md) — pays for the cranking that produces these archives
