@@ -28,6 +28,17 @@ Operator-facing bash + node scripts. All scripts read live IDs from
 - `verify.ts` — replay any closed ride against a deterministic walk and
   assert extrema + verdict match.
 - `verify_record_segment_shape.py` — schema check for `record_segment` events.
+- `prune-proto-smoke.sh` — **empirically validates the storage-rebate
+  economic claim** in `docs/design/v2/23_storage_rebate_pruning_v3.md` §3.3
+  before v3.4 cutover. Move's test framework can't observe gas/rebate
+  accounting (reviewer SEV-2 #B), so this on-chain smoke is the only way
+  to prove the "~74M MIST/round positive EV for pruners" claim holds.
+  Calls `wick::prune_proto::{create, fill(20), prune_range(0,20)}` on
+  testnet, measures wallet balance deltas + per-tx `effects.gasUsed`, and
+  asserts `BAL_T2 > BAL_T1` (net positive to the pruner). Refuses to run
+  with a clear "upgrade first" message if `prune_proto` is not in the
+  deployed package — the module currently lives on branch
+  `claude/v3.4-prune-proto` and needs a Move upgrade to land on testnet.
 
 ## Demo / faucet
 
