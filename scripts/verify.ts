@@ -11,6 +11,7 @@ import {
   SETTLEMENT_CASHOUT,
   SETTLEMENT_EXPIRED_LOSS,
   SETTLEMENT_NAME,
+  SETTLEMENT_OPEN,
   SETTLEMENT_TOUCH_WIN,
   fetchSegmentMarket,
   fetchSegmentRidePosition,
@@ -352,6 +353,33 @@ async function verify(args: Args): Promise<boolean> {
   if (!rideSnapshot) {
     throw new Error(`failed to fetch SegmentRidePosition ${args.ride}`);
   }
+
+  // S1-B: don't crash if the ride hasn't closed yet — print a friendly message.
+  // SETTLEMENT_OPEN = 0 means no RideClosed event has been emitted; the verifier
+  // has nothing to compare against. This is the common "user clicks verify on
+  // their currently-open ride" case; the script must not crash on it.
+  if (rideSnapshot.settlementKind === SETTLEMENT_OPEN) {
+    console.log("");
+    console.log(
+      `Ride ${args.ride} is still OPEN — there is no settlement to verify yet.`,
+    );
+    console.log(
+      "Run verify again after the ride closes (touch_win, cashout, expired_loss, or aborted_refund).",
+    );
+    console.log("");
+    return true;
+  }
+
+  // S1-A (known limitation): the off-chain replay seeds segment 0 with
+  // DEFAULT_INITIAL_VOL_REGIME (= 1_000_000), matching the value the bootstrap
+  // script writes. If this market was deployed with a non-default
+  // VOL_REGIME_INIT, extrema replay will FAIL from k=0 even when the chain is
+  // honest. Tracked as a follow-up: extend SegmentMarketCreated to emit
+  // vol_regime_init, or surface state_after for k=0 from the segments Table.
+  // For now, emit a warning so the user can interpret false negatives.
+  console.warn(
+    `note: verify.ts seeds the walk with vol_regime_init = ${DEFAULT_INITIAL_VOL_REGIME}n (the bootstrap default). If this market was deployed with a non-default value, extrema replay will mismatch from k=0 even on an honest chain.`,
+  );
 
   const { opened, closed } = await fetchRideEvents(
     client,
