@@ -43,11 +43,18 @@ import { BARRIER_UPPER, type BarrierIndex } from "@wick/sdk";
 /** Need ~0.05 SUI to ride one round (escrow + gas). Below this → faucet. */
 const MIN_RIDE_BALANCE_MIST = 50_000_000n;
 
-/** Pick a segment market from the deployment — first one wins. */
+/** Pick a segment market from the deployment — most recent wins.
+ *
+ * Operators bootstrap a fresh market when they need to fix params (the F1
+ * deploy surfaced that the original B7-default at markets[0] is
+ * economically broken: round=75 × min_stake=1M × 1.75x = 131M payout
+ * exceeds the 20M per-barrier cap, so the open call always aborts with
+ * EBarrierCapExceeded). Picking the LAST entry means a re-bootstrap with
+ * fixed params automatically takes over without a code change. */
 function pickSegmentMarket(): SegmentMarketRecord | null {
   const markets = TESTNET_DEPLOYMENT.segment_markets ?? [];
   if (markets.length === 0) return null;
-  return markets[0] ?? null;
+  return markets[markets.length - 1] ?? null;
 }
 
 function useAutoDismissSettlement(
