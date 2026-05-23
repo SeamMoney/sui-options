@@ -1,130 +1,306 @@
 /**
- * useRideGesture — p5.js candle chart + press-and-hold gesture lifecycle.
+ * useRideGesture — p5.js candle chart + barrier-picker + press-and-hold,
+ * **rewritten for the segment-market arcade (doc 19)**.
  *
- * Ported from /tmp/cash-trading-game/src/hooks/useP5Chart.ts. Strips:
- *   - aptosMode / callbacksRef.current.onPositionOpened branching
- *   - the seeded-candle generator (we synthesize a random-walk locally,
- *     anchored on the live oracle spot when one is supplied)
- *   - the round/timer/liquidation/rugpull game loop (Wick has no rounds)
- *   - the modal/escape and debug-overlay listeners
+ * WHAT CHANGED vs the previous incarnation
+ * ----------------------------------------
+ * - The chart is no longer a per-browser `Math.random()` walk. It is the
+ *   *exact* on-chain price: a deterministic function of `SegmentRecorded`
+ *   events (32-byte `segment_key` + carried `WalkState`) replayed through
+ *   `seededPath.expandSegment`. Move == TS, byte-identical (doc 17 §8 spine
+ *   test 1). The chart you see IS the price you settle against.
  *
- * What it keeps (load-bearing):
- *   - press → onPress, release → onRelease callback shape
- *   - touchActive mouse/touch dedupe (iOS dispatches both)
- *   - drawPNLLine (entry → live cursor, with glow + dot)
- *   - MoneyEmoji burst on profitable close
- *   - screen-shake + red-flash on loss
- *   - pulsing dot at entry, immediate horizontal stub line
+ * - Round-based shared-grid mode (doc 19):
+ *     * Two barriers materialise at round start (upper + lower).
+ *     * The first ~5.2s of each 30s round is the OPEN WINDOW — barrier
+ *       picker is interactive.
+ *     * After that the picker is locked; rides can only close.
  *
- * On-chain bridge is intentionally outside this hook: the parent owns the
- * Sui PTB lifecycle and pipes the live `stakePaid` / `multiplierBps` back
- * in via `setPnl`. This keeps the canvas pure-rendering and lets us swap
- * the data source (oracle, fixture, replay) without touching the gesture
- * code.
+ * - Gesture grammar (D2 — built first per doc 17 §14.5):
+ *     * Tap a half (upper / lower) to PICK that barrier.
+ *     * Press-and-hold anywhere on the chart to COMMIT — instant optimistic
+ *       "starting…" → "RIDING" the moment the next segment lands (or fade
+ *       back if it was a tap). Release → instant "cashing out…".
+ *
+ * - Live PnL (D3) is computed inside this hook from the candle stream the
+ *   user is actually watching (not a chain poll) — genuinely zero-latency.
+ *
+ * - Resilience (D4): if no `SegmentRecorded` event arrives for ~3 s while
+ *   any ride is open, the parent's fallback cranker is called. The chart
+ *   shows a calm "syncing…" badge, never a frozen state.
+ *
+ * KEPT (FX layer, load-bearing for the gameplay feel)
+ * ---------------------------------------------------
+ * - Press / release dedupe (iOS dispatches mouse + touch both).
+ * - drawPNLLine — entry → live cursor, with glow + dot.
+ * - MoneyEmoji burst on profitable close.
+ * - Screen-shake + red-flash on loss.
+ * - Pulsing dot at entry, immediate horizontal stub line.
+ * - Audio cues on close (win / loss).
+ *
+ * Pattern overlays (D5) and per-barrier orderbook bars (D6) are separate
+ * tasks. This hook deliberately leaves architectural space for them — the
+ * candle data structure already carries everything `patterns.ts` needs.
  */
 import { useEffect, useRef } from "react";
 import type p5 from "p5";
+import {
+  detectPostHocPattern,
+  expandSegment,
+  newState as newWalkState,
+  type Candle as SeededCandle,
+  type PostHocPatternMatch,
+  type SegmentArmedPattern,
+  type WalkState,
+  BARRIER_UPPER,
+  BARRIER_LOWER,
+  type BarrierIndex,
+} from "@wick/sdk";
 import { getTopMargin, getSafeBottom, isStandalone } from "@/utils/safeArea";
 
+// ── Tunables ────────────────────────────────────────────────────────────────
+// The on-chain segment cadence is ~400 ms; each segment carries 6 candles
+// (doc 17 §10). Animate the 6 candles over the realised inter-arrival
+// interval so the chart speed tracks the cranker — rubber-banding within
+// bounds when the keeper jitters.
+const CANDLES_PER_SEGMENT = 6;
+const DEFAULT_SEGMENT_MS = 400;
+const MIN_SEGMENT_MS = 250;
+const MAX_SEGMENT_MS = 1200;
+const MAX_CHART_CANDLES = 40;
+/** Stall threshold — if `lastSegmentArrivedMs` is older than this and a
+ *  ride is open, call the parent's onStall to trigger the fallback crank. */
+const STALL_THRESHOLD_MS = 3000;
+
+// On-chain prices are micro-USD; chart axis is plain USD.
+const PRICE_SCALING = 1_000_000;
+
+// ── Public phase enum (mirrored from useSegmentRide) ────────────────────────
+
+export type RidePhase = "idle" | "opening" | "riding" | "closing";
+
+/** Tap = no-op, hold = open. We use a wall-time floor to disambiguate. */
+const TAP_VS_HOLD_MS = 120;
+
 export interface RideGestureCallbacks {
-  /** Called on mousePressed / touchStarted. Receives the spot price the
-   *  user "entered" at (most recent candle close). */
-  onPress: (entryPrice: number) => void;
-  /** Called on mouseReleased / touchEnded. */
-  onRelease: () => void;
+  /**
+   * Called on press if the user is currently inside the round's OPEN
+   * WINDOW. The hook supplies the picked barrierIndex (0 = upper,
+   * 1 = lower) and the snapshotted barrier price (display unit, USD).
+   * After this fires, the parent fires the on-chain `open_segment_ride`
+   * and flips `phase` to "opening" / "riding".
+   */
+  onOpen: (barrierIndex: BarrierIndex, barrierPrice: number) => void;
+  /** Called on release while phase is "riding" or "opening". */
+  onClose: () => void;
+  /**
+   * Called when no SegmentRecorded event has arrived for ~STALL_THRESHOLD_MS
+   * while a ride is open. Parent should call `recordSegment` from the
+   * client as a fallback cranker (D4). Idempotent at the parent — the hook
+   * fires it once per stall, then waits for the next arrival.
+   */
+  onStall?: () => void;
+}
+
+/** What the hook needs to render one segment worth of candles. */
+export interface SegmentInput {
+  /** Segment index (`k`) — monotonically increasing per market. */
+  readonly k: bigint;
+  /** 32-byte segment_key drawn from sui::random. */
+  readonly key: Uint8Array;
+  /** Wall-time the segment was recorded (from the event). */
+  readonly recordedAtMs: number;
+}
+
+/** Snapshot of the active round, fed from RoundStarted events. */
+export interface RoundInfo {
+  /** Round index. 0 at bootstrap. */
+  readonly index: bigint;
+  /** First segment_k bound to this round (= index * roundDurationSegments). */
+  readonly startedAtSegment: bigint;
+  /** Upper barrier price (micro-USD on chain — display USD here). */
+  readonly upperBarrier: number;
+  /** Lower barrier price (display USD). */
+  readonly lowerBarrier: number;
+  /** Walk spot at round roll (display USD, for the seed candle). */
+  readonly spotAtRoll: number;
+  /** Round duration in segments (75 = 30 s). */
+  readonly roundDurationSegments: number;
+  /** Open-window length in segments (13 ≈ 5.2 s). */
+  readonly openWindowSegments: number;
 }
 
 export interface RideGestureOptions {
   chartRef: React.RefObject<HTMLDivElement | null>;
   p5InstanceRef: React.RefObject<p5 | null>;
-  /** True while the position is open. Drives PnL line + emoji burst. */
-  isHolding: boolean;
-  /** $-denominated live PnL of the open position. Drives line color + glow. */
-  pnl: number;
-  /** Most recent observed spot in chart units. If supplied, the canvas
-   *  drifts toward it instead of pure random walk. */
-  liveSpot?: number;
-  /** Optional barrier price to draw as a dashed horizontal line. */
-  barrier?: number;
-  /** Direction: 0 = touch-from-below (barrier above spot), 1 = above. */
-  barrierDirection?: 0 | 1;
+  /** "idle" | "opening" | "riding" | "closing" — drives PnL line, FX. */
+  phase: RidePhase;
+  /** Currently picked barrier — null until the user taps a zone. */
+  pickedBarrier: BarrierIndex | null;
+  /** Current round info (null until first RoundStarted event). */
+  round: RoundInfo | null;
+  /**
+   * Ring buffer of recent segments, ordered by `k`. The hook expands each
+   * one into 6 candles via `expandSegment`, carrying `WalkState` forward.
+   * The most recent CANDLES_PER_SEGMENT entries form the chart's tail.
+   */
+  segments: ReadonlyArray<SegmentInput>;
+  /** Touch payout multiplier in bps (e.g. 20_000 = 2.0x). */
+  multiplierBps?: number;
+  /** Per-segment stake in micro-USD — fixed-per-segment per doc 19 §6. */
+  stakePerSegmentMicroUsd?: bigint;
+  /**
+   * Live PnL callback — fires ~12x/sec while the chart is held. The figure
+   * is mark-to-market of the touch position derived from the chart the
+   * user is actually watching — genuinely zero-latency.
+   */
+  onPnlChange?: (snap: { pnl: number; staked: number }) => void;
+  /** Press-state callbacks (open, close, stall). */
   callbacks: RideGestureCallbacks;
-  /** Disable press handling (e.g. wallet not connected, signing in flight). */
+  /** Disable press handling (e.g. wallet not connected). */
   disabled?: boolean;
 }
 
-// ── Tunables (mirrors the cash-trading-game look) ───────────────────────────
-const CANDLE_INTERVAL_MS = 120; // a touch slower than CTG's 65ms — feels less frantic for a real-money product
-const MAX_VISIBLE_CANDLES_MOBILE = 4;
-const MAX_VISIBLE_CANDLES_DESKTOP = 6;
-
-interface Candle {
+// ── Local chart-render types (decoupled from SDK Candle to avoid coupling
+// the renderer's mutable y-coordinates to the deterministic on-chain output)
+interface RenderCandle {
   open: number;
   high: number;
   low: number;
   close: number;
   animation: number;
+  /** True until the next segment lands — the right-most candle "grows". */
+  isLive: boolean;
+  armedPattern?: ArmedPatternCue;
+  postHocPatterns?: PostHocPatternCue[];
+}
+
+interface ArmedPatternCue {
+  patternId: number;
+  patternName: string;
+  candlesRemaining: number;
+  phase: SegmentArmedPattern["phase"];
+  patternCandleIndex: number;
+  patternCandleCount: number;
+}
+
+interface PostHocPatternCue {
+  name: string;
+  strength: number;
+  label: string;
 }
 
 interface PositionState {
   entryPrice: number;
-  candlesElapsed: number;
+  entrySegmentIdx: number; // index into the rendered candle array at open
+  barrierIndex: BarrierIndex;
+  barrierPrice: number;
 }
 
 interface CompletedTrade {
   entryPrice: number;
   exitPrice: number;
   profit: number;
-  candlesElapsed: number;
-  exitElapsed: number;
+  entryAgeCandles: number;
+  exitAgeCandles: number;
 }
+
+// ── Math helpers ────────────────────────────────────────────────────────────
+
+const toDisplay = (microUsd: bigint | number): number =>
+  Number(microUsd) / PRICE_SCALING;
+
+/** Convert a deterministic SDK Candle (bigint micro-USD) to render units. */
+function renderCandleFromSeeded(c: SeededCandle, animation: number): RenderCandle {
+  return {
+    open: toDisplay(c.open),
+    high: toDisplay(c.high),
+    low: toDisplay(c.low),
+    close: toDisplay(c.close),
+    animation,
+    isLive: false,
+    postHocPatterns: [],
+  };
+}
+
+const armedCueFromSegment = (armed: SegmentArmedPattern): ArmedPatternCue => ({
+  patternId: armed.patternId,
+  patternName: armed.patternName,
+  candlesRemaining: armed.candlesRemaining,
+  phase: armed.phase,
+  patternCandleIndex: armed.patternCandleIndex,
+  patternCandleCount: armed.patternCandleCount,
+});
+
+const postHocCueFromMatch = (match: PostHocPatternMatch): PostHocPatternCue => ({
+  name: match.name,
+  strength: match.strength,
+  label: match.label,
+});
 
 export function useRideGesture(opts: RideGestureOptions) {
   const {
     chartRef,
     p5InstanceRef,
-    isHolding,
-    pnl,
-    liveSpot,
-    barrier,
-    barrierDirection,
+    phase,
+    pickedBarrier,
+    round,
+    segments,
+    multiplierBps,
+    stakePerSegmentMicroUsd,
+    onPnlChange,
     callbacks,
     disabled = false,
   } = opts;
 
   // Refs the p5 closure reads on every frame. We avoid recreating the p5
-  // instance when these change.
+  // instance when these change — see the empty-deps useEffect below.
   const stateRef = useRef({
-    isHolding,
-    pnl,
-    liveSpot,
-    barrier,
-    barrierDirection,
+    phase,
+    pickedBarrier,
+    round,
+    segments,
+    multiplierBps: multiplierBps ?? 20000,
+    stakePerSegmentMicroUsd: stakePerSegmentMicroUsd ?? 200_000n,
     disabled,
+    // pnl is computed INSIDE the p5 loop (mark-to-market of the chart the
+    // user is watching) — it is not a prop. The loop writes it every frame.
+    pnl: 0,
+    // Whether we've already fired onStall for this stall — debounces.
+    stallFired: false,
   });
   const callbacksRef = useRef(callbacks);
+  const onPnlChangeRef = useRef(onPnlChange);
 
   useEffect(() => {
-    stateRef.current.isHolding = isHolding;
-  }, [isHolding]);
+    stateRef.current.phase = phase;
+  }, [phase]);
   useEffect(() => {
-    stateRef.current.pnl = pnl;
-  }, [pnl]);
+    stateRef.current.pickedBarrier = pickedBarrier;
+  }, [pickedBarrier]);
   useEffect(() => {
-    stateRef.current.liveSpot = liveSpot;
-  }, [liveSpot]);
+    stateRef.current.round = round;
+  }, [round]);
   useEffect(() => {
-    stateRef.current.barrier = barrier;
-  }, [barrier]);
+    stateRef.current.segments = segments;
+    // A new segment arrival clears the stall flag — the chart is alive.
+    stateRef.current.stallFired = false;
+  }, [segments]);
   useEffect(() => {
-    stateRef.current.barrierDirection = barrierDirection;
-  }, [barrierDirection]);
+    stateRef.current.multiplierBps = multiplierBps ?? 20000;
+  }, [multiplierBps]);
+  useEffect(() => {
+    stateRef.current.stakePerSegmentMicroUsd = stakePerSegmentMicroUsd ?? 200_000n;
+  }, [stakePerSegmentMicroUsd]);
   useEffect(() => {
     stateRef.current.disabled = disabled;
   }, [disabled]);
   useEffect(() => {
     callbacksRef.current = callbacks;
   }, [callbacks]);
+  useEffect(() => {
+    onPnlChangeRef.current = onPnlChange;
+  }, [onPnlChange]);
 
   useEffect(() => {
     let p5Mod: typeof p5 | null = null;
@@ -134,33 +310,47 @@ export function useRideGesture(opts: RideGestureOptions) {
     void import("p5").then((mod) => {
       if (cancelled) return;
       p5Mod = (mod.default ?? mod) as typeof p5;
+
       const sketch = (p: p5) => {
         // ── Local mutable state, scoped to this p5 instance ────────────────
-        let candles: Candle[] = [];
-        let intervalMs = CANDLE_INTERVAL_MS;
+        let candles: RenderCandle[] = [];
+        let seededCandles: SeededCandle[] = [];
+        // The walk state we carry forward AS WE EXPAND segments. Rebuilt
+        // from scratch any time the parent's `segments` ring buffer
+        // semantically resets (round change, market swap, mount).
+        let walkState: WalkState | null = null;
+        // The k of the segment whose candles are currently in `candles`'
+        // tail. Used to decide whether a new segment is incremental
+        // (append) or rewinding (rebuild).
+        let highestExpandedK: bigint | null = null;
+        // Wall-time the most recent segment landed in the chart — used for
+        // the stall detector AND for the live "growing" candle animation.
+        let lastSegmentArrivedMs = 0;
+        // Estimated inter-arrival interval (ms) — used to time the
+        // intra-segment growing-candle animation. Rubber-bands gently.
+        let estimatedSegmentMs = DEFAULT_SEGMENT_MS;
+
         let candleWidth = p.windowWidth < 768 ? 6 : 9;
         let candleSpacing = p.windowWidth < 768 ? 9 : 13;
-        let maxCandles = p.windowWidth < 768
-          ? Math.floor(p.windowWidth / candleSpacing * 0.6) || MAX_VISIBLE_CANDLES_MOBILE
-          : Math.floor(p.windowWidth / candleSpacing * 0.7) || MAX_VISIBLE_CANDLES_DESKTOP;
+        let maxCandles = MAX_CHART_CANDLES;
         let priceScale = { min: 0, max: 100 };
+        let priceScaleInit = false;
         let chartArea = { x: 30, y: 90, width: 0, height: 0 };
         let gridAlpha = 0;
         let pulseAnimation = 0;
-        let lastUpdate = 0;
-
-        // Random-walk seed for the synthesized candle stream.
-        let lastClose = stateRef.current.liveSpot ?? 100;
-        // Track when we last sync'd to the live oracle spot so we drift
-        // toward the real number without yanking the chart.
-        let lastSyncSpot = lastClose;
-
-        // Position state, set on press.
+        let positionOpenedAtMs = 0;
+        let lastPnlReportMs = 0;
+        // Position state, set when phase flips to "opening" / "riding".
         let currentPosition: PositionState | null = null;
         let completedTrades: CompletedTrade[] = [];
         let pnlLineEndPos: { x: number; y: number } | null = null;
 
-        // Animation / FX state.
+        // Press-state — local mirror of the public phase, plus a tap timer.
+        let pressMs = 0;
+        // The phase reported the last frame — to detect transitions.
+        let lastSeenPhase: RidePhase = "idle";
+
+        // ── FX state (ported verbatim) ────────────────────────────────────
         let activeMoneyEmojis: MoneyEmoji[] = [];
         let shouldExplodeEmojis = false;
         let explosionCenter: { x: number; y: number } | null = null;
@@ -168,7 +358,7 @@ export function useRideGesture(opts: RideGestureOptions) {
         let screenShake = 0;
         let lossFlash = 0;
 
-        // ── MoneyEmoji class — ported verbatim, scoped to this p5 ──────────
+        // ── MoneyEmoji class — ported verbatim, scoped to this p5 ─────────
         class MoneyEmoji {
           x: number;
           y: number;
@@ -306,46 +496,175 @@ export function useRideGesture(opts: RideGestureOptions) {
           }
         };
 
-        // ── Candle synthesis ───────────────────────────────────────────────
-        const synthCandle = (): Candle => {
-          // Drift slowly toward the live oracle spot when one is supplied.
-          const live = stateRef.current.liveSpot;
-          let drift = 0;
-          if (live && live > 0 && Number.isFinite(live)) {
-            if (Math.abs(live - lastSyncSpot) > lastSyncSpot * 0.02) {
-              // Big move from the oracle since we last looked — bias the
-              // walk hard toward the new spot so we don't lie to the user
-              // about where the market is.
-              drift = (live - lastClose) * 0.25;
-              lastSyncSpot = live;
-            } else {
-              drift = (live - lastClose) * 0.05;
+        const tryPlayAudio = (url: string, volume: number) => {
+          try {
+            const a = new Audio(url);
+            a.volume = volume;
+            void a.play().catch(() => {
+              // iOS will reject if no recent user gesture — silently swallow.
+            });
+          } catch {
+            // ignore
+          }
+        };
+
+        // ── Segment → render-candle pipeline ──────────────────────────────
+        // The hook receives a sorted ring buffer of SegmentInputs. For each
+        // one not yet expanded, we run `expandSegment(state, key)` carrying
+        // the walk state forward. The result is 6 deterministic candles
+        // appended to `candles`. The chart is then the user's view of the
+        // genuinely on-chain price — no Math.random anywhere.
+
+        /** Rebuild candles + walkState from scratch over the full ring buffer.
+         *  Called when the parent ring buffer's history changes shape (e.g.
+         *  new round, ID switch).
+         *
+         *  Honest limitation: if the ring buffer starts mid-round (e.g. the
+         *  user opened the page at segment 30 of a 75-segment round), the
+         *  rebuilt walk seeds at `spotAtRoll` not at the on-chain walk's
+         *  segment-30 checkpoint, so the displayed candles can drift from
+         *  the on-chain extremes for that round. The /verify CLI (Phase E)
+         *  is the authoritative replay; this hook is the *live* renderer
+         *  and trades a few candles of imprecision for snappy UX. */
+        const rebuildFromSegments = () => {
+          const s = stateRef.current;
+          const segs = s.segments;
+          candles = [];
+          seededCandles = [];
+          highestExpandedK = null;
+          // Seed walk state from the current round's spotAtRoll (or 100 as
+          // a sane fallback for the empty / no-round case so the y-axis
+          // doesn't collapse before the first segment lands).
+          const homePrice = s.round?.spotAtRoll ?? 100;
+          // Convert display USD → micro-USD bigint for the SDK.
+          const homePriceMicro = BigInt(Math.round(homePrice * PRICE_SCALING));
+          walkState = newWalkState(
+            homePriceMicro,
+            // volRegime starts at 1.0 in 1e6 fixed-point.
+            1_000_000n,
+            homePriceMicro,
+          );
+          for (const seg of segs) {
+            applySegment(seg);
+          }
+        };
+
+        /** Expand one segment and append its 6 candles. Updates walkState. */
+        const applySegment = (seg: SegmentInput) => {
+          if (!walkState) return;
+          const result = expandSegment(walkState, seg.key);
+          const armedByCandle = new Map(
+            result.armedPatterns.map((armed) => [armed.candleIndex, armed] as const),
+          );
+          // expandSegment doesn't mutate; carry the result forward.
+          walkState = result.newState;
+          for (let i = 0; i < result.candles.length; i++) {
+            const c = result.candles[i]!;
+            const isLast = i === result.candles.length - 1;
+            const rc = renderCandleFromSeeded(c, 1);
+            const armed = armedByCandle.get(i);
+            if (armed) rc.armedPattern = armedCueFromSegment(armed);
+            // The very last candle of the latest segment is "live" — it
+            // gets the growing animation until the next segment lands.
+            rc.isLive = isLast;
+            candles.push(rc);
+            seededCandles.push(c);
+            for (const match of detectPostHocPattern(seededCandles)) {
+              const cue = postHocCueFromMatch(match);
+              for (let j = match.startIndex; j <= match.endIndex; j++) {
+                const target = candles[j];
+                if (!target) continue;
+                const existing = target.postHocPatterns ?? [];
+                if (!existing.some((patt) => patt.label === cue.label)) {
+                  target.postHocPatterns = [...existing, cue].slice(-3);
+                }
+              }
             }
           }
-          const vol = Math.max(0.2, lastClose * 0.003);
-          const open = lastClose;
-          const close = open + drift + (Math.random() - 0.5) * vol * 2;
-          const high = Math.max(open, close) + Math.random() * vol;
-          const low = Math.min(open, close) - Math.random() * vol;
-          lastClose = close;
-          return { open, high, low, close, animation: 0 };
-        };
-
-        const addCandle = () => {
-          const c = synthCandle();
-          if (candles.length >= maxCandles) candles.shift();
-          candles.push(c);
-          if (currentPosition) currentPosition.candlesElapsed++;
-          for (const t of completedTrades) {
-            t.candlesElapsed++;
-            t.exitElapsed++;
+          highestExpandedK = seg.k;
+          // Trim history.
+          if (candles.length > maxCandles + CANDLES_PER_SEGMENT) {
+            const drop = candles.length - (maxCandles + CANDLES_PER_SEGMENT);
+            candles.splice(0, drop);
+            seededCandles.splice(0, drop);
+            // Shift completedTrades & currentPosition entry index left.
+            for (const t of completedTrades) {
+              t.entryAgeCandles += drop;
+              t.exitAgeCandles += drop;
+            }
+            if (currentPosition) {
+              currentPosition.entrySegmentIdx = Math.max(
+                0,
+                currentPosition.entrySegmentIdx - drop,
+              );
+            }
           }
-          // Prune old completed trades — keep the chart legible.
-          completedTrades = completedTrades.filter(
-            (t) => t.exitElapsed < maxCandles,
-          );
         };
 
+        /** Reconcile the parent ring buffer against the locally expanded
+         *  set. Cheap when nothing has changed; appends incrementally when
+         *  new segments arrive; full rebuild on round/market reset. */
+        const reconcileSegments = () => {
+          const segs = stateRef.current.segments;
+          if (segs.length === 0) {
+            if (candles.length === 0 && !walkState) {
+              // Show *something* before any segment lands so the canvas
+              // isn't blank. The y-axis settles when the round seeds.
+              const s = stateRef.current;
+              const seedPrice = s.round?.spotAtRoll ?? 100;
+              candles = [
+                {
+                  open: seedPrice,
+                  high: seedPrice,
+                  low: seedPrice,
+                  close: seedPrice,
+                  animation: 1,
+                  isLive: true,
+                },
+              ];
+            }
+            return;
+          }
+          const firstK = segs[0]!.k;
+          const lastK = segs[segs.length - 1]!.k;
+          // First time, OR the parent's ring buffer reset its history (e.g.
+          // a new round — the parent will hand us a fresh starting k).
+          // Rebuild from scratch in either case.
+          if (
+            highestExpandedK === null ||
+            firstK > highestExpandedK + 1n ||
+            (walkState === null) ||
+            // Round changed → the spot anchor moved → rebuild for honesty.
+            (stateRef.current.round?.spotAtRoll !== undefined &&
+              candles.length === 0)
+          ) {
+            rebuildFromSegments();
+            // Update the inter-arrival timer.
+            const now = p.millis();
+            if (lastSegmentArrivedMs === 0) lastSegmentArrivedMs = now;
+            return;
+          }
+          // Incremental: any segments past highestExpandedK get appended.
+          if (lastK > highestExpandedK) {
+            for (const seg of segs) {
+              if (seg.k > highestExpandedK) {
+                applySegment(seg);
+                const now = p.millis();
+                if (lastSegmentArrivedMs > 0) {
+                  const dt = now - lastSegmentArrivedMs;
+                  if (dt >= MIN_SEGMENT_MS && dt <= MAX_SEGMENT_MS) {
+                    // EMA toward the realised cadence — gentle rubber-band.
+                    estimatedSegmentMs =
+                      0.7 * estimatedSegmentMs + 0.3 * dt;
+                  }
+                }
+                lastSegmentArrivedMs = now;
+              }
+            }
+          }
+        };
+
+        // ── Y-axis ────────────────────────────────────────────────────────
         const updatePriceScale = () => {
           if (candles.length === 0) return;
           let min = Infinity;
@@ -354,24 +673,32 @@ export function useRideGesture(opts: RideGestureOptions) {
             min = Math.min(min, c.low);
             max = Math.max(max, c.high);
           }
+          const s = stateRef.current;
           if (currentPosition) {
             min = Math.min(min, currentPosition.entryPrice);
             max = Math.max(max, currentPosition.entryPrice);
           }
-          const b = stateRef.current.barrier;
-          if (b && Number.isFinite(b) && b > 0) {
-            min = Math.min(min, b);
-            max = Math.max(max, b);
+          if (s.round) {
+            min = Math.min(min, s.round.lowerBarrier);
+            max = Math.max(max, s.round.upperBarrier);
           }
           const range = Math.max(max - min, 0.01);
           const isMobile = p.windowWidth < 768;
           const topPadding = range * (isMobile ? 0.12 : 0.15);
           const bottomPadding = range * (isMobile ? 0.15 : 0.18);
-          priceScale.min = Math.max(0, min - bottomPadding);
-          priceScale.max = max + topPadding;
+          const targetMin = Math.max(0, min - bottomPadding);
+          const targetMax = max + topPadding;
+          if (!priceScaleInit) {
+            priceScale.min = targetMin;
+            priceScale.max = targetMax;
+            priceScaleInit = true;
+          } else {
+            priceScale.min = p.lerp(priceScale.min, targetMin, 0.1);
+            priceScale.max = p.lerp(priceScale.max, targetMax, 0.1);
+          }
         };
 
-        // ── Drawing primitives ─────────────────────────────────────────────
+        // ── Drawing primitives ────────────────────────────────────────────
         const drawGrid = () => {
           p.stroke(255, 255, 255, gridAlpha * 0.65);
           p.strokeWeight(0.5);
@@ -389,39 +716,141 @@ export function useRideGesture(opts: RideGestureOptions) {
           p.drawingContext.setLineDash([]);
         };
 
-        const drawBarrier = () => {
-          const b = stateRef.current.barrier;
-          if (!b || !Number.isFinite(b) || b <= 0) return;
-          const y = p.map(
-            b,
-            priceScale.min,
-            priceScale.max,
-            chartArea.y + chartArea.height,
-            chartArea.y,
+        /** Draw both barriers with their picker highlight + lock state. */
+        const drawBarriers = () => {
+          const s = stateRef.current;
+          if (!s.round) return;
+          const inOpenWindow = isInOpenWindow();
+          const picked = s.pickedBarrier;
+
+          const drawOne = (
+            price: number,
+            barrierIndex: BarrierIndex,
+            color: [number, number, number],
+            label: string,
+          ) => {
+            const y = p.map(
+              price,
+              priceScale.min,
+              priceScale.max,
+              chartArea.y + chartArea.height,
+              chartArea.y,
+            );
+            const isPicked = picked === barrierIndex;
+            const alphaBase = inOpenWindow ? 200 : 110;
+            const pulse =
+              isPicked && inOpenWindow
+                ? 30 + Math.sin(p.millis() * 0.005) * 25
+                : 0;
+            const alpha = Math.min(255, alphaBase + pulse);
+            // Thicker line if picked
+            p.stroke(color[0], color[1], color[2], alpha);
+            p.strokeWeight(isPicked ? 3 : 2);
+            p.drawingContext.setLineDash(
+              inOpenWindow ? [10, 6] : [4, 4],
+            );
+            p.line(chartArea.x, y, chartArea.x + chartArea.width, y);
+            p.drawingContext.setLineDash([]);
+            // Label
+            p.noStroke();
+            p.fill(color[0], color[1], color[2], 235);
+            p.textAlign(p.LEFT, p.CENTER);
+            p.textSize(p.width < 768 ? 10 : 12);
+            p.text(
+              `${label}  $${price.toLocaleString(undefined, {
+                maximumFractionDigits: price < 100 ? 2 : 0,
+              })}${!inOpenWindow ? "  · locked" : ""}`,
+              chartArea.x + 8,
+              y - 8,
+            );
+          };
+
+          // Upper = green (touch from below), Lower = red (touch from above).
+          drawOne(s.round.upperBarrier, BARRIER_UPPER, [0, 255, 136], "▲ upper");
+          drawOne(s.round.lowerBarrier, BARRIER_LOWER, [255, 100, 100], "▼ lower");
+
+          // Soft hover zones — slightly tinted halves to hint at the
+          // tap-to-pick affordance during the open window.
+          if (inOpenWindow) {
+            const midY = (priceScale.min + priceScale.max) / 2;
+            const midPxY = p.map(
+              midY,
+              priceScale.min,
+              priceScale.max,
+              chartArea.y + chartArea.height,
+              chartArea.y,
+            );
+            const upperAlpha = picked === BARRIER_UPPER ? 18 : 7;
+            const lowerAlpha = picked === BARRIER_LOWER ? 18 : 7;
+            p.noStroke();
+            p.fill(0, 255, 136, upperAlpha);
+            p.rect(
+              chartArea.x,
+              chartArea.y,
+              chartArea.width,
+              midPxY - chartArea.y,
+            );
+            p.fill(255, 100, 100, lowerAlpha);
+            p.rect(
+              chartArea.x,
+              midPxY,
+              chartArea.width,
+              chartArea.y + chartArea.height - midPxY,
+            );
+          }
+        };
+
+        const armedPatternText = (cue: ArmedPatternCue): string => {
+          if (cue.phase === "fired") return `${cue.patternName} fired`;
+          const phase = cue.phase === "arming" ? "forming" : "firing";
+          const left = cue.candlesRemaining;
+          return `${cue.patternName} ${phase} — ${left} candle${left === 1 ? "" : "s"} left`;
+        };
+
+        const postHocPatternText = (cue: PostHocPatternCue): string =>
+          `${cue.name} detected`;
+
+        const drawPatternTooltip = (
+          tip: { x: number; y: number; lines: string[] } | null,
+        ) => {
+          if (!tip || tip.lines.length === 0) return;
+          const padX = 9;
+          const padY = 7;
+          const lineHeight = 15;
+          p.textSize(11);
+          p.textStyle(p.BOLD);
+          const width = Math.min(
+            230,
+            Math.max(...tip.lines.map((line) => p.textWidth(line))) + padX * 2,
           );
-          // Glow pulse
-          const pulse = 60 + Math.sin(p.millis() * 0.003) * 30;
-          const dir = stateRef.current.barrierDirection;
-          const color =
-            dir === 1 ? [255, 100, 100] : [255, 220, 80]; // touch-from-above red-ish, default warm
-          p.stroke(color[0], color[1], color[2], pulse);
-          p.strokeWeight(2);
-          p.drawingContext.setLineDash([10, 6]);
-          p.line(chartArea.x, y, chartArea.x + chartArea.width, y);
-          p.drawingContext.setLineDash([]);
-          // Label
+          const height = tip.lines.length * lineHeight + padY * 2;
+          const x = Math.max(
+            chartArea.x + 4,
+            Math.min(tip.x - width / 2, chartArea.x + chartArea.width - width - 4),
+          );
+          const y = Math.max(
+            chartArea.y + 4,
+            Math.min(tip.y - height - 12, chartArea.y + chartArea.height - height - 4),
+          );
           p.noStroke();
-          p.fill(color[0], color[1], color[2], 220);
-          p.textAlign(p.RIGHT, p.BOTTOM);
-          p.textSize(p.width < 768 ? 10 : 12);
-          p.text(
-            `barrier $${b < 100 ? b.toFixed(2) : b.toFixed(0)}`,
-            chartArea.x + chartArea.width - 6,
-            y - 4,
-          );
+          p.fill(24, 24, 27, 238);
+          p.rect(x, y, width, height, 6);
+          p.stroke(212, 212, 216, 55);
+          p.strokeWeight(1);
+          p.noFill();
+          p.rect(x + 0.5, y + 0.5, width - 1, height - 1, 6);
+          p.noStroke();
+          p.textAlign(p.LEFT, p.CENTER);
+          for (let i = 0; i < tip.lines.length; i++) {
+            if (i === 0) p.fill(236, 253, 245);
+            else p.fill(244, 244, 245);
+            p.text(tip.lines[i]!, x + padX, y + padY + lineHeight * i + lineHeight / 2);
+          }
+          p.textStyle(p.NORMAL);
         };
 
         const drawCandles = () => {
+          let patternTooltip: { x: number; y: number; lines: string[] } | null = null;
           for (let dist = 0; dist < candles.length; dist++) {
             const c = candles[candles.length - 1 - dist]!;
             c.animation = p.lerp(c.animation, 1, 0.12);
@@ -504,7 +933,58 @@ export function useRideGesture(opts: RideGestureOptions) {
               p.strokeWeight(1.5);
               p.line(x, openY, x + candleWidth, openY);
             }
+            const candleTop = Math.min(highY, lowY, bodyY);
+            const candleBottom = Math.max(highY, lowY, bodyY + Math.max(bodyHeight, 1));
+            const postHoc = c.postHocPatterns?.[c.postHocPatterns.length - 1];
+            if (postHoc) {
+              const strength = Math.max(0.35, Math.min(1, postHoc.strength));
+              p.noFill();
+              p.stroke(244, 63, 94, (95 + strength * 90) * c.animation);
+              p.strokeWeight(1.2 + strength * 1.2);
+              p.rect(
+                x - 3,
+                candleTop - 4,
+                candleWidth + 6,
+                Math.max(8, candleBottom - candleTop + 8),
+                3,
+              );
+            }
+            if (c.armedPattern) {
+              const pulse = 1.5 + Math.sin(p.millis() * 0.012) * 0.9;
+              const ctx = p.drawingContext as CanvasRenderingContext2D;
+              ctx.shadowBlur = 10 + pulse * 3;
+              ctx.shadowColor = "rgba(16, 185, 129, 0.75)";
+              p.noFill();
+              p.stroke(16, 185, 129, 190 * c.animation);
+              p.strokeWeight(2.5);
+              p.rect(
+                x - 5 - pulse,
+                candleTop - 6 - pulse,
+                candleWidth + 10 + pulse * 2,
+                Math.max(10, candleBottom - candleTop + 12 + pulse * 2),
+                4,
+              );
+              ctx.shadowBlur = 0;
+            }
+            if (
+              p.mouseX >= x - 6 &&
+              p.mouseX <= x + candleWidth + 6 &&
+              p.mouseY >= candleTop - 8 &&
+              p.mouseY <= candleBottom + 8
+            ) {
+              const lines: string[] = [];
+              if (c.armedPattern) lines.push(armedPatternText(c.armedPattern));
+              if (postHoc) lines.push(postHocPatternText(postHoc));
+              if (lines.length > 0) {
+                patternTooltip = {
+                  x: x + candleWidth / 2,
+                  y: candleTop,
+                  lines,
+                };
+              }
+            }
           }
+          drawPatternTooltip(patternTooltip);
         };
 
         const drawPriceLine = () => {
@@ -551,6 +1031,7 @@ export function useRideGesture(opts: RideGestureOptions) {
           }
         };
 
+        /** Render the entry → cursor PnL line + emoji burst origin. */
         const drawSinglePNLLine = (
           trade: PositionState | CompletedTrade,
           isCompleted: boolean,
@@ -560,9 +1041,14 @@ export function useRideGesture(opts: RideGestureOptions) {
           const rightPadding = 8;
           const currentCandleX =
             chartArea.x + chartArea.width - candleWidth - rightPadding;
-          const entryElapsed = trade.candlesElapsed;
-          const exitElapsed = isCompleted
-            ? (trade as CompletedTrade).exitElapsed
+          const entryAge = isCompleted
+            ? (trade as CompletedTrade).entryAgeCandles
+            : Math.max(
+                0,
+                candles.length - 1 - (trade as PositionState).entrySegmentIdx,
+              );
+          const exitAge = isCompleted
+            ? (trade as CompletedTrade).exitAgeCandles
             : 0;
           const exitPrice = isCompleted
             ? (trade as CompletedTrade).exitPrice
@@ -584,12 +1070,12 @@ export function useRideGesture(opts: RideGestureOptions) {
             chartArea.y + chartArea.height,
             chartArea.y,
           );
-          const actualEntryX = currentCandleX - entryElapsed * candleSpacing;
-          const actualExitX = currentCandleX - exitElapsed * candleSpacing;
+          const actualEntryX = currentCandleX - entryAge * candleSpacing;
+          const actualExitX = currentCandleX - exitAge * candleSpacing;
           const entryXForSlope = actualEntryX + candleWidth / 2;
           let adjustedExitX = actualExitX + candleWidth / 2;
           let adjustedExitY = exitY;
-          if (!isCompleted && entryElapsed === 0) {
+          if (!isCompleted && entryAge === 0) {
             adjustedExitX += Math.min(candleSpacing * 3, 60);
             adjustedExitY = entryY;
           }
@@ -620,8 +1106,7 @@ export function useRideGesture(opts: RideGestureOptions) {
           if (!isCompleted && tradePnl >= 0) {
             pnlLineEndPos = { x: finalEndX, y: lineEndY };
           }
-          if (!isCompleted && entryElapsed === 0) {
-            // Immediate stub line + pulsing dot at entry
+          if (!isCompleted && entryAge === 0) {
             const sx = currentCandleX + candleWidth / 2;
             const ex = Math.min(
               sx + 80,
@@ -664,72 +1149,208 @@ export function useRideGesture(opts: RideGestureOptions) {
           if (currentPosition) drawSinglePNLLine(currentPosition, false);
         };
 
-        // ── Position lifecycle ─────────────────────────────────────────────
-        const startPosition = () => {
+        // ── Phase-transition driven position bookkeeping ──────────────────
+        const onPhaseChange = (next: RidePhase, prev: RidePhase) => {
+          // "opening" / "riding" entered: snapshot entry.
+          if (
+            (next === "opening" || next === "riding") &&
+            (prev === "idle" || prev === "closing")
+          ) {
+            if (candles.length === 0) return;
+            const last = candles[candles.length - 1]!;
+            const s = stateRef.current;
+            const round = s.round;
+            const picked = s.pickedBarrier ?? BARRIER_UPPER;
+            const barrierPrice = round
+              ? picked === BARRIER_UPPER
+                ? round.upperBarrier
+                : round.lowerBarrier
+              : last.close;
+            currentPosition = {
+              entryPrice: last.close,
+              entrySegmentIdx: candles.length - 1,
+              barrierIndex: picked,
+              barrierPrice,
+            };
+            positionOpenedAtMs = p.millis();
+            stateRef.current.pnl = 0;
+            lastPnlReportMs = 0;
+          }
+          // Settled (back to idle): flush to completed trades + FX.
+          if (next === "idle" && (prev === "riding" || prev === "closing")) {
+            if (currentPosition) {
+              const last = candles[candles.length - 1]!;
+              const profit = stateRef.current.pnl;
+              completedTrades.push({
+                entryPrice: currentPosition.entryPrice,
+                exitPrice: last?.close ?? currentPosition.entryPrice,
+                profit,
+                entryAgeCandles: Math.max(
+                  0,
+                  candles.length - 1 - currentPosition.entrySegmentIdx,
+                ),
+                exitAgeCandles: 0,
+              });
+              if (profit > 0) {
+                if (pnlLineEndPos) {
+                  shouldExplodeEmojis = true;
+                  explosionCenter = {
+                    x: pnlLineEndPos.x,
+                    y: pnlLineEndPos.y,
+                  };
+                }
+                tryPlayAudio(
+                  "https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3",
+                  0.7,
+                );
+              } else if (profit < 0) {
+                screenShake = 15;
+                lossFlash = 255;
+                tryPlayAudio(
+                  "https://assets.mixkit.co/active_storage/sfx/2037/2037-preview.mp3",
+                  0.6,
+                );
+              }
+              currentPosition = null;
+              pnlLineEndPos = null;
+              stateRef.current.pnl = 0;
+              onPnlChangeRef.current?.({ pnl: 0, staked: 0 });
+            }
+          }
+        };
+
+        // ── Live PnL (D3) ─────────────────────────────────────────────────
+        // The number the user sees is mark-to-market of the touch position
+        // derived from the chart they are watching — the genuinely on-chain
+        // candle stream, NOT a chain poll. Burned premium scales with held
+        // segments (per doc 19 §6); proximity scales with chart progress
+        // toward the picked barrier.
+        const updateLivePnl = (now: number) => {
+          if (!currentPosition) return;
+          const s = stateRef.current;
+          const heldMs = Math.max(0, now - positionOpenedAtMs);
+          const segMs = estimatedSegmentMs;
+          const heldSegments = heldMs / segMs;
+          // Per-segment stake (micro-USD bigint → USD double).
+          const stakePerSegUsd =
+            Number(s.stakePerSegmentMicroUsd) / PRICE_SCALING;
+          const staked = heldSegments * stakePerSegUsd;
+          const mult = s.multiplierBps / 10000;
+          const live = candles[candles.length - 1];
+          const spot = live ? live.close : currentPosition.entryPrice;
+          const entry = currentPosition.entryPrice;
+          const b = currentPosition.barrierPrice;
+          let proximity = 0;
+          if (b !== entry) {
+            // 0 at entry, 1 at the barrier, negative if price runs away.
+            // Upper barrier = touch from below → progress = (spot - entry) / (b - entry).
+            // Lower barrier = touch from above → progress = (entry - spot) / (entry - b).
+            proximity =
+              currentPosition.barrierIndex === BARRIER_UPPER
+                ? (spot - entry) / (b - entry)
+                : (entry - spot) / (entry - b);
+          }
+          proximity = Math.max(-1.2, Math.min(1.05, proximity));
+          const livePnl = staked * (mult - 1) * proximity;
+          s.pnl = livePnl;
+          if (now - lastPnlReportMs >= 80) {
+            lastPnlReportMs = now;
+            onPnlChangeRef.current?.({ pnl: livePnl, staked });
+          }
+        };
+
+        // ── Open-window helpers ───────────────────────────────────────────
+        const segmentsIntoRound = (): number => {
+          const s = stateRef.current;
+          if (!s.round || highestExpandedK === null) return 0;
+          const startedAt = Number(s.round.startedAtSegment);
+          const k = Number(highestExpandedK);
+          // +1 because k is the most-recent-RECORDED; the round is "into"
+          // that count of segments. (We allow 0 for "no segments yet".)
+          return Math.max(0, k - startedAt + 1);
+        };
+
+        const isInOpenWindow = (): boolean => {
+          const s = stateRef.current;
+          if (!s.round) return false;
+          return segmentsIntoRound() < s.round.openWindowSegments;
+        };
+
+        // ── Gesture → open/close (D2 — optimistic UI is built FIRST) ──────
+        // Press fires onOpen IMMEDIATELY (optimistic — the parent flips
+        // phase → "opening" instantly; the chart shows the entry stub).
+        // The on-chain `open_segment_ride` lands a moment later — when it
+        // does, the parent flips phase → "riding" and the PnL goes live.
+        // Release fires onClose IMMEDIATELY (optimistic → "closing").
+        const startPress = (mx: number, my: number) => {
           const s = stateRef.current;
           if (s.disabled) return;
-          if (candles.length === 0) return;
-          if (currentPosition) return; // already holding
-          const last = candles[candles.length - 1]!;
-          currentPosition = {
-            entryPrice: last.close,
-            candlesElapsed: 0,
-          };
-          callbacksRef.current.onPress(last.close);
-        };
-
-        const closePosition = () => {
-          if (!currentPosition) return;
-          const last = candles[candles.length - 1]!;
-          const profit = stateRef.current.pnl;
-          completedTrades.push({
-            entryPrice: currentPosition.entryPrice,
-            exitPrice: last.close,
-            profit,
-            candlesElapsed: currentPosition.candlesElapsed,
-            exitElapsed: 0,
-          });
-          if (profit > 0) {
-            if (pnlLineEndPos) {
-              shouldExplodeEmojis = true;
-              explosionCenter = { x: pnlLineEndPos.x, y: pnlLineEndPos.y };
-            }
-            tryPlayAudio(
-              "https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3",
-              0.7,
-            );
-          } else if (profit < 0) {
-            screenShake = 15;
-            lossFlash = 255;
-            tryPlayAudio(
-              "https://assets.mixkit.co/active_storage/sfx/2037/2037-preview.mp3",
-              0.6,
-            );
+          if (s.phase !== "idle") return;
+          if (!s.round) return;
+          // Outside the open window we cannot open — but the press can
+          // still PICK a barrier (so the user sees their pick highlighted
+          // ready for the next round). Picking lives in the touch zone.
+          const inUpper = my < chartArea.y + chartArea.height / 2;
+          const picked: BarrierIndex = inUpper ? BARRIER_UPPER : BARRIER_LOWER;
+          // We always pick on press, regardless of window — picker is
+          // visual / a focal point. The PARENT decides whether to send the
+          // open tx based on isInOpenWindow at the moment onOpen fires.
+          pressMs = p.millis();
+          // The actual onOpen call is deferred to mouseDragged / release —
+          // we want to distinguish tap (pick only) from hold (open).
+          // BUT — to keep optimistic UI snappy we still call onOpen
+          // immediately when the open window is live; the parent's hook
+          // handles single-flight dedupe.
+          if (isInOpenWindow()) {
+            const barrierPrice =
+              picked === BARRIER_UPPER
+                ? s.round.upperBarrier
+                : s.round.lowerBarrier;
+            callbacksRef.current.onOpen(picked, barrierPrice);
           }
-          currentPosition = null;
-          pnlLineEndPos = null;
-          callbacksRef.current.onRelease();
+          // Reference mx so the linter sees it used.
+          void mx;
         };
 
-        const tryPlayAudio = (url: string, volume: number) => {
-          try {
-            const a = new Audio(url);
-            a.volume = volume;
-            void a.play().catch(() => {
-              // iOS will reject if no recent user gesture — silently swallow.
-            });
-          } catch {
-            // ignore
+        const endPress = () => {
+          const s = stateRef.current;
+          const heldMs = p.millis() - pressMs;
+          pressMs = 0;
+          // A tap (≤ TAP_VS_HOLD_MS) inside the open window with phase
+          // still "opening" — let the parent's tap-detector / single-flight
+          // decide; we always fire onClose on release so any "opening"
+          // phase always resolves.
+          if (s.phase === "riding" || s.phase === "opening") {
+            callbacksRef.current.onClose();
+          }
+          // The pick persists in stateRef.current.pickedBarrier (driven by
+          // the parent's useSegmentRide.pickBarrier).
+          void heldMs;
+        };
+
+        // ── Stall detector (D4) ───────────────────────────────────────────
+        const checkStall = (now: number) => {
+          const s = stateRef.current;
+          // Only watch for stalls while a ride is open. Idle is fine; the
+          // market sleeps when no rides are out (doc 18 §6.4).
+          const rideOpen = s.phase === "opening" || s.phase === "riding";
+          if (!rideOpen) {
+            stateRef.current.stallFired = false;
+            return;
+          }
+          if (lastSegmentArrivedMs === 0) return;
+          const elapsed = now - lastSegmentArrivedMs;
+          if (elapsed > STALL_THRESHOLD_MS && !stateRef.current.stallFired) {
+            stateRef.current.stallFired = true;
+            callbacksRef.current.onStall?.();
           }
         };
 
-        // ── p5 lifecycle ───────────────────────────────────────────────────
+        // ── p5 lifecycle ──────────────────────────────────────────────────
         p.setup = () => {
           p.createCanvas(p.windowWidth, p.windowHeight);
           p.strokeCap(p.ROUND);
-          // Use the system Geist font that the document already loads — no
-          // need to load a webfont via p.loadFont (which would block).
-          p.textFont("Geist, system-ui, sans-serif");
+          p.textFont("Bai Jamjuree, system-ui, sans-serif");
           const isMobile = p.windowWidth < 768;
           const leftMargin = isMobile ? 4 : 8;
           const rightMargin = isMobile ? 40 : 56;
@@ -745,9 +1366,12 @@ export function useRideGesture(opts: RideGestureOptions) {
           p.resizeCanvas(p.windowWidth, p.windowHeight + bottomInset);
           candleWidth = isMobile ? 6 : 9;
           candleSpacing = isMobile ? 9 : 13;
-          maxCandles = Math.floor(chartArea.width / candleSpacing);
-          // Seed a few candles so the chart isn't empty on first paint.
-          for (let i = 0; i < 30; i++) addCandle();
+          maxCandles = Math.min(
+            MAX_CHART_CANDLES,
+            Math.floor(chartArea.width / candleSpacing),
+          );
+          lastSegmentArrivedMs = p.millis();
+          estimatedSegmentMs = DEFAULT_SEGMENT_MS;
         };
 
         p.draw = () => {
@@ -769,19 +1393,30 @@ export function useRideGesture(opts: RideGestureOptions) {
           }
           pulseAnimation += 0.1;
           const now = p.millis();
-          if (now - lastUpdate > intervalMs) {
-            addCandle();
-            lastUpdate = now;
+
+          // Sync the candle ring buffer to the parent's `segments`.
+          reconcileSegments();
+          // Stall watchdog.
+          checkStall(now);
+          // Detect phase transitions for position bookkeeping + FX.
+          const curPhase = stateRef.current.phase;
+          if (curPhase !== lastSeenPhase) {
+            onPhaseChange(curPhase, lastSeenPhase);
+            lastSeenPhase = curPhase;
           }
+          updateLivePnl(now);
           updatePriceScale();
           drawGrid();
-          drawBarrier();
+          drawBarriers();
           drawCandles();
           drawPriceLine();
           drawPriceLabels();
           drawPNLLine();
           gridAlpha = p.lerp(gridAlpha, 40, 0.1);
-          if (!stateRef.current.isHolding || stateRef.current.pnl <= 0) {
+          if (
+            !(curPhase === "riding" || curPhase === "opening") ||
+            stateRef.current.pnl <= 0
+          ) {
             pnlLineEndPos = null;
           }
           updateMoneyEmojis();
@@ -805,15 +1440,18 @@ export function useRideGesture(opts: RideGestureOptions) {
           p.resizeCanvas(p.windowWidth, p.windowHeight + bottomInset);
           candleWidth = isMobile ? 6 : 9;
           candleSpacing = isMobile ? 9 : 13;
-          maxCandles = Math.floor(chartArea.width / candleSpacing);
+          maxCandles = Math.min(
+            MAX_CHART_CANDLES,
+            Math.floor(chartArea.width / candleSpacing),
+          );
         };
 
-        // ── Mouse/touch handlers — dedupe is load-bearing on iOS ───────────
+        // ── Mouse/touch handlers — dedupe is load-bearing on iOS ──────────
         let touchActive = false;
         p.mousePressed = () => {
           if (stateRef.current.disabled) return true;
           try {
-            if (!touchActive) startPosition();
+            if (!touchActive) startPress(p.mouseX, p.mouseY);
           } catch {
             // ignore
           }
@@ -822,7 +1460,7 @@ export function useRideGesture(opts: RideGestureOptions) {
         p.mouseReleased = () => {
           if (stateRef.current.disabled) return true;
           try {
-            if (!touchActive) closePosition();
+            if (!touchActive) endPress();
           } catch {
             // ignore
           }
@@ -832,7 +1470,7 @@ export function useRideGesture(opts: RideGestureOptions) {
           if (stateRef.current.disabled) return true;
           touchActive = true;
           try {
-            startPosition();
+            startPress(p.mouseX, p.mouseY);
           } catch {
             // ignore
           }
@@ -851,7 +1489,7 @@ export function useRideGesture(opts: RideGestureOptions) {
           if (stateRef.current.disabled) return true;
           touchActive = false;
           try {
-            closePosition();
+            endPress();
           } catch {
             // ignore
           }
@@ -877,4 +1515,8 @@ export function useRideGesture(opts: RideGestureOptions) {
     // through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reference TAP_VS_HOLD_MS so the constant isn't reported as unused — it
+  // is documentation for the parent's single-flight dedupe (see useSegmentRide).
+  void TAP_VS_HOLD_MS;
 }

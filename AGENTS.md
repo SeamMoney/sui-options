@@ -145,4 +145,4 @@ It checks branch, worktree, `sui move test`, frontend `tsc --noEmit`, keeper `ts
 - Per-feature v2 design specs: `docs/design/v2/` (00–11). The ride primitive lives in `11_ride_streaming_primitive.md`.
 - Day-by-day milestones: `docs/hackathon-plan.md`
 - Granular agent-sized tasks: `TASKS.md`
-- Currently deferred (acceptable for demo, do not regress): keeper TS update for new ABI, FeeSnapshot extension for DNT impact fee wiring (DNT winners pay base fee for MVP), PWE for DNT (= 0; per-position caps still bind), frontend tap-hold ride gesture.
+- Originally-deferred MVP shortcuts are now all addressed in code (2026-05-23): keeper TS wired to segment_market ABI via SegmentCranker (commit 27c6f1a + config fallback); FeeSnapshot's DNT impact-fee path verified end-to-end (`decisiveness_bps_for_side` dispatches on `is_dnt`, 15/15 DNT tests pass); DNT PWE replaces the placeholder `0` with the union-bound Bachelier model `compute_pwe_dnt` (commit 2d2050c — code in, needs the next Move upgrade to take effect on testnet); frontend tap-hold ride gesture shipped in commit 79e85c1.

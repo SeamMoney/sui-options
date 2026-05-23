@@ -44,6 +44,7 @@ import { isSuiWallet } from "@dynamic-labs/sui";
 import { registerWallet } from "@wallet-standard/wallet";
 import { Transaction } from "@mysten/sui/transactions";
 import { SUI_TESTNET_CHAIN } from "@mysten/wallet-standard";
+import { HAS_DYNAMIC_ENV_ID } from "@/providers/DynamicProvider";
 import type {
   StandardConnectFeature,
   StandardDisconnectFeature,
@@ -88,7 +89,21 @@ const EMPTY_EVENTS_FEATURE: StandardEventsFeature = {
   },
 };
 
+/**
+ * Outer wrapper: gates env-id BEFORE calling any Dynamic hook. When the env
+ * id is missing, `DynamicProvider` short-circuits and renders children
+ * without mounting the real `<DynamicContextProvider>` — calling
+ * `useDynamicContext()` here unconditionally would crash with
+ * "Hook must be used within <DynamicContextProvider>". Hooks can't be
+ * conditional, so the inner component (which calls the hook) only mounts
+ * when the provider is real.
+ */
 export function DynamicWalletStandardBridge() {
+  if (!HAS_DYNAMIC_ENV_ID) return null;
+  return <DynamicWalletStandardBridgeInner />;
+}
+
+function DynamicWalletStandardBridgeInner() {
   const { primaryWallet } = useDynamicContext();
   const registeredAddrRef = useRef<string | null>(null);
 

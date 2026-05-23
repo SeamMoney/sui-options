@@ -1,0 +1,42 @@
+[
+  {
+    "id": "varis-zones",
+    "name": "VARIS Zones",
+    "sourceUrl": "https://in.tradingview.com/script/a2dCFt1c-VARIS-Zones/",
+    "referenceDir": "reference/tradingview-varis-notrunc",
+    "localPath": "/widgets/candlestick-chart",
+    "status": "implemented-needs-rework"
+  },
+  {
+    "id": "pine3d",
+    "name": "Pine3D: A Native 3D Graphical Rendering Engine",
+    "sourceUrl": "https://www.tradingview.com/script/I2K4hIdP-Pine3D-A-Native-3D-Graphical-Rendering-Engine/",
+    "referenceDir": "reference/tradingview-pine3d",
+    "localPath": "/widgets/pine3d",
+    "status": "implemented-needs-reference-alignment"
+  },
+  {
+    "id": "clusters-volume-profile",
+    "name": "Clusters Volume Profile LuxAlgo",
+    "sourceUrl": "https://in.tradingview.com/script/lpnsjMbH-Clusters-Volume-Profile-LuxAlgo/",
+    "referenceDir": "reference/tradingview-clusters-volume-profile-luxalgo",
+    "localPath": "/widgets/clusters-volume-profile",
+    "status": "implemented-preview-tuned"
+  },
+  {
+    "id": "probability-grid",
+    "name": "Probability Grid LuxAlgo",
+    "sourceUrl": "https://in.tradingview.com/script/9royDOd6-Probability-Grid-LuxAlgo/",
+    "referenceDir": "reference/tradingview-probability-grid-luxalgo",
+    "localPath": "/widgets/probability-grid",
+    "status": "implemented-preview-tuned"
+  },
+  {
+    "id": "wick-pressure-zones",
+    "name": "Wick Pressure Zones BigBeluga",
+    "sourceUrl": "https://in.tradingview.com/script/4haSPpAE-Wick-Pressure-Zones-BigBeluga/",
+    "referenceDir": "reference/tradingview-wick-pressure-zones-bigbeluga",
+    "localPath": "/widgets/wick-pressure-zones",
+    "status": "implemented-needs-tuning"
+  }
+]

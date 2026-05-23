@@ -57,3 +57,5 @@ deployments/archive/
 
 # Sibling scaffolding experiments (kept locally, never committed)
 frontend/robinhood-legend/
+.secrets/
+.vercel

@@ -415,19 +415,29 @@ public fun open<C>(
 
     let payout = mul_bps(stake_amount, market.payout_multiplier_bps);
 
-    // Compute PWE for this position. DNT PWE math is deferred (separate
-    // task); for now DNT positions are tracked at zero probability-weighted
-    // exposure. Single-barrier paths use the existing Bachelier model.
+    // Compute PWE for this position. DNT uses the union-bound Bachelier
+    // approximation in rc::compute_pwe_dnt (P_outside ≈ P_touch_upper +
+    // P_touch_lower clipped at 1; P_inside = 1 - P_outside). Single-barrier
+    // paths use the existing Bachelier first-passage model.
+    let seconds_remaining = if (market.expiry_ms > now) (market.expiry_ms - now) / 1_000 else 1;
+    let safe_seconds = if (seconds_remaining == 0) 1 else seconds_remaining;
     let position_pwe: u128 = if (is_dnt) {
-        0
+        rc::compute_pwe_dnt(
+            payout,
+            spot,
+            path_observation::upper_barrier(path),
+            path_observation::lower_barrier(path),
+            market.sigma_bps_per_sqrt_sec,
+            safe_seconds,
+            side == SIDE_DNT_INSIDE,
+        )
     } else {
-        let seconds_remaining = if (market.expiry_ms > now) (market.expiry_ms - now) / 1_000 else 1;
         rc::compute_pwe(
             payout,
             spot,
             path_observation::barrier(path),
             market.sigma_bps_per_sqrt_sec,
-            if (seconds_remaining == 0) 1 else seconds_remaining,
+            safe_seconds,
         )
     };
 

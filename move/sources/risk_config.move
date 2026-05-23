@@ -367,6 +367,61 @@ public fun compute_pwe(
     (payout as u128) * (p as u128) / (probability::prob_scale() as u128)
 }
 
+/// DNT PWE — probability-weighted exposure for a double-no-touch position.
+///
+/// Per the per-(underlying, side) global cap, DNT INSIDE positions win if
+/// the corridor [lower, upper] holds for the rest of the window; OUTSIDE
+/// positions win if EITHER barrier is touched.
+///
+/// We approximate using the union bound:
+///
+///     P_outside ≈ P_touch(spot, upper) + P_touch(spot, lower)     (clipped at 1)
+///     P_inside  = 1 - P_outside
+///
+/// The union bound OVERESTIMATES P_outside (double-counts the joint event
+/// "both touched"). Underestimating P_inside is the CONSERVATIVE direction
+/// for the registry cap — it lets a touch fraction more INSIDE exposure
+/// slip past the cap than ideal, but never the other way (which would
+/// inflate OUTSIDE exposure and let the vault overcommit). For typical
+/// corridor widths (≥ 1σ each side) the joint-touch probability is small
+/// and the bound is tight.
+///
+/// `is_inside` selects which side's winning probability scales the payout.
+/// Pass `is_inside = true` for SIDE_DNT_INSIDE positions, `false` for
+/// SIDE_DNT_OUTSIDE positions. Both arms reuse the same touch-probability
+/// lookups so the gas cost is symmetric.
+public fun compute_pwe_dnt(
+    payout: u64,
+    spot: u64,
+    upper_barrier: u64,
+    lower_barrier: u64,
+    sigma_bps_per_sqrt_sec: u64,
+    seconds_remaining: u64,
+    is_inside: bool,
+): u128 {
+    let p_up = probability::touch_probability(
+        spot, upper_barrier, sigma_bps_per_sqrt_sec, seconds_remaining,
+    );
+    let p_dn = probability::touch_probability(
+        spot, lower_barrier, sigma_bps_per_sqrt_sec, seconds_remaining,
+    );
+    let scale_u128 = probability::prob_scale() as u128;
+    let max_u128 = probability::prob_max() as u128;
+
+    // Union bound for P(either touched), clipped at PROB_MAX. This is
+    // P_outside.
+    let p_outside_raw = (p_up as u128) + (p_dn as u128);
+    let p_outside = if (p_outside_raw > max_u128) max_u128 else p_outside_raw;
+
+    // P_inside = 1 - P_outside, in the same fixed-point. Guard against
+    // arithmetic underflow if P_outside ever exceeds scale (it shouldn't
+    // because we clipped at max ≤ scale, but defense-in-depth).
+    let p_inside = if (scale_u128 > p_outside) scale_u128 - p_outside else 0;
+
+    let p_winning = if (is_inside) p_inside else p_outside;
+    (payout as u128) * p_winning / scale_u128
+}
+
 // === Test helpers ===
 
 #[test_only]

@@ -173,9 +173,9 @@ fi
 # scripts/simulate_protocol.py against §6 of 14_ride_economics.md.
 # Each row's edge target: vault keeps ≥ +15% per position with vault_side gate.
 SPECS=(
+  "WICK-RNG-1000    WICK_RNG_MEM  1000000000    1008000000   0   3024000  40   17000"   # 35d horizon, touch-above (0.8% room), 1.7x — punchy arcade RIDE market (flagship); vol 40 so a 10-25s hold has a real shot at the barrier. Demo-tuned, weaker vault edge by design.
   "WICK-RNG-25      WICK_RNG      25000000      26000000     0   300     23   25000"   # 5min, touch-above (4% room), 2.5x, edge ~+21%
   "WICK-RNG-100     WICK_RNG_HI   100000000     95000000     1   600     20   20000"   # 10min, touch-below (5% room), 2.0x, edge ~+38%
-  "WICK-RNG-1000    WICK_RNG_MEM  1000000000    1030000000   0   1200    12   18000"   # 20min, touch-above (3% room), 1.8x, edge ~+15%
 )
 
 MARKETS_PY=""

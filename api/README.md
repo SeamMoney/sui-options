@@ -50,3 +50,138 @@ The server is a standard Node app (no native deps). Suitable for any
 Node 22+ host: Fly, Railway, Render, raw VM with systemd. For Vercel,
 adapt with `@vercel/node` runtime. Set `WICK_API_RPC` to a paid RPC
 endpoint in production (the public Sui fullnode rate-limits aggressively).
+
+---
+
+## Faucet — `api/faucet.ts` (Vercel serverless function)
+
+Separate from the Fastify server above. Lives at `api/faucet.ts` at the
+repo root so Vercel auto-detects it as a Node serverless function at
+`/api/faucet` on every preview / production deploy. The Fastify server
+in `api/src/` is excluded from Vercel via `.vercelignore` (it runs
+elsewhere — Fly / Railway / etc.).
+
+### What it does
+
+POSTs from the frontend "Get test SUI" button (see
+`frontend/src/components/wallet/FaucetButton.tsx`) drip a fixed amount
+of testnet SUI from a pre-funded app wallet to the caller's address.
+Exists because the public Sui faucet is heavily IP-rate-limited and
+unreliable during demos.
+
+```
+POST /api/faucet
+Content-Type: application/json
+{ "recipient": "0x<64-hex Sui address>" }
+```
+
+Responses:
+
+| Status | Body                                                       | Meaning                                |
+|--------|------------------------------------------------------------|----------------------------------------|
+| `200`  | `{ digest, amount_mist: "50000000", recipient }`           | Drip successful, tx confirmed onchain  |
+| `400`  | `{ error: "recipient is not a valid Sui address" }`        | Validation failed                      |
+| `405`  | `{ error: "method not allowed; use POST" }`                | Wrong HTTP verb                        |
+| `429`  | `{ error: "rate-limited", retry_after_ms, cooldown_ms }`   | Per-recipient 5-min cooldown hit       |
+| `502`  | `{ error: "transaction did not succeed on-chain", digest }`| Tx submitted but Move-aborted          |
+| `503`  | `{ error: "faucet wallet is drained …", sender }`          | Source wallet below `DRIP + GAS_BUFFER`|
+
+Fixed parameters (edit them in `api/faucet.ts`, not here):
+
+- Drip amount: `50_000_000` MIST = **0.05 SUI** per request
+- Gas buffer: `20_000_000` MIST (must remain in the source wallet)
+- Per-recipient cooldown: **5 minutes** (in-process map; see *Limitations*)
+
+### Required env var
+
+**`WICK_FAUCET_PRIVATE_KEY`** — bech32-encoded Ed25519 secret key for the
+faucet wallet (the kind that starts with `suiprivkey1…`). Never commit
+this anywhere; it lives only in `.env.local` and in Vercel's env store.
+
+> Current faucet wallet address: `0xc9179f15614b95517c7377e721b7a9d0d56eeaea1b9074b27e2c760cdb22c298`
+> (testnet only — do **not** reuse on mainnet).
+
+### Setting the env var locally
+
+`vercel dev` reads `.env.local` from the project root, so put it there:
+
+```bash
+# from the repo root
+echo 'WICK_FAUCET_PRIVATE_KEY=suiprivkey1…' > .env.local
+```
+
+A per-workspace `api/.env.local` is also picked up by `vercel dev` —
+either location works; pick one and document it for your collaborators.
+
+### Setting it on Vercel
+
+Run these from the repo root (after `vercel link` if the project isn't
+linked yet):
+
+```bash
+vercel env add WICK_FAUCET_PRIVATE_KEY production
+vercel env add WICK_FAUCET_PRIVATE_KEY preview
+vercel env add WICK_FAUCET_PRIVATE_KEY development
+```
+
+Each prompts for the value (paste the `suiprivkey1…` string). Vercel
+encrypts it at rest. Trigger a fresh deploy after adding so the new
+env var is baked into the function.
+
+Verify:
+
+```bash
+vercel env ls
+```
+
+### Re-funding when the wallet drains
+
+When `/api/faucet` starts returning `503 faucet wallet is drained`, the
+source wallet ran below `DRIP + GAS_BUFFER` (≈ 0.07 SUI). Top it back
+up by sending testnet SUI directly to the wallet address:
+
+```
+0xc9179f15614b95517c7377e721b7a9d0d56eeaea1b9074b27e2c760cdb22c298
+```
+
+Options:
+
+- `sui client transfer-sui --to 0xc917…2c298 --amount 1000000000 --sui-coin-object-id <gas-coin> --gas-budget 10000000` from any wallet that already has testnet SUI
+- The Sui public faucet — slow but free: `curl -X POST https://faucet.testnet.sui.io/v2/gas -H 'Content-Type: application/json' -d '{ "FixedAmountRequest": { "recipient": "0xc917…2c298" } }'`
+- Drip from another personal testnet wallet via the Sui CLI
+
+Once funded, the next call to `/api/faucet` succeeds without a redeploy
+(the function reads the live balance every invocation).
+
+### Limitations
+
+- **Rate limit is best-effort.** The in-process `Map` keyed by recipient
+  resets when Vercel cold-starts the function or routes traffic to a
+  different region. A determined abuser can drain the wallet by spinning
+  up many origins. For production, front this with Vercel KV / Upstash /
+  Edge Config.
+- **No address allow-list.** Anyone on the internet who knows the URL
+  can drip. Fine for hackathon; revisit for any wider beta.
+- **Public Sui RPC.** Uses `https://fullnode.testnet.sui.io:443`. Under
+  load, swap to a paid RPC by editing `getClient()` in `api/faucet.ts`.
+
+### Local testing
+
+`vercel dev` (from the repo root, with `.env.local` populated):
+
+```bash
+# happy path
+curl -X POST http://localhost:3000/api/faucet \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455"}'
+# → 200 {"digest":"…","amount_mist":"50000000","recipient":"0xfad7…"}
+
+# bad address
+curl -X POST http://localhost:3000/api/faucet \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"not-an-address"}'
+# → 400 {"error":"recipient is not a valid Sui address"}
+
+# repeat within 5 minutes
+# → 429 {"error":"rate-limited","retry_after_ms":…,"cooldown_ms":300000}
+```

@@ -55,7 +55,7 @@ export function ChartPlaceholder({ market }: ChartPlaceholderProps) {
           />
           <XAxis
             dataKey="t"
-            tick={{ fill: "#525252", fontSize: 9, fontFamily: "Geist Mono" }}
+            tick={{ fill: "#525252", fontSize: 9, fontFamily: "Bai Jamjuree" }}
             axisLine={{ stroke: "#1f1f1f" }}
             tickLine={false}
             minTickGap={60}
@@ -63,7 +63,7 @@ export function ChartPlaceholder({ market }: ChartPlaceholderProps) {
           <YAxis
             domain={[min, max]}
             orientation="right"
-            tick={{ fill: "#525252", fontSize: 9, fontFamily: "Geist Mono" }}
+            tick={{ fill: "#525252", fontSize: 9, fontFamily: "Bai Jamjuree" }}
             axisLine={{ stroke: "#1f1f1f" }}
             tickLine={false}
             tickFormatter={(v) => v.toLocaleString()}
@@ -75,7 +75,7 @@ export function ChartPlaceholder({ market }: ChartPlaceholderProps) {
               border: "1px solid #262626",
               borderRadius: 4,
               fontSize: 11,
-              fontFamily: "Geist Mono",
+              fontFamily: "Bai Jamjuree",
               padding: "4px 8px",
             }}
             labelStyle={{ color: "#a1a1aa" }}
@@ -94,7 +94,7 @@ export function ChartPlaceholder({ market }: ChartPlaceholderProps) {
               position: "right",
               fill: "#f59e0b",
               fontSize: 10,
-              fontFamily: "Geist Mono",
+              fontFamily: "Bai Jamjuree",
             }}
           />
           <Area

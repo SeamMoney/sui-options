@@ -1,0 +1,31 @@
+# Vercel-side ignore rules.
+#
+# Without this, Vercel would try to bundle every .ts file under api/ as a
+# separate serverless function. We only want api/faucet.ts. The api/src/
+# tree is the @wick/api Fastify workspace, which is deployed elsewhere
+# (Fly / Railway / self-hosted) and uses top-level await + Fastify in a
+# way that breaks Vercel's Node bundler.
+
+api/src/
+api/smoke.ts
+api/README.md
+
+# Non-frontend workspaces are not needed inside the Vercel build sandbox.
+# Note: sdk/ must NOT be excluded — the frontend imports @wick/sdk via
+# `file:../sdk`, and the Vercel build pipeline (`npm run build:sdk &&
+# npm -w frontend run build`) compiles sdk/src first.
+move/
+keeper/
+bots/
+scripts/
+docs/
+research/
+deployments/archive/
+
+# Local scratch / secrets — already gitignored, double-fence here so they
+# can't be uploaded even if someone runs `vercel deploy` from a dirty tree.
+.secrets/
+.scratch/
+.claude/
+*.local
+*.key

@@ -334,6 +334,99 @@ fun compute_pwe_far_returns_floor() {
     assert!(p == 50, 0);
 }
 
+// === compute_pwe_dnt sanity ===
+
+#[test]
+fun compute_pwe_dnt_at_either_barrier_is_full_outside_zero_inside() {
+    // Spot exactly AT upper barrier — P_touch(upper) saturates to PROB_MAX = 1.0,
+    // P_touch(lower) is also 1.0 (because seconds_remaining=0 codepath returns
+    // PROB_MAX when spot == barrier; here lower != spot so we use the time-evolved
+    // path). Use seconds_remaining=0 to force the at-barrier branch on UPPER, and
+    // a wide lower so it stays at floor. Net: P_outside ≈ 1.0 (clipped at max),
+    // P_inside ≈ 0 (clamped at 0).
+    //
+    // OUTSIDE position (is_inside=false) → pwe = payout × 1.0 = payout
+    let pwe_outside = rc::compute_pwe_dnt(
+        1000,                  // payout
+        100_000_000_000,       // spot
+        100_000_000_000,       // upper_barrier (== spot)
+        50_000_000_000,        // lower_barrier (far below)
+        100,                   // sigma_bps_per_sqrt_sec
+        0,                     // seconds_remaining = 0 → at-barrier branch
+        false,                 // is_inside = false (OUTSIDE)
+    );
+    assert!(pwe_outside == 1000, 0);
+
+    // INSIDE position on the same setup → pwe = payout × 0 = 0
+    let pwe_inside = rc::compute_pwe_dnt(
+        1000,
+        100_000_000_000,
+        100_000_000_000,
+        50_000_000_000,
+        100,
+        0,
+        true,
+    );
+    assert!(pwe_inside == 0, 0);
+}
+
+#[test]
+fun compute_pwe_dnt_inside_plus_outside_equals_payout() {
+    // Conservation: for any (spot, corridor, σ, t), pwe_inside + pwe_outside
+    // should equal payout (within rounding). This is the union-bound
+    // identity P_outside + P_inside = 1 by construction.
+    let payout: u64 = 100_000;
+    let spot: u64 = 100_000_000_000;
+    let upper: u64 = 105_000_000_000;   // +5%
+    let lower: u64 = 95_000_000_000;    // -5%
+    let sigma: u64 = 50;                // tight vol so P_touch < PROB_MAX
+    let secs: u64 = 3600;               // 1 hour
+
+    let pwe_inside = rc::compute_pwe_dnt(
+        payout, spot, upper, lower, sigma, secs, true,
+    );
+    let pwe_outside = rc::compute_pwe_dnt(
+        payout, spot, upper, lower, sigma, secs, false,
+    );
+    // Sum may differ from payout by at most 1 unit due to integer truncation
+    // (each side rounds independently in u128 arithmetic).
+    let total = pwe_inside + pwe_outside;
+    let target = payout as u128;
+    let drift = if (total > target) total - target else target - total;
+    assert!(drift <= 1, 0);
+}
+
+#[test]
+fun compute_pwe_dnt_union_bound_clips_at_one() {
+    // Adversarial case: spot ON upper barrier with σ huge enough that the
+    // touch-lower probability is also non-trivial. The union bound
+    // (P_up + P_dn) would exceed 1.0; we must clip to prevent P_inside
+    // from underflowing below 0.
+    let pwe_outside = rc::compute_pwe_dnt(
+        10_000,
+        100_000_000_000,
+        100_000_000_000,        // upper = spot → P_up at max
+        99_000_000_000,         // lower close enough that P_dn is also large
+        10_000,                 // wide σ
+        100,                    // long window
+        false,
+    );
+    // Should be ≤ payout (cap respected) — never overflow into a value > payout.
+    assert!(pwe_outside <= 10_000, 0);
+
+    let pwe_inside = rc::compute_pwe_dnt(
+        10_000,
+        100_000_000_000,
+        100_000_000_000,
+        99_000_000_000,
+        10_000,
+        100,
+        true,
+    );
+    // INSIDE must be exactly 0 when OUTSIDE saturates — proves the clamp.
+    assert!(pwe_inside == 0, 0);
+}
+
 // === composed assert_open_allowed ===
 
 #[test]
