@@ -30,7 +30,12 @@ import { Transaction } from "@mysten/sui/transactions";
 import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
 
 // Amounts are denominated in MIST. 1 SUI = 1e9 MIST.
-const DRIP_MIST = 100_000_000n; // 0.1 SUI — ~10 rides per tap
+// Bumped from 0.1 → 0.5 SUI on 2026-05-23 after the segment market's per-ride
+// gas math (20 segments × ~5M MIST/crank ≈ 100M MIST per ride in cranking gas
+// from the user's burner via D4 client-side crank) made the 0.1 SUI drip
+// insufficient to even ride one round. 0.5 SUI covers 4-5 rides at the smoke
+// market's cadence, plus the per-ride escrow.
+const DRIP_MIST = 500_000_000n; // 0.5 SUI
 const GAS_BUFFER_MIST = 20_000_000n; // ~0.02 SUI; ample headroom for one transfer
 const COOLDOWN_MS = 90 * 1000; // 90s per recipient
 
