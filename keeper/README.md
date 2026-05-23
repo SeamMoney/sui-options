@@ -121,6 +121,82 @@ needed — flagged in the source. The Move side has the load-bearing checks
 (`touched_during`, treasury sufficiency, `EAlreadyClosed`); the keeper just
 schedules attempts.
 
+## Walrus archiver (v3.5, optional)
+
+Permissionless bot that uploads per-round segment archives to
+[Walrus](https://docs.wal.app/) for the v3 hot/cold storage split described
+in `docs/design/v2/24_walrus_archive_v3.md` (the archive) and `23_storage_rebate_pruning_v3.md`
+(the prune that follows). Encodes a `WickRoundArchive` BCS blob per settled
+round and PUTs it to a Walrus publisher.
+
+Enable it by listing markets in `WICK_KEEPER_ARCHIVER_MARKETS`:
+
+```bash
+# one market, default package + collateral from deployments/testnet.json
+export WICK_KEEPER_ARCHIVER_MARKETS=0xmarket1
+
+# many markets, possibly on different packages
+export WICK_KEEPER_ARCHIVER_MARKETS=0xmarket1,0xmarket2@0xpkg:0x2::sui::SUI
+```
+
+| Var                                    | Default                                                  | Notes |
+|----------------------------------------|----------------------------------------------------------|-------|
+| `WICK_KEEPER_ARCHIVER_MARKETS`         | (empty — bot disabled)                                   | comma-separated `<marketId>[@<packageId>[:<collateral>]]` |
+| `WALRUS_PUBLISHER_URL`                 | `https://publisher.walrus-testnet.walrus.space`          | Mysten Labs public testnet publisher (verified against MystenLabs/walrus operators.json) |
+| `WALRUS_RETENTION_EPOCHS`              | `14`                                                     | Walrus testnet epoch = 1 day; doc 24 §9 lists 365 as the v3.0 mainnet default |
+| `WICK_KEEPER_ARCHIVER_POLL_MS`         | `5000`                                                   | scan cadence for archive-eligible rounds |
+
+The bot polls every market it covers. For each market it reads
+`SegmentMarket.cached_round_index` and considers the highest round `R` such
+that `R + SETTLEMENT_LAG_ROUNDS (=3) <= cached_round_index` an archive
+candidate. If `R` hasn't been archived yet, the bot:
+
+1. Pulls `SegmentRecorded` events for `[R*duration .. R*duration+duration)`.
+2. Pulls the `RoundStarted` event for `R` (barrier prices, start segment).
+3. Reads each segment's `state_after` walk checkpoint via Sui dynamic-field
+   lookup on the `segments: Table<u64, SegmentRecord>` field.
+4. BCS-encodes the `WickRoundArchive` per doc 24 §3.
+5. PUTs the bytes to the Walrus publisher (`PUT /v1/blobs?epochs=N`).
+6. **Stubs** the on-chain `record_walrus_archive` call — logs
+   `WOULD CALL <pkg>::segment_market_v3::record_walrus_archive(market, R, blobId)`.
+
+The stub is deliberate. The v3 Move surface (`segment_market_v3` with the
+`archive_index`, `unsettled_rides_per_round`, `pruned_rounds` fields and the
+`record_walrus_archive` / `prune_settled_segments` entry functions documented
+in `docs/design/v2/24_walrus_archive_v3.md` §5 + `23_storage_rebate_pruning_v3.md`
+§3.2) is not yet implemented. The v2 `SegmentMarket` doesn't have those
+fields, so calling a non-existent entry function would just bounce. When v3
+lands, swap the log line for a real PTB build — every arg the call needs is
+already captured in the stub's `detail.args` payload.
+
+### The archive-before-prune invariant
+
+Per doc 23 §8: `prune_settled_segments(R)` MUST NOT execute unless
+`record_walrus_archive(R)` has already landed. This is the load-bearing
+safety property of v3 — once segments are deleted from on-chain Move
+storage, the Walrus blob is the only durable record. The archiver bot is
+the producer of `record_walrus_archive` calls; the pruner bot is its
+consumer. v3.0 enforces ordering in the bot (this archiver runs the archive
+side and a future `segmentPruner.ts` reads `archive_index` before pruning);
+v3.1 lifts the assert into Move so external pruners can't skip it.
+
+### Manual smoke
+
+Until v3 ships, the archiver's loop is observable but won't change on-chain
+state:
+
+```bash
+export WICK_KEEPER_ARCHIVER_MARKETS=0xyour_smoke_market_id
+npm run watch   # NDJSON logs — look for action=segment-archiver.*
+```
+
+If the market's `cached_round_index < SETTLEMENT_LAG_ROUNDS`, you'll see
+`segment-archiver.no-eligible-round` on each poll — that's the bot
+deciding the market is too young to archive. Once the market crosses the
+lag, you'll see `segment-archiver.archive-begin → .serialized → .walrus-stored
+→ .record-walrus-archive-stub`. The loop is failure-tolerant: any error in
+the chain pauses one poll cycle and resumes on the next tick. Never crashes.
+
 ## All env vars
 
 | Var                                  | Default                                  | Notes |
@@ -144,6 +220,10 @@ schedules attempts.
 | `WICK_KEEPER_DISABLE_RW_TICKS`       | `0`                                      | skip arcade ticks |
 | `WICK_KEEPER_DISABLE_PULL_PUSHES`    | `0`                                      | skip pull pushes |
 | `WICK_KEEPER_DISABLE_RIDE_CRANKS`    | `0`                                      | skip ride cranks |
+| `WICK_KEEPER_ARCHIVER_MARKETS`       | (empty)                                  | enable Walrus archiver bot (v3.5) |
+| `WALRUS_PUBLISHER_URL`               | `https://publisher.walrus-testnet.walrus.space` | Walrus publisher endpoint |
+| `WALRUS_RETENTION_EPOCHS`            | `14`                                     | blob lifetime in Walrus epochs (testnet = 1d) |
+| `WICK_KEEPER_ARCHIVER_POLL_MS`       | `5000`                                   | archiver eligibility-scan cadence |
 
 ## Logs
 
