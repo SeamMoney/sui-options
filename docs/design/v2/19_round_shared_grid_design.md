@@ -36,15 +36,37 @@ The barrier value itself is no longer stored on the position — it's looked up 
 
 **Everything else from doc 18 carries unchanged:** the vault hooks, the WICK mint + record_loss pattern, the constant-gas `record_segment`, the crank's SEV-1 treasury guard, the `seeded_path` integration, the cashout via `ride_pricing` with the segment→seconds conversion.
 
-## 4. Constants and parameters (v1 defaults)
+## 4. Constants and parameters (per-market, set at bootstrap)
 
+Round shape (LOCKED, B7-validated):
 - `ROUND_DURATION_SEGMENTS: u64 = 75` → 30 seconds at 400 ms/segment
 - `OPEN_WINDOW_SEGMENTS: u64 = 13` → ~5.2 seconds open window
-- `BARRIER_OFFSET_BPS: u64 = 500` → ±5% from spot at round start (symmetric)
-- `MULTIPLIER_BPS: u64 = 20_000` → 2× (shared by both barriers; symmetric distance → symmetric multiplier in v1)
-- `MAX_PAYOUT_PER_BARRIER` — per-market cap, set at bootstrap, provisional 10 % of seed treasury
+- `MAX_PAYOUT_PER_BARRIER` — per-market cap. Provisional 10% of seed treasury — B7 confirmed the cap is a hard ceiling with zero violations across 2 000 saturating rounds (see `15_montecarlo_validation_report.md` §12.3).
 
-All are per-market parameters settable at bootstrap. Calibration happens in B7 Monte Carlo. Future versions extend to asymmetric / multi-tier barriers (§19).
+Economic shape (**RECALIBRATION REQUIRED before any bootstrap script ships**):
+- `BARRIER_OFFSET_BPS` — provisional 500 (±5%). **DO NOT SHIP at 500.**
+- `MULTIPLIER_BPS` — provisional 20_000 (2×). **DO NOT SHIP at 20_000.**
+
+B7 (see `15_montecarlo_validation_report.md` §§12.1–12.2) measured realised P(touch) = 86% and vault edge = **−71.66% per $ staked** at ±5% / 2× — catastrophic bleed. A first-pass over-corrected recommendation (±15% × 1.10×) would land near +67% vault edge — equally broken in the opposite direction (user bleed). The actual recalibration requires a JOINT sweep over `(BARRIER_OFFSET_BPS, MULTIPLIER_BPS)` to find the Pareto-optimal point. That sweep is a B7 follow-up extending `scripts/simulate_segment_protocol.py`; updated §4 values land in `15_montecarlo_validation_report.md` §12.4 + an amendment here when the sweep returns.
+
+## 4a. The excitement ↔ house-edge tradeoff
+
+`P(touch)` is determined by barrier distance vs walk volatility. **Multiplier doesn't change it.**
+`Vault edge ≈ 1 − MULTIPLIER × P(touch)`.
+
+This means a meaningful multiplier (M ≥ 1.5×) requires `P(touch) ≤ ~60%` — which means barriers must be WIDE relative to the walk's per-round drift (~11% stdev over 30 s on `seeded_path`).
+
+Three product flavours, mapped to the tradeoff:
+
+| Flavour | M × P(touch) | Vault edge | Player feel |
+|---|---|---|---|
+| Lottery | 3× × 25% | +25% | mostly losses + occasional jackpots — addictive but punishing |
+| **Coin-flip** | **1.8× × 50%** | **+10%** | **roughly 50/50 with a meaningful payout — best general appeal** |
+| Grind | 1.1× × 85% | +6% | constant $0.10 wins on $1 — stable but dull |
+
+The **cashout mechanic** (Bachelier-fair value mid-ride via `ride_pricing`) softens the loss-feel: players who pull out before round end don't experience non-touching rounds as total losses. This shifts perceived experience toward the Coin-flip column even at slightly higher multipliers — so a 2× × 55 % market may feel right AND leave a healthy edge.
+
+The B7 joint sweep targets the Coin-flip region. Until it lands, do not bootstrap a market with §4's provisional numbers.
 
 ## 5. `SegmentMarket<phantom C>` — full revised struct
 
