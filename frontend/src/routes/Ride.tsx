@@ -26,8 +26,8 @@
  *   - center    : the state hero — exactly what's happening, always
  *   - the chart : the full-screen barrier-picker + hold target
  */
-import { useEffect, useMemo, useState } from "react";
-import RideChart from "@/components/RideChart";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import FastRideStage from "@/components/FastRideStage";
 import { FaucetButton } from "@/components/wallet/FaucetButton";
 import { RoundCountdown } from "@/components/RoundCountdown";
 import { BarrierOrderbookGrid } from "@/components/BarrierOrderbookGrid";
@@ -231,6 +231,26 @@ function FundCta(props: {
   );
 }
 
+function RailCard(props: {
+  eyebrow: string;
+  value?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-card/70 p-3 shadow-sm">
+      <div className="mb-2 text-[10px] font-semibold uppercase text-muted-foreground">
+        {props.eyebrow}
+      </div>
+      {props.value ? (
+        <div className="mb-2 font-mono text-lg font-bold tabular-nums text-foreground">
+          {props.value}
+        </div>
+      ) : null}
+      {props.children}
+    </section>
+  );
+}
+
 export function Ride() {
   const picked = useMemo(() => pickSegmentMarket(), []);
   const session = useSessionWallet();
@@ -252,32 +272,47 @@ export function Ride() {
     onBalanceChanged: session.refreshBalance,
   });
 
+  const rideRef = useRef(ride);
+  useEffect(() => {
+    rideRef.current = ride;
+  }, [ride]);
+
   // The gesture's onOpen → useSegmentRide.open. Also updates the picked
-  // barrier so the chart hook can render the picked-zone highlight.
+  // barrier so the chart can render the picked-zone highlight. This object
+  // is stable because the chart keeps it in event handlers; the ref supplies
+  // the latest ride methods each time an event fires.
   const stableCallbacks = useMemo(
     () => ({
       onOpen: (barrierIndex: BarrierIndex, barrierPrice: number) => {
-        ride.pickBarrier(barrierIndex);
-        ride.open(barrierIndex, barrierPrice);
+        const current = rideRef.current;
+        current.pickBarrier(barrierIndex);
+        current.open(barrierIndex, barrierPrice);
       },
-      onClose: () => ride.close(),
-      onStall: () => ride.triggerStallCrank(),
+      onClose: () => rideRef.current.close(),
+      onStall: () => rideRef.current.triggerStallCrank(),
     }),
-    // ride is rebuilt every render; keep callbacks stable across renders
-    // by wrapping each in a ref. (The callback is invoked from inside a
-    // closed-over p5 sketch — we must not recreate the closure each render.)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  // Update the ref every render so the closure sees the latest callbacks.
-  // The actual closure inside the gesture hook reads through callbacksRef
-  // (set by an effect in useRideGesture), so React's "stale closure"
-  // concern doesn't apply here — the gesture hook re-pipes callbacks.
-  // We still memoize the outer object so useRideGesture doesn't re-set its
-  // ref on every render.
-  // (No-op block above is intentional — keeps the lint comment + intent.)
 
   const settlementToast = useAutoDismissSettlement(ride.lastSettlement);
+  const [recentSettlements, setRecentSettlements] = useState<
+    { kind: number; label: string; digest: string; at: number }[]
+  >([]);
+  useEffect(() => {
+    const settlement = ride.lastSettlement;
+    if (!settlement) return;
+    setRecentSettlements((prev) =>
+      [
+        {
+          kind: settlement.kind,
+          label: settlement.label,
+          digest: settlement.digest,
+          at: Date.now(),
+        },
+        ...prev,
+      ].slice(0, 8),
+    );
+  }, [ride.lastSettlement]);
 
   // Live PnL — computed inside the gesture hook from the candle stream,
   // surfaced here for the center hero.
@@ -320,145 +355,222 @@ export function Ride() {
         : "";
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-[#0c0c0c] text-foreground select-none">
-      {/* ── The chart — full-screen barrier-picker + hold target ─────────── */}
-      <div className="absolute inset-0 mx-auto md:max-w-[800px]">
-        <RideChart
-          callbacks={stableCallbacks}
-          phase={ride.phase}
-          pickedBarrier={ride.pickedBarrier}
-          round={ride.round}
-          segments={ride.segments}
-          multiplierBps={ride.multiplierBps}
-          stakePerSegmentMicroUsd={ride.stakePerSegmentMicroUsd}
-          onPnlChange={setRidePnl}
-          disabled={needsFunds}
-        />
-      </div>
+    <div className="h-dvh overflow-hidden bg-background text-foreground select-none">
+      <div className="grid h-full min-h-0 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="relative min-h-0 overflow-hidden">
+          <FastRideStage
+            callbacks={stableCallbacks}
+            phase={ride.phase}
+            pickedBarrier={ride.pickedBarrier}
+            round={ride.round}
+            segments={ride.segments}
+            inOpenWindow={ride.inOpenWindow}
+            multiplierBps={ride.multiplierBps}
+            stakePerSegmentMicroUsd={ride.stakePerSegmentMicroUsd}
+            onPnlChange={setRidePnl}
+            disabled={needsFunds}
+          />
 
-      {/* ── Top bar — balance · round countdown · faucet ─────────────────── */}
-      <div
-        className="fixed left-0 right-0 z-[1600] flex items-start justify-between px-3 pointer-events-none gap-2"
-        style={{ top: `calc(env(safe-area-inset-top) + 10px)` }}
-      >
-        <div className="glass-container px-3 py-2 rounded-lg font-mono">
-          <div className="glass-filter" />
-          <div className="glass-overlay" />
-          <div className="glass-specular" />
-          <div className="relative z-10 leading-tight">
-            <div className="text-[9px] uppercase tracking-[0.18em] text-white/45">
-              Play balance
-            </div>
-            <div className="text-sm font-semibold tabular-nums text-white">
-              {fmtSui(session.balanceMist)} SUI
-            </div>
-          </div>
-        </div>
-
-        {/* Round indicator — center, always visible */}
-        <RoundCountdown
-          roundIndex={ride.round?.index ?? null}
-          startedAtSegment={ride.round?.startedAtSegment ?? null}
-          nextSegmentIndex={ride.nextSegmentIndex}
-          roundDurationSegments={
-            ride.round?.roundDurationSegments ?? 75
-          }
-          openWindowSegments={ride.round?.openWindowSegments ?? 13}
-        />
-
-        <div className="pointer-events-auto">
-          {!needsFunds && session.balanceMist !== null ? (
-            <div className="glass-container px-3 py-2 rounded-lg font-mono">
-              <div className="glass-filter" />
-              <div className="glass-overlay" />
-              <div className="glass-specular" />
-              <div className="relative z-10 text-[11px] text-emerald-400/90 uppercase tracking-wider">
-                ✓ ready
+          {/* ── Top bar — balance · round countdown · faucet ─────────────── */}
+          <div
+            className="pointer-events-none absolute left-0 right-0 z-[1600] flex items-start justify-between gap-2 px-3"
+            style={{ top: `calc(env(safe-area-inset-top) + 10px)` }}
+          >
+            <div className="rounded-lg border border-white/10 bg-card/80 px-3 py-2 font-mono shadow-sm">
+              <div className="leading-tight">
+                <div className="text-[9px] uppercase text-white/45">
+                  Play balance
+                </div>
+                <div className="text-sm font-semibold tabular-nums text-white">
+                  {fmtSui(session.balanceMist)} SUI
+                </div>
               </div>
             </div>
-          ) : null}
-        </div>
-      </div>
 
-      {/* ── Right edge: barrier orderbook (doc 19 §14) ───────────────────── */}
-      <div className="fixed right-3 z-[1550] pointer-events-none" style={{ top: `calc(env(safe-area-inset-top) + 80px)` }}>
-        <BarrierOrderbookGrid marketId={picked.market} client={session.client} />
-      </div>
+            <RoundCountdown
+              roundIndex={ride.round?.index ?? null}
+              startedAtSegment={ride.round?.startedAtSegment ?? null}
+              nextSegmentIndex={ride.nextSegmentIndex}
+              roundDurationSegments={
+                ride.round?.roundDurationSegments ?? 75
+              }
+              openWindowSegments={ride.round?.openWindowSegments ?? 13}
+            />
 
-      {/* ── Center: fund CTA when broke, else the state hero ─────────────── */}
-      {needsFunds && ride.phase === "idle" && !settlementToast ? (
-        <FundCta
-          balanceMist={session.balanceMist}
-          address={session.address}
-          onFunded={session.refreshBalance}
-        />
-      ) : !settlementToast ? (
-        <CenterHero
-          needsFunds={needsFunds}
-          phase={ride.phase}
-          pnl={ridePnl.pnl}
-          stakePaid={stakePaid}
-          multiplierX={multiplierX}
-          barrierLabel={barrierLabel}
-          inOpenWindow={ride.inOpenWindow}
-          pickedBarrier={ride.pickedBarrier}
-        />
-      ) : null}
-
-      {/* ── Settlement result ───────────────────────────────────────────── */}
-      {settlementToast && (
-        <div
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[1700] w-full max-w-[440px] px-6 text-center motion-safe:animate-[rideSettleIn_280ms_ease-out]"
-          role="status"
-          aria-live="polite"
-        >
-          <div className="text-[11px] uppercase tracking-[0.22em] mb-2 text-white/45">
-            {settlementToast.kind === 1
-              ? "Touch hit — jackpot"
-              : settlementToast.kind === 2
-                ? "Cashed out"
-                : settlementToast.kind === 3
-                  ? "Round ended — no touch"
-                  : settlementToast.kind === 4
-                    ? "Market voided — refunded"
-                    : "Ride settled"}
+            <div className="pointer-events-auto">
+              {!needsFunds && session.balanceMist !== null ? (
+                <div className="rounded-lg border border-emerald-400/20 bg-card/80 px-3 py-2 font-mono shadow-sm">
+                  <div className="text-[11px] uppercase text-emerald-400/90">
+                    ready
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
+
           <div
-            className={`text-5xl font-bold leading-none ${
-              settlementToast.kind === 1
-                ? "text-emerald-400"
-                : settlementToast.kind === 2
-                  ? "text-white"
-                  : settlementToast.kind === 3
-                    ? "text-rose-400"
-                    : "text-amber-300"
-            }`}
-            style={{ textShadow: "0 2px 28px rgba(0,0,0,0.7)" }}
+            className="pointer-events-none absolute right-3 z-[1550] hidden md:block lg:hidden"
+            style={{ top: `calc(env(safe-area-inset-top) + 80px)` }}
           >
-            {settlementToast.label.replace(/_/g, " ")}
+            <BarrierOrderbookGrid marketId={picked.market} client={session.client} />
           </div>
-          <a
-            href={`https://suiscan.xyz/testnet/tx/${settlementToast.digest}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-block text-xs text-white/55 mt-3 underline underline-offset-2"
-          >
-            view transaction →
-          </a>
-        </div>
-      )}
 
-      {/* ── Error line ──────────────────────────────────────────────────── */}
-      {ride.lastError && ride.phase === "idle" && (
-        <div
-          className="fixed left-1/2 -translate-x-1/2 z-[1650] pointer-events-none"
-          style={{ bottom: `calc(env(safe-area-inset-bottom) + 18px)` }}
-        >
-          <div className="font-mono text-[11px] text-rose-400/85 text-center max-w-[340px] px-4">
-            {ride.lastError}
+          {/* ── Center: fund CTA when broke, else the state hero ─────────── */}
+          {needsFunds && ride.phase === "idle" && !settlementToast ? (
+            <FundCta
+              balanceMist={session.balanceMist}
+              address={session.address}
+              onFunded={session.refreshBalance}
+            />
+          ) : !settlementToast ? (
+            <CenterHero
+              needsFunds={needsFunds}
+              phase={ride.phase}
+              pnl={ridePnl.pnl}
+              stakePaid={stakePaid}
+              multiplierX={multiplierX}
+              barrierLabel={barrierLabel}
+              inOpenWindow={ride.inOpenWindow}
+              pickedBarrier={ride.pickedBarrier}
+            />
+          ) : null}
+
+          {/* ── Settlement result ───────────────────────────────────────── */}
+          {settlementToast && (
+            <div
+              className="fixed left-1/2 top-1/2 z-[1700] w-full max-w-[440px] -translate-x-1/2 -translate-y-1/2 px-6 text-center motion-safe:animate-[rideSettleIn_180ms_ease-out]"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="mb-2 text-[11px] uppercase text-white/45">
+                {settlementToast.kind === 1
+                  ? "Touch hit"
+                  : settlementToast.kind === 2
+                    ? "Cashed out"
+                    : settlementToast.kind === 3
+                      ? "Round ended"
+                      : settlementToast.kind === 4
+                        ? "Market voided"
+                        : "Ride settled"}
+              </div>
+              <div
+                className={`text-5xl font-bold leading-none ${
+                  settlementToast.kind === 1
+                    ? "text-emerald-400"
+                    : settlementToast.kind === 2
+                      ? "text-white"
+                      : settlementToast.kind === 3
+                        ? "text-rose-400"
+                        : "text-amber-300"
+                }`}
+                style={{ textShadow: "0 2px 28px rgba(0,0,0,0.7)" }}
+              >
+                {settlementToast.label.replace(/_/g, " ")}
+              </div>
+              <a
+                href={`https://suiscan.xyz/testnet/tx/${settlementToast.digest}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-block text-xs text-white/55 underline underline-offset-2"
+              >
+                view transaction
+              </a>
+            </div>
+          )}
+
+          {/* ── Error line ──────────────────────────────────────────────── */}
+          {ride.lastError && ride.phase === "idle" && (
+            <div
+              className="pointer-events-none fixed left-1/2 z-[1650] -translate-x-1/2"
+              style={{ bottom: `calc(env(safe-area-inset-bottom) + 18px)` }}
+            >
+              <div className="max-w-[340px] px-4 text-center font-mono text-[11px] text-rose-400/85">
+                {ride.lastError}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <aside className="hidden min-h-0 flex-col gap-3 border-l border-white/10 bg-card/40 p-3 lg:flex">
+          <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <div>
+              <div className="font-mono text-sm font-bold">wick.markets</div>
+              <div className="text-[11px] text-muted-foreground">
+                segment ride arcade
+              </div>
+            </div>
+            <a
+              href="/"
+              className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              markets
+            </a>
           </div>
-        </div>
-      )}
+
+          <RailCard eyebrow="Balance" value={`${fmtSui(session.balanceMist)} SUI`}>
+            <div className="text-xs text-muted-foreground">
+              Burner session wallet on Sui testnet.
+            </div>
+          </RailCard>
+
+          <RailCard
+            eyebrow="Live ride"
+            value={
+              ride.phase === "riding"
+                ? ridePnl.pnl >= 0
+                  ? `+$${ridePnl.pnl.toFixed(2)}`
+                  : `-$${Math.abs(ridePnl.pnl).toFixed(2)}`
+                : ride.phase
+            }
+          >
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-md bg-secondary/60 p-2">
+                <div className="text-muted-foreground">Stake</div>
+                <div className="font-mono tabular-nums">
+                  ${ridePnl.staked.toFixed(2)}
+                </div>
+              </div>
+              <div className="rounded-md bg-secondary/60 p-2">
+                <div className="text-muted-foreground">Payout</div>
+                <div className="font-mono tabular-nums">
+                  {multiplierX.toFixed(1)}x
+                </div>
+              </div>
+            </div>
+          </RailCard>
+
+          <RailCard eyebrow="Barrier flow">
+            <BarrierOrderbookGrid marketId={picked.market} client={session.client} />
+          </RailCard>
+
+          <RailCard eyebrow="Recent settlements">
+            {recentSettlements.length === 0 ? (
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                close a ride to see settlement history
+              </div>
+            ) : (
+              <ul className="max-h-48 space-y-2 overflow-y-auto">
+                {recentSettlements.map((s) => (
+                  <li
+                    key={`${s.digest}-${s.at}`}
+                    className="flex items-center justify-between gap-2 border-b border-white/5 pb-2 text-xs last:border-b-0"
+                  >
+                    <span className="truncate">{s.label.replace(/_/g, " ")}</span>
+                    <a
+                      href={`https://suiscan.xyz/testnet/tx/${s.digest}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-muted-foreground hover:text-foreground"
+                    >
+                      tx
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </RailCard>
+        </aside>
+      </div>
 
       <style>{`
         @keyframes rideSettleIn {
