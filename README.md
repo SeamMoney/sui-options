@@ -1,153 +1,258 @@
 # Wick Markets
 
-> Touch / no-touch + double-no-touch options where the position lives only while you hold the screen. Tap the candle, watch PnL tick by tick, release to cash out — or hold for the touch jackpot. On Sui, because nowhere else can update position math every block at fractions of a cent.
+> **Touch / no-touch / double-no-touch options on Sui where the position lives only while you hold the screen.** Tap the candle. Watch PnL tick every 400 ms. Release to cash out — or hold for the touch jackpot. The chart is **deterministic from on-chain randomness**, and anyone can replay any ride to verify the house never cheated.
 
-Prediction markets ask where BTC ends. **Wick asks whether BTC wicks into a level — and lets you ride that question tick-by-tick.**
+[![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 509/509](https://img.shields.io/badge/move%20tests-509%2F509-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
 
-| | |
+<p align="center">
+  <img src="docs/assets/wick-chat.svg" width="600" alt="A chat between a curious dev and a Wick veteran" />
+</p>
+
+```
+Prediction markets ask where BTC ENDS.
+Wick asks whether BTC WICKS into a level —
+       and lets you ride that question tick by tick.
+```
+
+→ **Live frontend**: [wick-markets.vercel.app/ride](https://wick-markets.vercel.app/ride)
+→ **Verify any closed ride** (one command): `npx tsx scripts/verify.ts --market <id> --ride <id>`
+→ **Explorer**: [package `0x0b94e3da…700e70` v2 on Suiscan](https://suiscan.xyz/testnet/object/0x0b94e3daa9ca156f2e541caa177ae27abd40aaacbe599a8f93b3a5a136700e70)
+
+---
+
+## What it is
+
+A provably-fair touch-binary arcade. Three things are simultaneously true:
+
+1. **Real options math.** Touch / no-touch and double-no-touch (DNT) corridors with a Bachelier-derived cashout curve, asymmetric impact fee on profit, a Martingaler loss-recycling LP vault, and per-position + per-side + global probability-weighted-exposure caps.
+2. **Real Sui randomness.** Every candle is derived from a `sui::random::Random` 32-byte draw committed inside `record_segment`. The draw is gated by Sui's **PTB-Random structural rule** (the verifier rejects any PTB that places attacker code after a `Random`-consuming MoveCall), so the standard "test-and-abort grinder" doesn't work. See [`docs/design/v2/17a_sui_randomness_spike.md`](docs/design/v2/17a_sui_randomness_spike.md).
+3. **Real auditability.** The same `seeded_path::expand_segment` that the chain runs to produce a candle has a **byte-identical TypeScript port** (`sdk/src/seededPath.ts`). 10k random vectors are checked via a rolling blake2b digest in CI on every commit. The `/verify` CLI lets any user replay any closed ride's on-chain `segment_keys` and confirm the settlement.
+
+If a candle in your loss looks wrong, replay it. The math is reproducible bit-for-bit.
+
+---
+
+## The 60-second story
+
+You open a touch market — "will BTC wick above $1.05k in the next 30 seconds?"
+You **press and hold** the chart. Each 400 ms you hold, the keeper records a new segment on-chain: a 32-byte random key plus the OHLC the chain derived from it. The chart paints the candle from the on-chain key. You see the same candle the chain saw.
+
+You're paying a tiny stake-per-segment in escrow as you hold. The barrier sits at +10 %. You're praying for a wick.
+
+- **Price touches the barrier** during your hold → you win `multiplier × escrow`. The Martingaler vault pays.
+- **You release before the touch** → Bachelier cashout: `payout = escrow × (1 + cashout_factor × P(touch in remaining time))`.
+- **Round ends without a touch** → escrow goes to the vault. The vault recycles losses into LP, so next round's payout multiplier ticks up a fraction.
+
+The round structure is shared: everyone sees the **same** barrier grid, the same chart. The barrier price for round N is locked at round N's start — anti-cherry-pick.
+
+---
+
+## What's live on testnet (2026-05-23)
+
+| Thing | ID |
 |---|---|
-| Network | Sui **testnet** (do not use on mainnet) |
-| Package | `0x9f0320d08c2025c57720b6f9b64fdc767441acb1ef778512abbf00c12e1ee8ba` |
-| Published | 2026-05-20 (vault_side gate + calibrated parameters) |
-| Source of truth | `deployments/testnet.json` — read it programmatically, README may lag a redeploy |
-| Surface | Touch / No-Touch + Double-No-Touch + Ride streaming primitive |
-| Tests | 256 / 256 Move tests passing |
-| Solvency | Monte Carlo across 30k sessions → 0 conservation violations, positive vault edge on every market template (see [§6 of `docs/design/v2/14_ride_economics.md`](docs/design/v2/14_ride_economics.md)) |
+| Package (v2) | `0x0b94e3daa9ca156f2e541caa177ae27abd40aaacbe599a8f93b3a5a136700e70` |
+| MartingalerVault\<SUI\> | `0x73d3a17ab1e1cdc173b8cde1ae7d9789a29d1a177ebfd415196a04a6a10e5b9f` |
+| SegmentMarket — B7 calibrated (30 s round) | `0x0c2bdb9ecafe70cc6c09a3cee6cac29d9a9da0f9618864ad8922d676c05e71f9` |
+| SegmentMarket — smoke (8 s round) | `0x2f74fbdb20560206617c711a454dc29d4d6b000cc9ab2e4537400d80f88d1e45` |
+| Upgrade cap | `0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590` |
+| Upgrade digest | `6PUSDbPqRRMAYaJwDq7CM9De5SQpK7SXTCPLrLh75LXi` |
+| Faucet endpoint | `POST https://wick-markets.vercel.app/api/faucet` |
+| Source of truth (read this if README lags) | [`deployments/testnet.json`](deployments/testnet.json) |
 
-## What's shipped
+The 2026-05-23 end-to-end smoke landed clean:
+- `open_segment_ride` → `record_segment ×3` → `close_segment_ride`
+- Settlement: **CASHOUT** (4039 MIST from a 20M MIST escrow — held only 3/20 segments, barrier was far)
+- `npx tsx scripts/verify.ts --market 0x2f74…1e45 --ride 0xe852…1572` → **PASS**: extrema match, verdict match, exit 0
+- Off-chain `expandSegment` reproduced the chain's OHLC for k=0/1/2 **byte-identical**
 
-| Layer | What it does | How it's verified |
-|---|---|---|
-| **Move package** (`move/`) | Touch / no-touch markets, double-no-touch (DNT) corridor exotics, Ride streaming positions, Martingaler vault with loss-recycling FIFO queue, asymmetric impact fee, WICK fair-launch token + staking, global exposure caps, atomic `lock_and_settle`, permissionless cranking, aborted-seed recovery | 252 Move tests pass (`sui move test`); collateral invariant asserted after every state mutation |
-| **Keeper bot** (`keeper/`) | Polls market events, drives `PathObservation` ticks, calls `lock_and_settle` when the buffered + deadbanded barrier has been crossed or expiry has passed. Permissionless on the Move side. | Runs end-to-end against testnet on the v1 ABI; update for the C.3 ABI is in progress in parallel |
-| **Frontend** (`frontend/`) | Vite + React + Sui dApp Kit. Two-pane trading shell (markets rail + chart + trade panel) wired to live markets via events. | Type-checks clean; dev server up at `http://localhost:5173` |
-| **Bots** (`bots/`) | Four personality-driven testnet traders (bull / bear / contrarian / drunk) producing organic activity so the UI doesn't look empty | `npm run bots:run` — ~1 trade/sec across the fleet |
-| **SDK** (`sdk/`) and **API** (`api/`) | `@wick/sdk` is the canonical TypeScript surface (zero React deps, PTB builders, no signer attached). `@wick/api` is a read-only Fastify HTTP service for non-TS clients. | Both type-check clean; consumed by frontend, keeper, and bots |
+---
+
+## Try it yourself in 90 seconds
+
+```bash
+# 1. clone
+git clone https://github.com/SeamMoney/sui-options && cd sui-options
+
+# 2. install everything (sdk + frontend + keeper + bots + api)
+npm install
+
+# 3. run the deterministic-walk conformance harness on your machine
+#    (10k vectors, Move↔TS rolling digest must match exactly)
+cd move && sui move test seeded_path_conformance && cd ..
+
+# 4. verify a ride that already closed on live testnet
+npx tsx scripts/verify.ts \
+  --market 0x2f74fbdb20560206617c711a454dc29d4d6b000cc9ab2e4537400d80f88d1e45 \
+  --ride   0xe85201be6b8276bf7cf2f94c3ef54775292a004266f6779373d81b13a1f81572
+
+# 5. open the live frontend
+open https://wick-markets.vercel.app/ride
+```
+
+`verify.ts` walks every segment from k=0 forward through the same `expand_segment` the Move chain ran, recomputes high/low per segment, runs the touch predicate with the on-chain barrier and deadband, and compares its verdict to the chain's `RideClosed.settlement_kind`. If they ever diverge, exit code 1, loud red error, with the per-segment diff. That tool is the public claim — fairness is a function call, not a promise.
+
+---
 
 ## Architecture
 
 ```
-                       +-----------------------------+
-                       |    WickOracle (per asset)   |  random-walk driver | pull driver
-                       +--------------+--------------+
-                                      |
-                                      v
-   +-------------------+      +-----------------+      +----------------------+
-   |  RiskConfig       |----->|  PathObservation|<-----| keeper records ticks |
-   |  GlobalExposure   |      |  buffer + dead- |      | every block          |
-   |  OracleVersionLock|      |  band anti-jitr |      +----------------------+
-   +-------------------+      +--------+--------+
-                                       |
-                                       v
-   +--------------------+     +-----------------+     +--------------------+
-   | MartingalerVault<C>|<--->|   Market<C>     |---->|     Position       |  redeem
-   |  treasury + queue  |     |  status, sigma, |     +--------------------+
-   |  fee buckets       |     |  payout mult.   |---->|   RidePosition     |  close_ride
-   +---------+----------+     +-----------------+     +--------------------+
+                       +--------------------------------------------+
+                       |  sui::random::Random  (system object 0x8)  |
+                       +-----------------------+--------------------+
+                                               |
+                                               | one 32-byte draw per segment
+                                               v
+   +-------------------+         +-------------+---------------+      +--------------------+
+   |   RiskConfig      |         |  SegmentMarket<C>           |<---->|    keeper /        |
+   |   GlobalExposure  |<------- |  - segments: Table<k, key>  |      |  client-side crank |
+   |   BotRegistry     |         |  - walk (FSM state)         |      |  every 400 ms      |
+   |   OracleVerLock   |         |  - per-round shared barrier |      +--------------------+
+   |   FeeRouter       |         |  - per-barrier exposure cap |
+   +-------------------+         +-------------+---------------+
+                                               |
+                                               |  open / close / crank / abort
+                                               v
+   +--------------------+        +-------------+---------------+
+   | MartingalerVault<C>|<------>|   SegmentRidePosition       |
+   |  treasury + queue  |        |  - barrier_index, barrier   |
+   |  per-market locks  |        |  - escrow, multiplier_bps   |
+   |  fee buckets       |        |  - settlement_kind          |
+   +---------+----------+        +-----------------------------+
              |
-             | fee_router splits accrued fees
+             | fee_router splits accrued fees per-bucket
              v
-   +---------+----------+     +-----------------+
-   |   WickTokenState   |     | WickStakingPool |
-   |  (fair-launch to   |---->|  stakers earn   |
-   |   losing side)     |     |  staker bucket  |
-   +--------------------+     +-----------------+
+   +---------+----------+   +-----------------+   +-----------------+
+   |  protocol_bucket   |   |  staker_bucket  |   |insurance_bucket |
+   +--------------------+   +-----------------+   +-----------------+
+                                  ^
+                                  |
+                            WickStakingPool (WICK token)
 ```
 
-Per-collateral `MartingalerVault<C>` is the single LP for every market that uses collateral `C`. Markets reference the vault and a `PathObservation` by `ID`. `lock_and_settle` is atomic: it snapshots the path, sets the market status, accrues the fee, and releases the vault's settlement lock in one tx.
+Per-collateral / global singletons live next to the package; per-market objects are `key`-only shared objects; positions are `key, store` and burn on payout.
 
-## Mechanism — three pillars
+---
 
-The mechanism design borrows the *ideas* from [papertrade.xyz](https://papertrade.xyz) — Martingaler LP-from-losses, fair-launch fee-claim token, asymmetric impact fee — and reimplements them cleanly for the Sui object model and the touch / no-touch + DNT + ride product surface. No code is vendored.
+## The mechanism — three pillars
 
-1. **Martingaler vault** — a single LP pool per collateral that recycles loser stakes into the treasury and pays winners from it. A FIFO claim queue smooths cash flow when payouts temporarily exceed the treasury.
-2. **WICK fair-launch token** — losers receive WICK proportional to their loss; WICK stakers earn a share of fees going forward. No presale, no team allocation.
-3. **Asymmetric impact fee** — fees scale with how "decisive" a position is relative to the current barrier distance. Hugging the barrier costs more than betting against it. For DNT, separate `dnt_inside_decisiveness_bps` / `dnt_outside_decisiveness_bps` shapes are implemented (wiring into `compute_fee_amount` is deferred — see below).
+### 1. Bachelier cashout + asymmetric impact fee
 
-## The Ride primitive
+A no-touch-yet position can release early. The cashout factor is a closed-form `2 × Φ(-distance / (σ × √Δt))` lookup. Bigger barrier room remaining → higher cashout; tiny remaining time → cashout collapses to zero. The fee on the profit portion of any winning payout is **asymmetric**: the more *decisive* the win (barrier overshoot or path room remaining) and the more *vulnerable* it would have been to a counterparty grind (size vs side-aggregate exposure at lock), the higher the fee. See [`docs/design/v2/02_asymmetric_impact_fee_v2.md`](docs/design/v2/02_asymmetric_impact_fee_v2.md).
 
-Rides are streaming-touch options that exist only while the user holds the screen. The user calls `open_ride` to escrow a stake, the position accrues `stake_rate_micro_usd_per_sec` against time, and the user calls `close_ride` (cashout) or lets the keeper `crank_expired_ride` (loss on the time cap). If the barrier is touched while the ride is open, the user wins the touch jackpot at `multiplier_bps`. Touch wins ties at the `close_ride` boundary; aborted markets refund 1:1.
+### 2. Martingaler vault — losses recycle into LP
 
-Per `docs/design/v2/11_ride_streaming_primitive.md`.
+Stakes that lose go to the vault treasury, not the protocol's pocket. The vault tracks per-market settlement locks atomically and pays winners from treasury — when treasury can't cover, the shortfall queues FIFO and accrues against future deposits (no socialized loss across markets, no priority for big payouts). See [`docs/design/v2/01_martingaler_accounting_v2.md`](docs/design/v2/01_martingaler_accounting_v2.md).
+
+### 3. Provably-fair candles — the load-bearing claim
+
+The walk is integer fixed-point, deterministic, and reseeded only by per-segment `random::generate_bytes(32)`. A pattern FSM arms one of 6 hero shapers (doji / hammer / shooting star / bullish-engulfing / bearish-engulfing / three white soldiers) and the candle materializes inside `expand_segment` with constant-gas branch structure. A 54-predicate catalog detects post-hoc patterns too. The TypeScript port is byte-identical at 10k vectors via a rolling blake2b digest — checked in CI on every PR. See [`docs/design/v2/17_provably_fair_arcade.md`](docs/design/v2/17_provably_fair_arcade.md) and [`docs/design/v2/17a_sui_randomness_spike.md`](docs/design/v2/17a_sui_randomness_spike.md).
+
+---
+
+## What's verified
+
+| Layer | Verification |
+|---|---|
+| `move/sources/*.move` (25 modules) | **509 / 509** Move tests pass on every commit (`sui move test`) including invariant suite, adversarial suite, spine-test-2 e2e replay, full DNT lifecycle, deadband, deferred-spread, FSM determinism |
+| `seeded_path::expand_segment` vs `sdk/src/seededPath.ts` | 10k random vectors, rolling blake2b digest, **byte-identical** |
+| Touch / DNT settlement on Sui testnet | Smoke ride 2026-05-23 — opened, recorded 3 segments, closed with CASHOUT, `verify.ts` PASS (extrema match + verdict match) |
+| Asymmetric impact fee for DNT | 15 / 15 DNT tests pass including `lock_and_settle_dnt_market_with_*` |
+| DNT PWE (probability-weighted exposure) | Union-bound Bachelier `compute_pwe_dnt`; 3 dedicated tests + zero regressions |
+| Bootstrap script self-consistency | Refuses to bootstrap a market where the min/max ride payout exceeds the per-barrier cap |
+| Vault solvency | Monte Carlo across 30k sessions → 0 conservation violations; positive vault edge on every market template ([`docs/design/v2/14_ride_economics.md`](docs/design/v2/14_ride_economics.md)) |
+| B7 economic calibration | Joint sweep over (barrier × multiplier) grid → ±10 % × 1.75× sweet spot, +11.24 % vault edge / 50.67 % touch rate ([`docs/design/v2/15_montecarlo_validation_report.md`](docs/design/v2/15_montecarlo_validation_report.md)) |
+| Keeper end-to-end | Boots against the v2 package on testnet, cranks `record_segment` against active rides at 400 ms cadence ([`keeper/src/segmentCranker.ts`](keeper/src/segmentCranker.ts)) |
+| Frontend | Renders candles from on-chain `segment_keys`, live PnL from real deterministic candles, gesture → segment-boundary PTB commit, client-side crank fallback, pattern-glow overlay, per-barrier orderbook stake bars |
+| `/api/faucet` | Vercel function — verified HTTP 200 on testnet (digest `3gh9wH8sr…`); rate-limited per-recipient with 90 s cooldown |
+
+The collateral invariant (`vault treasury accounting balances after every state transition`) is asserted in test for every mutating function and enforced in Move by the vault's typed Balance-merge discipline.
+
+---
+
+## What's honestly deferred
+
+Production deploy would address these; the hackathon submission states them openly rather than papering over.
+
+- **DNT PWE on-chain.** Code is in (`compute_pwe_dnt` at commit `2d2050c`) but takes effect only after the next Move upgrade. Existing testnet markets still track DNT at PWE = 0 (per-position caps still bind).
+- **Empirical gas-spread, PTB-rejection live test, abort-leak test.** Doc 17a §A0's three §6.3 tests require a deployed-package + `devInspect` harness, out of scope for the hackathon window. The primary defense (R1 — Sui's compile-time PTB-Random rule) is enforced by the Sui bytecode verifier independently.
+- **`verify.ts` walk-state seed.** Hardcoded `vol_regime_init = 1_000_000n` matching the bootstrap default; a market deployed with a non-default value would mismatch from k=0. Runtime warning emitted; the proper fix is to extend `SegmentMarketCreated` to also emit `vol_regime_init` or to expose `state_after` from the segments Table.
+- **B7-default market on testnet (`0x0c2bdb…71f9`)** uses the old stake bounds where `MIN_STAKE × ROUND_DURATION > cap`. Smoke market (`0x2f74…1e45`) and any future bootstrap use the new self-consistent defaults; the broken one stays for archive purposes.
+- **E1 verify SEV-2s** (closure-time race window, `firstEvent` full-pagination cost, ID case-sensitivity), **E2 spine-test breadth** (only one happy-path scenario), **D5/D6 SEV-2 polish** (phase-semantics on 1-candle patterns, round-transition false pulse, tab-visibility guard). Reviewer-noted; non-blocking.
+
+This is the part of the threat-model where a serious reviewer earns their keep. See [`docs/threat-model.md`](docs/threat-model.md) for the full inventory.
+
+---
 
 ## Run it locally
 
-Prerequisites: `sui` CLI configured for testnet, a funded address, Node 22+.
-
 ```bash
-# install all workspaces
-npm install
+git clone https://github.com/SeamMoney/sui-options && cd sui-options
+npm install                                # all workspaces in one go
 
-# publish (or upgrade) the Move package
-./scripts/deploy-testnet.sh
+# Move
+cd move && sui move test && cd ..          # 509/509
 
-# bootstrap the SUI MartingalerVault + seed a fleet of arcade (random-walk) markets
-./scripts/seed-arcade-markets.sh
+# upgrade Move package on testnet (preserves all existing singletons)
+./scripts/deploy-testnet.sh                # OR sui client upgrade --upgrade-capability <cap>
 
-# end-to-end on-chain smoke test (HIT path)
-./scripts/smoke.sh
+# bootstrap a SegmentMarket
+./scripts/bootstrap-segment-market.sh      # B7-calibrated defaults
+# OR a smoke-friendly one:
+ROUND_DURATION_SEGMENTS=20 OPEN_WINDOW_SEGMENTS=5 MAX_PAYOUT_PER_BARRIER=50000000 \
+  ./scripts/bootstrap-segment-market.sh
 
-# multi-actor demo with real testnet wallets and conservation P&L
-./scripts/demo.sh --hit
-./scripts/demo.sh --expired
+# end-to-end smoke (open ride, record 3 segments, close, verify)
+./scripts/segment-smoke.sh
 
-# permissionless keeper (drives ticks + settlement)
-npm -w wick-keeper run setup-key      # fund the printed address with 0.1 SUI
-npm run keeper:watch                  # poll forever; or `npm run keeper:tick`
+# permissionless keeper (cranks record_segment + lock_and_settle)
+WICK_KEEPER_SEGMENT_MARKETS=<segment_market_id> npm run --silent -w keeper watch
 
-# read-only HTTP API
-npm run dev:api                       # http://localhost:8787
+# read-only API
+npm run -w api dev                         # http://localhost:8787
 
 # frontend
-npm run dev:frontend                  # http://localhost:5173
+npm run -w frontend dev                    # http://localhost:5173
 
-# optional: organic activity from personality bots
-npm run bots:setup                    # generate + auto-fund 4 bot keys
-npm run bots:run                      # bull / bear / contrarian / drunk
+# personality bots for organic activity
+npm run bots:run                           # ~1 trade/sec across the fleet
 ```
 
-## Collateral invariant — load-bearing
+`scripts/agent-preflight.sh` is the canonical pre-commit gate: Move test + frontend / keeper / bots tsc. Required green before any commit.
 
-After every state transition in `move/`, the vault, side bucket, queue, fee buckets, and per-market locks must reconcile. The invariant suite (`move/tests/foundation_v2_tests.move`, `martingaler_vault_tests.move`, `drain_window_tests.move`, and the per-feature `*_tests.move`) asserts this after every step. Bugs here are direct loss-of-funds.
-
-## What is stubbed and would need to change before mainnet
-
-- **`WickOracle`** is fed by `pull_oracle_driver` and `random_walk_driver`. For mainnet, swap in a Pyth or Switchboard pull adapter. The market call sites do not change — they consume `WickOracle` via `PathObservation::record`.
-- **The upgrade capability is held by the publisher key alone** (`0xfad7…9455`). On mainnet this should be transferred to a multisig or burned. The package is on `compatible` upgrade policy.
-- **Keeper** is permissionless — anyone can run their own — but for production you'd run a redundant fleet rather than a single bot.
-
-## What's deferred (honest list)
-
-These are explicitly **not** in the hackathon demo. They're either pushed to roadmap or wait on a dependency:
-
-- **D.1 Predict route** (BTC via DeepBook Predict) — Predict's mainnet path isn't shipped; pushed to roadmap
-- **D.2 DeepBook CLOB listing** — cut
-- **E.1 tournament / E.2 badges** — cut
-- **Full Pro-Mode rewrite** — the current 2-pane shell *is* Pro Mode; only need a toggle to a Degen view
-- **Lookback exotic (A5c)** — needs a new market type, invasive; deferred
-- **DNT impact fee wiring** — the decisiveness shapes are implemented in `impact_fee.move`, but `compute_fee_amount` does not yet route through them (the `FeeSnapshot` struct needs extension). DNT winners pay the base fee for MVP.
-- **PWE for DNT** — currently 0; per-position caps still bind
-- **Keeper TS update for the new ABI** — in progress in parallel
-- **Frontend tap-hold ride gesture** — next phase
+---
 
 ## Repository layout
 
 ```
-move/            Sui Move package (252 tests pass)
-sdk/             @wick/sdk — TS SDK (WickClient + PTB builders)
-api/             @wick/api — Fastify HTTP service (read-only)
-keeper/          wick-keeper — permissionless TS settlement bot
-bots/            wick-bots — personality-driven testnet trading bots
-frontend/        Vite + React trading UI
-scripts/         Bash deploy + smoke + multi-actor demo + market seeders
-deployments/     Live testnet manifest + archive of upgrades
-docs/design/v2/  Per-feature design specs (00 reconciliation → 11 ride primitive)
+move/sources/      25 Move modules — market, segment_market, vault, fee_router, …
+move/tests/        509 Move tests including conformance, invariants, adversarial, e2e replay
+sdk/src/           @wick/sdk — PTB builders, typed event parsers, deterministic walk TS port
+frontend/src/      Vite + React + Sui dApp Kit; live testnet markets
+keeper/src/        Cranker + segment-market poller; permissionless on Move side
+bots/              Personality-driven testnet traders
+api/               Read-only Fastify HTTP service + Vercel /api/faucet endpoint
+scripts/           Deploy, bootstrap, smoke, verify, deterministic-walk helpers
+docs/design/v2/    Per-feature design specs 00–21 (locked architecture)
+deployments/       testnet.json — read this for live IDs, never hardcode
 ```
 
-This repo is an **npm workspace**. A single `npm install` from the root installs every TS package with `@mysten/sui` hoisted to the root `node_modules`.
+---
 
-## Sibling workspaces — do not bleed into them
+## Acknowledgments
 
-- `/Users/maxmohammadi/aptos-prop-amm` — separate Aptos research workspace. Do not import from there.
+- **Sui** for the random object + the PTB-Random structural rule that makes the gas-grinding test-and-abort attack a non-issue.
+- **papertrade.xyz** for the Martingaler / loss-recycling / fair-launch token shape — adapted, not vendored. Wick re-derives every formula. See [`docs/design/v2/01_martingaler_accounting_v2.md`](docs/design/v2/01_martingaler_accounting_v2.md).
+- **Tappr** for the tap-and-hold ride UI inspiration. Wick keeps the Move settlement; the UI is a layer. See [`docs/design/v2/21_tappr_ui_port.md`](docs/design/v2/21_tappr_ui_port.md).
+- **GPT-5 Codex** and **Claude Opus 4.7** as parallel co-implementors with cross-reviewing. The reviewer-agent pattern (one model implements, the other reviews) caught real shipping bugs in this sprint — including a non-functional gas-spread script that would have shipped with a misleading discharge claim.
+- **[Thesirix/github-readme-animated-chat-bubbles](https://github.com/Thesirix/github-readme-animated-chat-bubbles)** for the animated chat-bubble SVG generator powering this README's hero.
 
-See `AGENTS.md` for full agent context including the object model, lifecycle, Darbitex / Desnet / D no-import rule, and the MVP scope.
+---
+
+## License
+
+Apache-2.0 — see [`LICENSE`](LICENSE). Demo on Sui **testnet only**, never mainnet.
+
+---
+
+*If a candle in your loss looks wrong, replay it. The math is reproducible bit-for-bit. That's the whole pitch.*
