@@ -49,7 +49,15 @@ const CANDLES_PER_SEGMENT = 6;
 const DEFAULT_SEGMENT_MS = 400;
 const MIN_SEGMENT_MS = 250;
 const MAX_SEGMENT_MS = 1200;
-const MAX_CHART_CANDLES = 40;
+// 2026-05-24 — bumped 40 → 120 after the user observed candles "stop
+// rendering in the middle of the screen they dissapear. they should
+// move all the way to the left!" on desktop. At 40 candles × 13px
+// spacing = 520px of candles; a ~1100px-wide chart leaves the left
+// half empty. The dynamic `maxCandles = Math.min(cap, width/spacing)`
+// is what fills the width — the cap is now generous enough that even
+// a 1600px desktop fills (~123 candles at 13px). Mobile stays well
+// under the cap (375px / 9px = 41 candles).
+const MAX_CHART_CANDLES = 120;
 const STALL_THRESHOLD_MS = 3000;
 
 const PRICE_SCALING = 1_000_000;
@@ -281,7 +289,22 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
     let cancelled = false;
     let cleanup: (() => void) | null = null;
 
-    void import("p5").then((mod) => {
+    // 2026-05-24 — wait for Bai Jamjuree to actually load before
+    // importing p5. Google Fonts uses display=swap, so without this
+    // gate p5 might rasterize its first frames against the SF Mono
+    // fallback; the user then sees "the barrier lines … have basic
+    // plain font". Once a canvas frame is drawn with the fallback,
+    // browsers don't always re-resolve on subsequent frames. The font
+    // load is awaited in parallel with the p5 dynamic-import so the
+    // critical path doesn't get slower — whichever finishes last gates
+    // the sketch.
+    const fontReady: Promise<unknown> =
+      typeof document !== "undefined" && document.fonts
+        ? document.fonts
+            .load('12px "Bai Jamjuree"')
+            .catch(() => undefined)
+        : Promise.resolve();
+    void Promise.all([import("p5"), fontReady]).then(([mod]) => {
       if (cancelled) return;
       p5Mod = (mod.default ?? mod) as typeof p5;
 
@@ -617,7 +640,16 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         // moving chart, decides to tap, the chain takes over for their ride,
         // then idle-walk resumes after they release. No more "frozen until
         // someone plays" problem, no more 0.5 SUI/min cranker burn.
-        const IDLE_WALK_INTERVAL_MS = 600;
+        // 2026-05-24 — bumped 600 → 1200 after the user observed the
+        // chart "moving a lot faster now. a little too fast" once the
+        // idle walk shipped. expandSegment produces 6 candles per call;
+        // drainRevealQueue drains at REVEAL_BASE_MS = 200 ms per candle
+        // = 1200 ms per batch of 6. At 600 ms push cadence the queue
+        // grew faster than it drained, the adaptive cadence accelerated
+        // the drain to its 80 ms floor, and the chart blurred. 1200 ms
+        // matches the natural drain rate so the queue stays at 0-6 and
+        // the visual pace mirrors the on-chain cranker.
+        const IDLE_WALK_INTERVAL_MS = 1200;
         let lastIdleWalkMs = 0;
         const tickIdleWalk = (now: number) => {
           if (!walkState) return;
@@ -1323,7 +1355,16 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           p.textFont("Bai Jamjuree, system-ui, sans-serif");
           const isMobile = p.windowWidth < 768;
           const leftMargin = isMobile ? 4 : 8;
-          const rightMargin = isMobile ? 40 : 56;
+          // 2026-05-24 — desktop right margin bumped 56 → 320 because
+          // BarrierFlowV4 (the ROUND/UPPER/LOWER glass panel) is
+          // absolutely positioned at `right-3` and is ~280-300 px wide.
+          // At rightMargin=56 the chart area extended *underneath* the
+          // panel, so the barrier line + label rendered ON TOP of it
+          // (user feedback: "the barrier line is overlapping with the
+          // component overlaying the screen"). The panel only renders
+          // on desktop in the v4 layout, so mobile keeps the slim 40 px
+          // gutter for the price-tag column.
+          const rightMargin = isMobile ? 40 : 320;
           const topMargin = getTopMargin();
           const bottomInset = getSafeBottom();
           chartArea = {
@@ -1405,7 +1446,9 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           p.strokeCap(p.ROUND);
           const isMobile = p.windowWidth < 768;
           const leftMargin = isMobile ? 4 : 8;
-          const rightMargin = isMobile ? 40 : 56;
+          // Must mirror p.setup's rightMargin — see note there for why
+          // desktop reserves a wide gutter for BarrierFlowV4.
+          const rightMargin = isMobile ? 40 : 320;
           const topMargin = getTopMargin();
           const bottomInset = getSafeBottom();
           chartArea = {
