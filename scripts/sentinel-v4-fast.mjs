@@ -69,7 +69,7 @@ const ESCROW_MIST = STAKE_PER_SEGMENT * BigInt(ROUND_DURATION_SEGMENTS);
 // user's tx to land.
 const CRANK_INTERVAL_MS = Number(process.env.CRANK_INTERVAL_MS ?? "600");
 const HOLD_SEGMENTS = Number(process.env.HOLD_SEGMENTS ?? "70");
-const GAS_BUDGET = 100_000_000n; // 0.1 SUI
+const GAS_BUDGET = BigInt(process.env.GAS_BUDGET ?? "50000000"); // 0.1 SUI
 
 // ── Load active sui CLI keypair ───────────────────────────────────────────
 const KEYSTORE_PATH = join(homedir(), ".sui/sui_config/sui.keystore");
