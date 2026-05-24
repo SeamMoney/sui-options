@@ -829,6 +829,9 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         const drawBarriers = () => {
           const s = stateRef.current;
           if (!s.round) return;
+          // Re-apply font at the top of every text-drawing fn — defensive
+          // against anything resetting it between frames (v4.17).
+          p.textFont('"Bai Jamjuree", system-ui, sans-serif');
 
           const drawOne = (
             price: number,
@@ -880,6 +883,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           tip: { x: number; y: number; lines: string[] } | null,
         ) => {
           if (!tip || tip.lines.length === 0) return;
+          p.textFont('"Bai Jamjuree", system-ui, sans-serif');
           const padX = 9;
           const padY = 7;
           const lineHeight = 15;
@@ -1031,6 +1035,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
 
         const drawPriceLine = () => {
           if (candles.length === 0) return;
+          p.textFont('"Bai Jamjuree", system-ui, sans-serif');
           const last = candles[candles.length - 1]!;
           const y = p.map(
             last.close,
@@ -1056,6 +1061,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         };
 
         const drawPriceLabels = () => {
+          p.textFont('"Bai Jamjuree", system-ui, sans-serif');
           const fontSize = p.width < 768 ? 8 : 10;
           const labelCount = p.width < 768 ? 5 : 7;
           p.fill(255, 255, 255, 120);
@@ -1352,7 +1358,13 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         p.setup = () => {
           p.createCanvas(p.windowWidth, p.windowHeight);
           p.strokeCap(p.ROUND);
-          p.textFont("Bai Jamjuree, system-ui, sans-serif");
+          // QUOTED FAMILY NAME — load-bearing. Without the inner quotes,
+          // ctx.font becomes `12px Bai Jamjuree, system-ui, sans-serif`,
+          // and Safari/iOS WebKit treats `Bai` + `Jamjuree` as two
+          // unknown families, falling through to system-ui = SF Mono.
+          // User feedback 2026-05-24: "why are the y axis labels and
+          // barrier labels text not in bai jamjuree font!!".
+          p.textFont('"Bai Jamjuree", system-ui, sans-serif');
           const isMobile = p.windowWidth < 768;
           const leftMargin = isMobile ? 4 : 8;
           // 2026-05-24 — desktop right margin bumped 56 → 320 because
