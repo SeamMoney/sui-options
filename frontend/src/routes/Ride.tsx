@@ -23,7 +23,6 @@ import RideChartV4 from "@/components/RideChartV4";
 import { FaucetButton } from "@/components/wallet/FaucetButton";
 import { RoundCountdown } from "@/components/RoundCountdown";
 import { BarrierOrderbookGrid } from "@/components/BarrierOrderbookGrid";
-import { BarrierFlowV4 } from "@/components/BarrierFlowV4";
 import { useSegmentRide } from "@/hooks/useSegmentRide";
 import { useSegmentRideV4 } from "@/hooks/useSegmentRideV4";
 import type { RidePhase } from "@/hooks/useRideGesture";
@@ -464,13 +463,11 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
         </div>
 
         {/*
-         * V4 declutter: the top-bar RoundCountdown was duplicating info
-         * that BarrierFlowV4 (right rail) already shows — round number +
-         * countdown — plus it still displayed "PICK A BARRIER" copy from
-         * v3 even though v4 has no barrier-pick step. Dropped entirely
-         * for v4. The right-rail panel is the single source of round
-         * status. (User feedback 2026-05-23: "as little as stuff on the
-         * screen as possible".)
+         * V4 declutter: the top-bar RoundCountdown + the right-rail
+         * BarrierFlowV4 panel were both dropped (user 2026-05-24:
+         * "Just fucking delete that thing its not useful"). Round
+         * countdown and barrier prices show in-canvas via drawBarriers
+         * so they don't compete with the chart for real estate.
          */}
 
         <div className="pointer-events-auto">
@@ -485,18 +482,6 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
             </div>
           ) : null}
         </div>
-      </div>
-
-      {/* ── Right edge: V4 barrier-flow panel ─────────────────────────── */}
-      <div
-        className="fixed right-3 z-[1550] pointer-events-none"
-        style={{ top: `calc(env(safe-area-inset-top) + 80px)` }}
-      >
-        <BarrierFlowV4
-          marketId={picked.market}
-          client={session.client}
-          initialSnapshot={ride.marketSnapshot}
-        />
       </div>
 
       {/* ── Center: fund CTA when broke, else V4 state hero ──────────── */}

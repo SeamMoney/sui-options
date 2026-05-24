@@ -1367,16 +1367,12 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           p.textFont('"Bai Jamjuree", system-ui, sans-serif');
           const isMobile = p.windowWidth < 768;
           const leftMargin = isMobile ? 4 : 8;
-          // 2026-05-24 — desktop right margin bumped 56 → 320 because
-          // BarrierFlowV4 (the ROUND/UPPER/LOWER glass panel) is
-          // absolutely positioned at `right-3` and is ~280-300 px wide.
-          // At rightMargin=56 the chart area extended *underneath* the
-          // panel, so the barrier line + label rendered ON TOP of it
-          // (user feedback: "the barrier line is overlapping with the
-          // component overlaying the screen"). The panel only renders
-          // on desktop in the v4 layout, so mobile keeps the slim 40 px
-          // gutter for the price-tag column.
-          const rightMargin = isMobile ? 40 : 320;
+          // 2026-05-24 v4.18 — restored to the slim Y-axis gutter after
+          // the BarrierFlowV4 panel that motivated the 320 px bump was
+          // deleted entirely ("Just fucking delete that thing its not
+          // useful"). 56 px on desktop is just enough for the Y-axis
+          // price labels drawn by drawPriceLabels.
+          const rightMargin = isMobile ? 40 : 56;
           const topMargin = getTopMargin();
           const bottomInset = getSafeBottom();
           chartArea = {
@@ -1458,9 +1454,8 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           p.strokeCap(p.ROUND);
           const isMobile = p.windowWidth < 768;
           const leftMargin = isMobile ? 4 : 8;
-          // Must mirror p.setup's rightMargin — see note there for why
-          // desktop reserves a wide gutter for BarrierFlowV4.
-          const rightMargin = isMobile ? 40 : 320;
+          // Mirror p.setup — 56 px gutter for the Y-axis price labels.
+          const rightMargin = isMobile ? 40 : 56;
           const topMargin = getTopMargin();
           const bottomInset = getSafeBottom();
           chartArea = {
