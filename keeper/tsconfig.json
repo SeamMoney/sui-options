@@ -18,7 +18,7 @@
     // normal module resolution from imports (@mysten/sui, etc.). The
     // @types/node + @types/ws devDeps stay in keeper/package.json so they
     // resolve through normal lookup when explicitly imported.
-    "types": []
+    "types": ["node"]
   },
   "include": ["src/**/*", "test/**/*"]
 }
