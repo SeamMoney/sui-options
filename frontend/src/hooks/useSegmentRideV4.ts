@@ -294,6 +294,13 @@ export function useSegmentRideV4(
 
   const busyRef = useRef(false);
   const closeQueuedRef = useRef(false);
+  // Ref-mirror of `positionId` so close() reads it synchronously without
+  // waiting for React to rebuild the useCallback closure. Fixes the
+  // 2026-05-23 stuck-money race: open() does setPositionId() then setPhase
+  // ("riding"); the user releases on the next frame; close() reads the
+  // STALE captured positionId=null from its closure and silently no-ops,
+  // leaving the on-chain ride open until round expiry auto-settles it.
+  const positionIdRef = useRef<string | null>(null);
 
   // ── Derived market parameters ────────────────────────────────────────
   const stakePerSegmentMicroUsd: bigint =
@@ -359,6 +366,7 @@ export function useSegmentRideV4(
         if (!created?.objectId) {
           throw new Error("SegmentRidePositionV4 not found in tx result");
         }
+        positionIdRef.current = created.objectId;
         setPositionId(created.objectId);
         setPhase("riding");
         onBalanceChanged?.();
@@ -396,13 +404,25 @@ export function useSegmentRideV4(
   ]);
 
   const close = useCallback(() => {
-    if (phase === "opening" && !positionId) {
+    // Read positionId from ref (always current) instead of the captured
+    // state value (rebuilt by React on next render).
+    const livePositionId = positionIdRef.current;
+    if (phase === "opening" && !livePositionId) {
       // Released before the open tx confirmed — queue the close.
       closeQueuedRef.current = true;
       return;
     }
-    if (!positionId) return;
-    if (busyRef.current) return;
+    if (!livePositionId) {
+      // No live position to close. Queue anyway in case the open tx
+      // confirms in the next tick — the open handler drains the queue.
+      if (busyRef.current) closeQueuedRef.current = true;
+      return;
+    }
+    if (busyRef.current) {
+      // A close is already in flight (or open hasn't finished). Queue.
+      closeQueuedRef.current = true;
+      return;
+    }
     busyRef.current = true;
     setPhase("closing");
 
@@ -412,7 +432,7 @@ export function useSegmentRideV4(
           packageId,
           collateralType: market.collateral || DEFAULT_COLLATERAL,
           sender,
-          rideId: positionId,
+          rideId: livePositionId,
           marketId: market.market,
           vaultId: market.vault,
           priceOracleId,
@@ -438,6 +458,7 @@ export function useSegmentRideV4(
             ? SETTLEMENT_NAME_V4[labelKey]
             : "settled";
         setLastSettlement({ kind, label, digest: res.digest });
+        positionIdRef.current = null;
         setPositionId(null);
         setPhase("idle");
         onBalanceChanged?.();
