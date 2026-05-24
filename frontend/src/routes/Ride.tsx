@@ -215,8 +215,10 @@ function CenterHeroV4(props: {
   pnl: number;
   stakePaid: number;
   multiplierX: number;
+  /** Mobile-safe fallback when the touchend gesture misses. */
+  onCashOut: () => void;
 }) {
-  const { needsFunds, phase, pnl, stakePaid, multiplierX } = props;
+  const { needsFunds, phase, pnl, stakePaid, multiplierX, onCashOut } = props;
 
   let kicker = "";
   let big = "";
@@ -285,6 +287,38 @@ function CenterHeroV4(props: {
           <div className="h-1 w-24 rounded-full bg-white/10 overflow-hidden">
             <div className="h-full w-1/3 bg-amber-300/80 motion-safe:animate-[rideBar_1100ms_ease-in-out_infinite]" />
           </div>
+        </div>
+      )}
+      {/*
+        Mobile-safe cash-out fallback (2026-05-23). The gesture path —
+        finger release → touchEnded → close() — sometimes misses on iOS
+        Safari (touchcancel fires instead of touchend if the system pulls
+        focus, or a state race makes close() see positionId=null). This
+        button is the always-tappable backup: huge target, pointer-events-
+        auto so it captures the tap even though the outer hero stays
+        pointer-events-none for the rest of its content.
+      */}
+      {(phase === "riding" || phase === "opening") && (
+        <div className="mt-6 flex justify-center pointer-events-auto">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCashOut();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onCashOut();
+            }}
+            className="px-8 py-4 rounded-full bg-white text-zinc-950 text-base font-bold uppercase tracking-widest shadow-2xl active:scale-95 transition select-none"
+            style={{
+              touchAction: "manipulation",
+              WebkitTapHighlightColor: "transparent",
+            }}
+          >
+            Cash out
+          </button>
         </div>
       )}
     </div>
@@ -463,6 +497,7 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           pnl={ridePnl.pnl}
           stakePaid={stakePaid}
           multiplierX={multiplierX}
+          onCashOut={() => ride.close()}
         />
       ) : null}
 
