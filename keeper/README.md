@@ -252,13 +252,13 @@ For each market in `WICK_KEEPER_SENTINEL_MARKETS`, every loop iteration:
    keeping the chart alive.
 3. If we're past `open_window_segments` of the current round → sleep to
    the next round.
-4. Otherwise build `wick::open_segment_ride<C>` PTB, sign locally,
+4. Otherwise build `wick::open_segment_ride_v3<C>` PTB, sign locally,
    POST `{ sender, txBytes, userSig }` to `/api/sponsor`. On success,
    pull the ride id from the `RideOpened` event in the open tx.
 5. Sleep `(round_duration_segments - 2) × 400ms` — close just before
    round-end so we don't drop into `EXPIRED_LOSS` (which would burn the
    sponsor budget).
-6. Build `wick::close_segment_ride<C>` PTB, sign, POST to `/api/sponsor`.
+6. Build `wick::close_segment_ride_v3<C>` PTB, sign, POST to `/api/sponsor`.
 
 On SIGINT/SIGTERM the keeper drains the current step, then if a ride is
 still in flight attempts a best-effort sponsored close before exit.
@@ -278,27 +278,13 @@ export WICK_SPONSOR_ADDRESS=0xsponsor
 npm run watch
 ```
 
-### v2-bridge caveat — expect 403 until v3 ships
+### Sponsor rejection signals
 
-The on-chain `wick::segment_market_v3` module is not yet deployed on
-testnet. The sentinel deliberately targets the v2 router
-(`wick::open_segment_ride` / `wick::close_segment_ride`) so it can be
-smoke-tested against the existing v2 SegmentMarket. The
-`/api/sponsor` allowlist (`api/sponsor.ts` line 21-26) requires
-`segment_market_v3::*` — so every call from this sentinel returns
-**HTTP 403** ("MoveCall is not on the Wick SegmentMarketV3 allowlist")
-until v3 lands. That's the expected flow-validation signal: it proves
-the request shape is right and the sponsor is rejecting us for the
-right reason (allowlist), not the wrong reason (bad signature, missing
-key, etc.).
-
-If `WICK_SPONSOR_PRIVATE_KEY` isn't set in Vercel env, you'll see
-**HTTP 503** ("sponsor wallet is not configured") instead. Also expected.
-
-When v3 deploys, swap the PTB targets in `segmentSentinel.ts`'s
-`buildOpenSentinelRideTx` / `buildCloseSentinelRideTx` to
-`wick::segment_market_v3::open_segment_ride` and the allowlist will
-accept the calls.
+The sentinel targets the v3 router functions in `wick.move`; `/api/sponsor`
+then verifies the market argument is a `segment_market_v3::SegmentMarketV3<C>`
+object from the configured package. **HTTP 403** means the PTB failed that
+allowlist or gas-owner check. **HTTP 503** usually means the sponsor wallet env
+or daily spend cap is unavailable.
 
 ### Manual smoke
 
@@ -311,13 +297,12 @@ npm run watch    # NDJSON logs — look for action=segment-sentinel.*
 You should see:
 
 - `segment-sentinel.start` — boot log with sender, sponsor, sponsor URL,
-  and the v2-bridge note.
+  package id, collateral type, and router targets.
 - One of `segment-sentinel.skip-active` (someone else riding),
   `segment-sentinel.skip-window-closed` (waiting for next round), or
-  `segment-sentinel.error` carrying the 403/503 response from
-  `/api/sponsor` (during the v2-bridge era).
-- After v3 ships: `segment-sentinel.open-ok → ...close-ok` once per round
-  forever.
+  `segment-sentinel.error` carrying a sponsor rejection/degraded response.
+- On a funded v3 market: `segment-sentinel.open-ok → ...close-ok` once per
+  round forever.
 
 ## All env vars
 

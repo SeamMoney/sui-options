@@ -35,17 +35,10 @@
 //     as base64 strings, both txBytes and userSig).
 //
 // Important non-fabrication notes:
-//   * The sponsor allowlist (api/sponsor.ts line 21-26) is hardcoded to
-//     `segment_market_v3::{record_segment, open_segment_ride,
-//     close_segment_ride}`. The v3 module is NOT YET DEPLOYED on testnet
-//     (per the v3.6 task brief). This sentinel deliberately targets the
-//     v2 router (`wick::open_segment_ride` / `wick::close_segment_ride`)
-//     so that AT MINIMUM the sentinel can be smoke-tested against the v2
-//     market. The /api/sponsor service will respond 403
-//     ("MoveCall is not on the Wick SegmentMarketV3 allowlist") in that
-//     case. That's the expected flow-validation signal during v2-bridge
-//     era. When v3 deploys, the targets here flip to
-//     `wick::segment_market_v3::open_segment_ride` etc.
+//   * The sponsor allowlist co-signs the public v3 router surface in
+//     `wick.move` while separately checking that the market argument is a
+//     `segment_market_v3::SegmentMarketV3<C>` object from the configured
+//     package. This sentinel targets that router directly.
 //   * The sponsor may also return 503 ("sponsor wallet is not configured")
 //     if WICK_SPONSOR_PRIVATE_KEY isn't set in Vercel env. That's also
 //     expected during early integration. The sentinel logs all of these
@@ -246,7 +239,7 @@ export function buildOpenSentinelRideTx(args: {
   tx.setGasBudget(args.gasBudget);
   const [escrow] = tx.splitCoins(tx.gas, [tx.pure.u64(args.escrowMist)]);
   const ride = tx.moveCall({
-    target: `${args.packageId}::wick::open_segment_ride`,
+    target: `${args.packageId}::wick::open_segment_ride_v3`,
     typeArguments: [args.collateralType],
     arguments: [
       tx.object(args.marketId),
@@ -280,7 +273,7 @@ export function buildCloseSentinelRideTx(args: {
   tx.setGasOwner(args.sponsorAddress);
   tx.setGasBudget(args.gasBudget);
   const payout = tx.moveCall({
-    target: `${args.packageId}::wick::close_segment_ride`,
+    target: `${args.packageId}::wick::close_segment_ride_v3`,
     typeArguments: [args.collateralType],
     arguments: [
       tx.object(args.rideId),
@@ -390,13 +383,9 @@ export class SegmentSentinel {
         wait_slack_segments: this.opts.waitSlackSegments,
         gas_budget_mist: this.opts.gasBudget.toString(),
         interval_ms: this.opts.intervalMs,
-        // Important visibility for first-time integration — call this out
-        // so operators don't get confused by 403 responses on the v2 bridge.
         note:
-          "PTBs target `wick::open_segment_ride` / `wick::close_segment_ride` " +
-          "(v2 router). /api/sponsor's allowlist requires `segment_market_v3` " +
-          "— expect 403 responses until v3 ships. See keeper/src/segmentSentinel.ts " +
-          "header for context.",
+          "PTBs target `wick::open_segment_ride_v3` / `wick::close_segment_ride_v3` " +
+          "and /api/sponsor verifies the market argument is SegmentMarketV3.",
       },
     });
     this.loopPromise = this.runLoop();
@@ -815,7 +804,7 @@ export class SegmentSentinel {
       fields: Record<string, unknown>;
       type: string;
     };
-    if (!/::segment_market::SegmentMarket<.+>$/.test(content.type)) return null;
+    if (!/::segment_market_v3::SegmentMarketV3<.+>$/.test(content.type)) return null;
     const f = content.fields;
     return {
       activeRideCount: asBigInt(f.active_ride_count),
@@ -841,7 +830,7 @@ export class SegmentSentinel {
       parsedJson?: Record<string, unknown>;
     }>;
     for (const ev of events) {
-      if (typeof ev.type === "string" && ev.type.endsWith("::segment_market::RideOpened")) {
+      if (typeof ev.type === "string" && ev.type.endsWith("::segment_market_v3::RideOpened")) {
         const j = ev.parsedJson ?? {};
         const ride = j["ride_id"];
         if (typeof ride === "string" && ride.length > 0) return ride;
@@ -857,7 +846,7 @@ export class SegmentSentinel {
       if (
         c.type === "created" &&
         typeof c.objectType === "string" &&
-        c.objectType.endsWith("::segment_market::SegmentRidePosition") &&
+        c.objectType.endsWith("::segment_market_v3::SegmentRidePositionV3") &&
         typeof c.objectId === "string"
       ) {
         return c.objectId;

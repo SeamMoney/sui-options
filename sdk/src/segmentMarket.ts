@@ -571,9 +571,12 @@ export interface SegmentRidePositionSnapshot {
   settlementKind: number;
 }
 
-/** Extract the type argument from a `…::segment_market::SegmentMarket<…>` string. */
+/** Extract the type argument from a v2/v3 SegmentMarket type string. */
 function extractCollateralFromMarketType(type: string): string | null {
-  const m = /::segment_market::SegmentMarket<(.+)>$/.exec(type);
+  const m =
+    /::(?:segment_market::SegmentMarket|segment_market_v3::SegmentMarketV3)<(.+)>$/.exec(
+      type,
+    );
   return m && m[1] ? m[1] : null;
 }
 

@@ -27,6 +27,8 @@ export interface ArcadeMarketRecord {
  */
 export interface SegmentMarketRecord {
   name: string;
+  /** Segment market ABI generation. Defaults to 2 when omitted. */
+  version?: 2 | 3;
   /** Shared SegmentMarket<C> object id. */
   market: string;
   /** Collateral type tag, e.g. `0x2::sui::SUI`. */

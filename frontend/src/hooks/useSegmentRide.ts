@@ -36,11 +36,13 @@ import {
   buildCloseSegmentRideTx,
   buildOpenSegmentRideTx,
   buildRecordSegmentTx,
+  closeSegmentRideSponsored,
+  configureSponsoredTransactions,
   fetchSegmentMarket,
+  openSegmentRideSponsored,
   parseRoundStartedEvent,
   parseSegmentRecordedEvent,
-  roundStartedEventType,
-  segmentRecordedEventType,
+  recordSegmentSponsored,
   SETTLEMENT_NAME,
   type BarrierIndex,
   type RoundStartedEvent,
@@ -77,6 +79,8 @@ export interface UseSegmentRideConfig {
   client: SuiJsonRpcClient;
   /** Total escrow to lock — must cover stake_per_segment * round_duration. */
   escrowMist?: bigint;
+  /** Pre-funded Coin<C> object for sponsored v3 opens. */
+  escrowCoinId?: string;
   /** Per-segment stake in micro-USD; falls back to the market's min. */
   stakePerSegmentMicroUsd?: bigint;
   /** Called after a settle so the parent can refresh the burner balance. */
@@ -159,15 +163,42 @@ function segmentFromEvent(ev: SegmentRecordedEvent): SegmentInput {
 }
 
 export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHandle {
-  const { market, keypair, client, onBalanceChanged } = config;
+  const { market, keypair, client, onBalanceChanged, escrowCoinId } = config;
 
   const packageId = TESTNET_DEPLOYMENT.package_id ?? "";
   const botRegistryId = TESTNET_DEPLOYMENT.bot_registry ?? "";
   const priceOracleId = TESTNET_DEPLOYMENT.usd_price_oracle ?? "";
   const wickTokenStateId = TESTNET_DEPLOYMENT.wick_token_state ?? "";
   const wickStakingPoolId = TESTNET_DEPLOYMENT.wick_staking_pool ?? "";
+  const marketVersion = market.version ?? 2;
+  const segmentMarketModule =
+    marketVersion === 3 ? "segment_market_v3" : "segment_market";
+  const segmentRecordedMoveEventType = `${packageId}::${segmentMarketModule}::SegmentRecorded`;
+  const roundStartedMoveEventType = `${packageId}::${segmentMarketModule}::RoundStarted`;
+  const rideClosedMoveEventSuffix = `::${segmentMarketModule}::RideClosed`;
+  const ridePositionObjectSuffix =
+    marketVersion === 3
+      ? "::segment_market_v3::SegmentRidePositionV3"
+      : "::segment_market::SegmentRidePosition";
+  const sponsorUrl =
+    typeof import.meta.env.VITE_WICK_SPONSOR_URL === "string"
+      ? import.meta.env.VITE_WICK_SPONSOR_URL.trim()
+      : "";
+  const sponsorAddress =
+    typeof import.meta.env.VITE_WICK_SPONSOR_ADDRESS === "string"
+      ? import.meta.env.VITE_WICK_SPONSOR_ADDRESS.trim()
+      : "";
+  const useSponsored = marketVersion === 3 && sponsorUrl.length > 0;
 
   const sender = useMemo(() => keypair.toSuiAddress(), [keypair]);
+
+  const configureSponsor = useCallback(() => {
+    configureSponsoredTransactions({
+      packageId,
+      collateralType: market.collateral || DEFAULT_COLLATERAL,
+      sponsorAddress,
+    });
+  }, [packageId, market.collateral, sponsorAddress]);
 
   // ── Market snapshot (polled occasionally; rarely changes post-bootstrap)
   const [marketSnapshot, setMarketSnapshot] = useState<SegmentMarketSnapshot | null>(
@@ -227,7 +258,7 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
         // ── SegmentRecorded ────────────────────────────────────────────
         const segPage = await client.queryEvents({
           query: {
-            MoveEventType: segmentRecordedEventType(packageId),
+            MoveEventType: segmentRecordedMoveEventType,
           },
           limit: 50,
           order: "descending",
@@ -263,7 +294,7 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
 
         // ── RoundStarted ───────────────────────────────────────────────
         const roundPage = await client.queryEvents({
-          query: { MoveEventType: roundStartedEventType(packageId) },
+          query: { MoveEventType: roundStartedMoveEventType },
           limit: 20,
           order: "descending",
         });
@@ -295,7 +326,13 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [packageId, client, market.market]);
+  }, [
+    packageId,
+    client,
+    market.market,
+    segmentRecordedMoveEventType,
+    roundStartedMoveEventType,
+  ]);
 
   // ── Picked barrier — persists until the user re-picks or round rolls.
   const [pickedBarrier, setPickedBarrier] = useState<BarrierIndex | null>(null);
@@ -368,27 +405,55 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
 
       void (async () => {
         try {
-          const tx = buildOpenSegmentRideTx({
-            packageId,
-            collateralType: market.collateral || DEFAULT_COLLATERAL,
-            sender,
-            marketId: market.market,
-            vaultId: market.vault,
-            botRegistryId,
-            barrierIndex,
-            stakePerSegment: stakePerSegmentMicroUsd,
-            escrowMist,
-          });
-          const res = await client.signAndExecuteTransaction({
-            signer: keypair,
-            transaction: tx,
-            options: { showObjectChanges: true, showEffects: true },
-          });
-          const created = (res.objectChanges as ObjectChange[] | undefined)?.find(
+          let objectChanges: ObjectChange[] | undefined;
+          if (useSponsored) {
+            if (!sponsorAddress) {
+              throw new Error("Sponsored v3 rides require VITE_WICK_SPONSOR_ADDRESS.");
+            }
+            if (!escrowCoinId) {
+              throw new Error("Sponsored v3 opens require an escrow coin id.");
+            }
+            configureSponsor();
+            const digest = await openSegmentRideSponsored(
+              client,
+              keypair,
+              market.market,
+              market.vault,
+              botRegistryId,
+              barrierIndex,
+              stakePerSegmentMicroUsd,
+              escrowCoinId,
+              sponsorUrl,
+            );
+            const res = await client.getTransactionBlock({
+              digest,
+              options: { showObjectChanges: true, showEffects: true },
+            });
+            objectChanges = res.objectChanges as ObjectChange[] | undefined;
+          } else {
+            const tx = buildOpenSegmentRideTx({
+              packageId,
+              collateralType: market.collateral || DEFAULT_COLLATERAL,
+              sender,
+              marketId: market.market,
+              vaultId: market.vault,
+              botRegistryId,
+              barrierIndex,
+              stakePerSegment: stakePerSegmentMicroUsd,
+              escrowMist,
+            });
+            const res = await client.signAndExecuteTransaction({
+              signer: keypair,
+              transaction: tx,
+              options: { showObjectChanges: true, showEffects: true },
+            });
+            objectChanges = res.objectChanges as ObjectChange[] | undefined;
+          }
+          const created = objectChanges?.find(
             (c) =>
               c.type === "created" &&
               typeof c.objectType === "string" &&
-              c.objectType.includes("::segment_market::SegmentRidePosition"),
+              c.objectType.includes(ridePositionObjectSuffix),
           );
           if (!created?.objectId) {
             throw new Error("SegmentRidePosition not found in tx result");
@@ -428,6 +493,12 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
       stakePerSegmentMicroUsd,
       escrowMist,
       inOpenWindow,
+      useSponsored,
+      sponsorAddress,
+      escrowCoinId,
+      configureSponsor,
+      sponsorUrl,
+      ridePositionObjectSuffix,
       onBalanceChanged,
     ],
   );
@@ -446,24 +517,51 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
 
     void (async () => {
       try {
-        const tx = buildCloseSegmentRideTx({
-          packageId,
-          collateralType: market.collateral || DEFAULT_COLLATERAL,
-          sender,
-          rideId: positionId,
-          marketId: market.market,
-          vaultId: market.vault,
-          priceOracleId,
-          tokenStateId: wickTokenStateId,
-          stakingPoolId: wickStakingPoolId,
-        });
-        const res = await client.signAndExecuteTransaction({
-          signer: keypair,
-          transaction: tx,
-          options: { showEvents: true, showEffects: true },
-        });
-        const ev = (res.events as EventEnvelope[] | undefined)?.find((e) =>
-          (e.type ?? "").includes("::segment_market::RideClosed"),
+        let digest: string;
+        let events: EventEnvelope[] | undefined;
+        if (useSponsored) {
+          if (!sponsorAddress) {
+            throw new Error("Sponsored v3 rides require VITE_WICK_SPONSOR_ADDRESS.");
+          }
+          configureSponsor();
+          digest = await closeSegmentRideSponsored(
+            client,
+            keypair,
+            market.market,
+            market.vault,
+            priceOracleId,
+            wickTokenStateId,
+            wickStakingPoolId,
+            positionId,
+            sponsorUrl,
+          );
+          const res = await client.getTransactionBlock({
+            digest,
+            options: { showEvents: true, showEffects: true },
+          });
+          events = res.events as EventEnvelope[] | undefined;
+        } else {
+          const tx = buildCloseSegmentRideTx({
+            packageId,
+            collateralType: market.collateral || DEFAULT_COLLATERAL,
+            sender,
+            rideId: positionId,
+            marketId: market.market,
+            vaultId: market.vault,
+            priceOracleId,
+            tokenStateId: wickTokenStateId,
+            stakingPoolId: wickStakingPoolId,
+          });
+          const res = await client.signAndExecuteTransaction({
+            signer: keypair,
+            transaction: tx,
+            options: { showEvents: true, showEffects: true },
+          });
+          digest = res.digest;
+          events = res.events as EventEnvelope[] | undefined;
+        }
+        const ev = events?.find((e) =>
+          (e.type ?? "").includes(rideClosedMoveEventSuffix),
         );
         let kind = -1;
         if (ev?.parsedJson && typeof ev.parsedJson === "object") {
@@ -475,7 +573,7 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
           kind >= 0 && labelKey in SETTLEMENT_NAME
             ? SETTLEMENT_NAME[labelKey]
             : "settled";
-        setLastSettlement({ kind, label, digest: res.digest });
+        setLastSettlement({ kind, label, digest });
         setPositionId(null);
         setPhase("idle");
         onBalanceChanged?.();
@@ -502,6 +600,11 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
     wickStakingPoolId,
     keypair,
     client,
+    useSponsored,
+    sponsorAddress,
+    configureSponsor,
+    sponsorUrl,
+    rideClosedMoveEventSuffix,
     onBalanceChanged,
   ]);
 
@@ -522,17 +625,25 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
     lastCrankAtMsRef.current = now;
     void (async () => {
       try {
-        const tx = buildRecordSegmentTx({
-          packageId,
-          collateralType: market.collateral || DEFAULT_COLLATERAL,
-          sender,
-          marketId: market.market,
-        });
-        await client.signAndExecuteTransaction({
-          signer: keypair,
-          transaction: tx,
-          options: { showEffects: false },
-        });
+        if (useSponsored) {
+          if (!sponsorAddress) {
+            throw new Error("Sponsored v3 cranking requires VITE_WICK_SPONSOR_ADDRESS.");
+          }
+          configureSponsor();
+          await recordSegmentSponsored(client, keypair, market.market, sponsorUrl);
+        } else {
+          const tx = buildRecordSegmentTx({
+            packageId,
+            collateralType: market.collateral || DEFAULT_COLLATERAL,
+            sender,
+            marketId: market.market,
+          });
+          await client.signAndExecuteTransaction({
+            signer: keypair,
+            transaction: tx,
+            options: { showEffects: false },
+          });
+        }
       } catch (err) {
         // Bouncing is fine — another caller (the keeper, another rider)
         // beat us. Only log unexpected failures.
@@ -542,7 +653,18 @@ export function useSegmentRide(config: UseSegmentRideConfig): UseSegmentRideHand
         }
       }
     })();
-  }, [client, keypair, market.market, market.collateral, packageId, sender]);
+  }, [
+    client,
+    keypair,
+    market.market,
+    market.collateral,
+    packageId,
+    sender,
+    useSponsored,
+    sponsorAddress,
+    configureSponsor,
+    sponsorUrl,
+  ]);
 
   // Re-pick when picked barrier is unset but the user opened: ensure the
   // chart hook always sees a valid picked.
