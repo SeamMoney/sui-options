@@ -184,7 +184,7 @@
       "upgrade_digest": "BZQsgWFcBGM9hvhNVxRhv1rJMH4mxapyPtJ4HHhsPNcj",
       "upgrade_capability": "0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590",
       "version": 3,
-      "notes": "v4 \u2014 adds segment_market_v4 (touch-either, always-open per doc 25) + sponsor module (sponsored cranking per doc 22). segment_market_v3 + prune_proto stashed to move/sources-stash/ for size; v4 inherits prune_settled_segments + record_walrus_archive. Raw log: deployments/archive/upgrade-20260524T043838Z.json"
+      "notes": "v4 — adds segment_market_v4 (touch-either, always-open per doc 25) + sponsor module (sponsored cranking per doc 22). segment_market_v3 + prune_proto stashed to move/sources-stash/ for size; v4 inherits prune_settled_segments + record_walrus_archive. Raw log: deployments/archive/upgrade-20260524T043838Z.json"
     }
   ],
   "segment_markets": [
@@ -272,5 +272,14 @@
       "max_concurrent_rides": 50,
       "max_rides_per_user": 10
     }
-  ]
+  ],
+  "tusd": {
+    "package_id": "0x204d595c642a06ccc667a32789a6a5a01d0b7ff3340fb53f7f69649c90d00a31",
+    "treasury_cap": "0x7db5b3edead4f503ce8ef19ace6eca26e961edd08871042ad5de6f870a369b11",
+    "metadata": "0x820cc6ee93078333a5eff2cdec6473859cb57ce7f901e05a47eaeade8a3d7480",
+    "coin_type": "0x204d595c642a06ccc667a32789a6a5a01d0b7ff3340fb53f7f69649c90d00a31::tusd::TUSD",
+    "publisher_coin": "0x6e95d3781f3c209c3055b7d99cc2c457c8f9e8250edd8cfc96c9aad3371bd939",
+    "publisher_balance_raw": "1000000000000000",
+    "decimals": 6
+  }
 }
