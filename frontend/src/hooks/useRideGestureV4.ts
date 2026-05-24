@@ -335,17 +335,14 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         // segment rate so the queue stays approximately steady — neither
         // bursting empty (chart freezes) nor blowing up (chart bursts).
         //
-        // 2026-05-24 — bumped 80 → 200 after the user observed the chart
-        // "starting and stopping". The cranker emits ~6 candles per
-        // ~1200 ms cycle (600 ms sleep + ~600 ms tx roundtrip), so the
-        // natural per-candle rate is 1200/6 = 200 ms. At 80 ms the chart
-        // drained the 6-batch in 480 ms then froze for 720 ms — exactly
-        // the start-stop the user saw.
-        //
-        // Adaptive: when the queue grows past CANDLES_PER_SEGMENT (a
-        // burst caught up), the drain still accelerates so we never lag
-        // — just gently, not in a way that produces the freeze pattern.
-        const REVEAL_BASE_MS = 200;
+        // v4.21 — REVEAL_BASE_MS 200 → 100 to match the user's hard
+        // requirement: "Also another hard requirement is I want the
+        // candles to move fast like 100ms or 85ms like we had before. I
+        // dont want it to be any longer." Push cadence
+        // (IDLE_WALK_INTERVAL_MS) is dropped to 600ms so 6 candles per
+        // 600ms push = 10 candles/sec push matches 10 candles/sec drain.
+        // Queue stays at 0-6 in steady state; no blur, no freeze.
+        const REVEAL_BASE_MS = 100;
         type RevealItem = {
           seeded: ReturnType<typeof expandSegment>["candles"][number];
           render: RenderCandle;
@@ -640,31 +637,61 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         // moving chart, decides to tap, the chain takes over for their ride,
         // then idle-walk resumes after they release. No more "frozen until
         // someone plays" problem, no more 0.5 SUI/min cranker burn.
-        // 2026-05-24 — bumped 600 → 1200 after the user observed the
-        // chart "moving a lot faster now. a little too fast" once the
-        // idle walk shipped. expandSegment produces 6 candles per call;
-        // drainRevealQueue drains at REVEAL_BASE_MS = 200 ms per candle
-        // = 1200 ms per batch of 6. At 600 ms push cadence the queue
-        // grew faster than it drained, the adaptive cadence accelerated
-        // the drain to its 80 ms floor, and the chart blurred. 1200 ms
-        // matches the natural drain rate so the queue stays at 0-6 and
-        // the visual pace mirrors the on-chain cranker.
-        const IDLE_WALK_INTERVAL_MS = 1200;
+        // v4.21 — IDLE_WALK_INTERVAL_MS dropped to 600ms so push rate
+        // (6 candles per 600ms = 10/sec) matches the 100ms drain rate
+        // exactly. Queue stays empty, user sees a fast 100ms-per-candle
+        // chart as required.
+        //
+        // CRITICAL — DETERMINISTIC SEED. Before v4.21 the idle walk
+        // generated 32 random bytes per push via crypto.getRandomValues,
+        // which meant two browsers viewing the same chart saw COMPLETELY
+        // DIFFERENT candles between chain cranks. That broke the shared-
+        // market premise (user: "wasnt the whole point of having a global
+        // chart that everyone sees is that it is always running the same
+        // no matter who opens the app?"). Now the seed is derived from
+        // the last chain segment's key + a wallclock counter bucketed to
+        // IDLE_WALK_INTERVAL_MS. All clients with the same chain state
+        // at the same wallclock moment derive the same key, run
+        // expandSegment with the same inputs, and see the same candles.
+        const IDLE_WALK_INTERVAL_MS = 600;
         let lastIdleWalkMs = 0;
+        // Deterministic 32-byte derivation from (lastChainKey, counter).
+        // No SubtleCrypto async needed — a simple LCG mix is enough for
+        // an idle-walk seed (not security-critical, just needs to be
+        // pseudorandom-looking and deterministic across clients).
+        const deriveIdleKey = (
+          lastKey: Uint8Array | null,
+          counter: number,
+        ): Uint8Array => {
+          const out = new Uint8Array(32);
+          if (lastKey && lastKey.length >= 32) out.set(lastKey.subarray(0, 32));
+          let mix = BigInt(counter);
+          for (let i = 0; i < 32; i++) {
+            mix = (mix * 6364136223846793005n + 1442695040888963407n) &
+              0xffffffffffffffffn;
+            out[i] = (out[i] ?? 0) ^ Number(mix & 0xffn);
+          }
+          return out;
+        };
         const tickIdleWalk = (now: number) => {
           if (!walkState) return;
           const s = stateRef.current;
-          // Don't run idle walk while the user is actually riding — chain
-          // segments will take over and we want them to be the source of truth.
           if (s.phase === "opening" || s.phase === "riding") return;
-          // If real chain segments have arrived recently, defer to them.
           if (lastSegmentArrivedMs > 0 && now - lastSegmentArrivedMs < 4000) return;
           if (now - lastIdleWalkMs < IDLE_WALK_INTERVAL_MS) return;
           lastIdleWalkMs = now;
 
-          // Generate a fake 32-byte segment key with browser randomness.
-          const fakeKey = new Uint8Array(32);
-          crypto.getRandomValues(fakeKey);
+          // Pull the last chain segment key (if any) so all clients seed
+          // the same way. Falls back to a constant 32-byte zero key if no
+          // chain segment has ever been seen — still deterministic across
+          // clients (they'll all use zeros + same counter).
+          const segs = s.segments;
+          const lastChainKey =
+            segs.length > 0 ? segs[segs.length - 1]!.key : null;
+          // Wallclock-bucketed counter. floor(now / IDLE_WALK_INTERVAL_MS)
+          // is the same on every client within the same 600ms tick.
+          const counter = Math.floor(Date.now() / IDLE_WALK_INTERVAL_MS);
+          const fakeKey = deriveIdleKey(lastChainKey, counter);
           const result = expandSegment(walkState, fakeKey);
           walkState = result.newState;
           for (let i = 0; i < result.candles.length; i++) {

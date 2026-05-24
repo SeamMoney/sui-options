@@ -281,5 +281,15 @@
     "publisher_coin": "0x6e95d3781f3c209c3055b7d99cc2c457c8f9e8250edd8cfc96c9aad3371bd939",
     "publisher_balance_raw": "1000000000000000",
     "decimals": 6
+  },
+  "sponsor": {
+    "policy_id": "0x00d868c659dd0bda6dab50100aad10312939ac2a307c85957e00bb30da7d5387",
+    "cap_id": "0x505084ecf0d81ca974ca4fb5dfe6d1214a3f183134031ac72792d1084b514829",
+    "sponsor_address": "0x02e3f17cac22394741feb3d5d0afa2461df873eafd746777aadaeac04204fefa",
+    "max_spend_per_day_mist": 1000000000,
+    "refill_threshold_mist": 50000000,
+    "refill_target_mist": 300000000,
+    "bootstrap_digest": "CdZvgZongjZnqmrRPj3HspWUQ9S7X4p8rmbqhaAh11K2",
+    "address_update_digest": "GB9batULm8vTQ2mSAqfhxmBUBvKfqjSv5Hepzn1mMQm5"
   }
 }

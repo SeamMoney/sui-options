@@ -506,8 +506,13 @@ export function useSegmentRideV4(
     closeQueuedRef.current = false;
     setLastError(null);
     setLastSettlement(null);
-    // OPTIMISTIC: flip phase immediately so the chart shows "starting…".
-    setPhase("opening");
+    // v4.21 — FULLY OPTIMISTIC. Skip the "opening" phase entirely. The
+    // chart's hero flips straight to "riding" the instant the user taps,
+    // matching the "instant tap to start position" hard requirement.
+    // Background: open tx fires, eventually the positionId arrives. If
+    // the tx fails, setPhase("idle") in the catch path below + surface
+    // the error. User feels zero latency.
+    setPhase("riding");
 
     void (async () => {
       // P0 fix (agent #3): wrap the entire IIFE in try/finally so a thrown
@@ -549,7 +554,8 @@ export function useSegmentRideV4(
             }
             positionIdRef.current = created.objectId;
             setPositionId(created.objectId);
-            setPhase("riding");
+            // Phase is ALREADY "riding" from the optimistic flip above.
+            // Don't re-set it (no-op anyway, but explicit).
             onBalanceChanged?.();
             return;
           } catch (err) {
@@ -596,27 +602,33 @@ export function useSegmentRideV4(
   ]);
 
   const close = useCallback(() => {
-    // Read positionId from ref (always current) instead of the captured
-    // state value (rebuilt by React on next render).
+    // v4.21 — FULLY OPTIMISTIC. Flip phase to "idle" the instant the
+    // user releases, matching the "instant close position on let go"
+    // hard requirement. The chain tx fires in the background; if it
+    // succeeds, setLastSettlement renders the win/loss toast a beat
+    // later. If it fails, the user has already moved on visually; we
+    // surface the error in the toast slot without re-blocking them.
     const livePositionId = positionIdRef.current;
-    if (phase === "opening" && !livePositionId) {
-      // Released before the open tx confirmed — queue the close.
+    if (phase === "riding" && !livePositionId) {
+      // Released before the open tx confirmed — queue the close so the
+      // open handler can drain it once positionId lands. UI stays idle.
+      setPhase("idle");
       closeQueuedRef.current = true;
       return;
     }
     if (!livePositionId) {
-      // No live position to close. Queue anyway in case the open tx
-      // confirms in the next tick — the open handler drains the queue.
       if (busyRef.current) closeQueuedRef.current = true;
+      setPhase("idle");
       return;
     }
     if (busyRef.current) {
-      // A close is already in flight (or open hasn't finished). Queue.
       closeQueuedRef.current = true;
+      setPhase("idle");
       return;
     }
     busyRef.current = true;
-    setPhase("closing");
+    // OPTIMISTIC: phase=idle immediately, not "closing".
+    setPhase("idle");
 
     void (async () => {
       // 2026-05-24 — retry on shared-object version conflicts. The
@@ -668,7 +680,7 @@ export function useSegmentRideV4(
             setLastError(null);
             positionIdRef.current = null;
             setPositionId(null);
-            setPhase("idle");
+            // Phase already "idle" from the optimistic flip above.
             onBalanceChanged?.();
             return;
           } catch (err) {
@@ -686,7 +698,7 @@ export function useSegmentRideV4(
               setLastError(null);
               positionIdRef.current = null;
               setPositionId(null);
-              setPhase("idle");
+              // Phase already "idle".
               onBalanceChanged?.();
               return;
             }
@@ -698,9 +710,11 @@ export function useSegmentRideV4(
             break;
           }
         }
-        // All attempts exhausted — keep phase="riding" so the user can
-        // tap the CASH OUT button again. Humanize the error.
-        setPhase("riding");
+        // All attempts exhausted — the user already saw an instant
+        // "released" so don't bounce them back to riding (would be
+        // jarring). Surface the error in the toast. The ride is still
+        // open on chain — they can refresh and the orphan-sweep will
+        // pick it up.
         const msg = lastErr?.message ?? "cash-out failed";
         setLastError(humanizeChainError(msg));
         console.warn("[useSegmentRideV4] close failed after retries:", msg.slice(0, 200));
