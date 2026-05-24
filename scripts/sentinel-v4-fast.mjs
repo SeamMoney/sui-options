@@ -191,28 +191,103 @@ log(`  crank cadence: ${CRANK_INTERVAL_MS}ms`);
 log(`  hold:          ${HOLD_SEGMENTS} segments`);
 log("─────────────────────────────────────────────────────");
 
-process.on("SIGINT", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
+// 2026-05-24 — Tracks the in-flight ride object id so SIGINT can
+// close it instead of leaking escrow into the vault.
+let activeSentinelRideId = null;
+async function gracefulShutdown() {
+  if (activeSentinelRideId) {
+    log(`shutdown — closing sentinel ride ${activeSentinelRideId.slice(0, 12)}…`);
+    try {
+      await signAndExecute(buildCloseTx(activeSentinelRideId), "shutdown-close");
+    } catch (err) {
+      log(`  trap close failed: ${err.message?.slice(0, 120)}`);
+    }
+  }
+  process.exit(0);
+}
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
 
 // ── Main loop ─────────────────────────────────────────────────────────────
 //
-// 2026-05-24 — cost reduction. The old loop opened its own ride
-// (escrow 0.00075 SUI) then cranked 70 segments then closed — burning
-// ~0.36 SUI per cycle (~0.7 SUI/min, ~43 SUI/hour) JUST to keep the
-// chart alive when nobody was playing.
-//
-// New behavior: cranker NEVER opens its own ride. It only polls
-// market.active_ride_count; if > 0 (a real user is riding, or a stale
-// ride is still open), it cranks record_segment_v4. If 0, it sleeps
-// quietly. Cost drops to near-zero when idle, and only burns
-// crank-gas (~5M MIST per crank) when real users are playing — which
-// is what they'd be paying for anyway if we'd built v3.1 sponsored
-// cranking instead.
-//
-// Idle cost: 1 RPC call per IDLE_POLL_MS (free, just a getObject).
-// Active cost: 1 record_segment_v4 tx per CRANK_INTERVAL_MS during
-//              user rides. ~5M MIST/tx ≈ 0.03 SUI/min of actual play.
+// 2026-05-24 — operator mode:
+//   CRANKER_MODE=always   (default) — open a sentinel ride, crank it,
+//                                     close it, repeat. Chart is alive
+//                                     24/7 even with no real users.
+//                                     Burn rate ~0.5 SUI/min during the
+//                                     ride + ~0.01 SUI per open/close
+//                                     overhead. Right for demo / first-
+//                                     impression UX where "chart looks
+//                                     dead" is a deal-killer.
+//   CRANKER_MODE=poll              — only crank when a real user has
+//                                     a ride open (cost ~0 when idle).
+//                                     Wrong for first-time users because
+//                                     they won't tap a frozen chart.
+//                                     Right for production once sponsored
+//                                     cranking lands.
+const CRANKER_MODE = (process.env.CRANKER_MODE ?? "always").toLowerCase();
 const IDLE_POLL_MS = Number(process.env.IDLE_POLL_MS ?? "2000");
+
+// ALWAYS-ACTIVE mode — open / crank / close in a loop.
+if (CRANKER_MODE === "always") {
+  log(`mode: ALWAYS-ACTIVE — sentinel ride keeps chart alive 24/7`);
+  let loop = 0;
+  while (true) {
+    loop += 1;
+    const tStart = Date.now();
+    // 1. OPEN
+    let openRes;
+    try {
+      openRes = await signAndExecute(buildOpenTx(), `open-${loop}`);
+    } catch (err) {
+      log(`[${loop}] open failed: ${err.message?.slice(0, 100)} — sleep 10s`);
+      await sleep(10_000);
+      continue;
+    }
+    const ridePos = openRes.objectChanges?.find(
+      (c) =>
+        c.type === "created" &&
+        typeof c.objectType === "string" &&
+        c.objectType.includes("::segment_market_v4::SegmentRidePositionV4"),
+    );
+    if (!ridePos) {
+      log(`[${loop}] open returned no ride object — sleep 5s`);
+      await sleep(5_000);
+      continue;
+    }
+    activeSentinelRideId = ridePos.objectId;
+    log(`[${loop}] OPEN ride=${activeSentinelRideId.slice(0, 12)}…`);
+
+    // 2. CRANK for HOLD_SEGMENTS segments
+    let crankErrors = 0;
+    for (let seg = 0; seg < HOLD_SEGMENTS; seg++) {
+      try {
+        await signAndExecute(buildCrankTx(), `crank-${loop}-${seg}`);
+        crankErrors = 0;
+      } catch (err) {
+        crankErrors += 1;
+        if (crankErrors > 8) {
+          log(`[${loop}] >8 crank errors, bailing this ride`);
+          break;
+        }
+      }
+      if (seg % 20 === 0) log(`[${loop}] cranked ${seg}/${HOLD_SEGMENTS}`);
+      await sleep(CRANK_INTERVAL_MS);
+    }
+
+    // 3. CLOSE
+    try {
+      await signAndExecute(buildCloseTx(activeSentinelRideId), `close-${loop}`);
+      log(`[${loop}] CLOSE in ${((Date.now() - tStart) / 1000).toFixed(1)}s`);
+    } catch (err) {
+      log(`[${loop}] close failed: ${err.message?.slice(0, 100)}`);
+    }
+    activeSentinelRideId = null;
+    await sleep(500); // breath between loops
+  }
+}
+
+// POLL-ONLY mode (legacy) — only crank when a real user is riding.
 
 async function readActiveRideCount() {
   try {
