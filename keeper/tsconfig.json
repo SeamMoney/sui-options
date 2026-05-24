@@ -12,7 +12,12 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
-    "typeRoots": ["../node_modules/@types", "./node_modules/@types"]
+    // Explicit types list — implicit lookup picks up empty orphan dirs from
+    // workspace dedup (e.g. node_modules/@types/ws or .../uuid as empty
+    // placeholders left when a peer hoists them deeper). We only need node
+    // and ws; @mysten/sui pulls ws transitively, both are now explicit
+    // devDependencies in keeper/package.json.
+    "types": ["node", "ws"]
   },
   "include": ["src/**/*", "test/**/*"]
 }
