@@ -191,36 +191,106 @@ log(`  crank cadence: ${CRANK_INTERVAL_MS}ms`);
 log(`  hold:          ${HOLD_SEGMENTS} segments`);
 log("─────────────────────────────────────────────────────");
 
-// ── Trap: close any in-flight ride on SIGINT ──────────────────────────────
-let currentRideId = null;
-async function gracefulShutdown() {
-  if (currentRideId) {
-    log(`shutdown — closing ride ${currentRideId}`);
-    try {
-      await signAndExecute(buildCloseTx(currentRideId), "shutdown-close");
-    } catch (err) {
-      console.error("  trap close failed:", err.message);
-    }
-  }
-  process.exit(0);
-}
-process.on("SIGINT", gracefulShutdown);
-process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", () => process.exit(0));
+process.on("SIGTERM", () => process.exit(0));
 
 // ── Main loop ─────────────────────────────────────────────────────────────
-let loop = 0;
+//
+// 2026-05-24 — cost reduction. The old loop opened its own ride
+// (escrow 0.00075 SUI) then cranked 70 segments then closed — burning
+// ~0.36 SUI per cycle (~0.7 SUI/min, ~43 SUI/hour) JUST to keep the
+// chart alive when nobody was playing.
+//
+// New behavior: cranker NEVER opens its own ride. It only polls
+// market.active_ride_count; if > 0 (a real user is riding, or a stale
+// ride is still open), it cranks record_segment_v4. If 0, it sleeps
+// quietly. Cost drops to near-zero when idle, and only burns
+// crank-gas (~5M MIST per crank) when real users are playing — which
+// is what they'd be paying for anyway if we'd built v3.1 sponsored
+// cranking instead.
+//
+// Idle cost: 1 RPC call per IDLE_POLL_MS (free, just a getObject).
+// Active cost: 1 record_segment_v4 tx per CRANK_INTERVAL_MS during
+//              user rides. ~5M MIST/tx ≈ 0.03 SUI/min of actual play.
+const IDLE_POLL_MS = Number(process.env.IDLE_POLL_MS ?? "2000");
+
+async function readActiveRideCount() {
+  try {
+    const obj = await client.getObject({
+      id: MARKET,
+      options: { showContent: true },
+    });
+    const fields =
+      // newer SDK shape
+      obj.data?.content?.fields ??
+      // legacy fallback
+      obj.data?.content;
+    const n =
+      Number(fields?.active_ride_count ?? fields?.activeRideCount ?? 0) || 0;
+    return n;
+  } catch (err) {
+    log(`pollErr: ${err.message?.slice(0, 80)}`);
+    return -1;
+  }
+}
+
+let tick = 0;
+let consecutiveCrankErrs = 0;
+let lastLoggedState = "";
+
 while (true) {
+  tick += 1;
+  const arc = await readActiveRideCount();
+
+  if (arc <= 0) {
+    if (lastLoggedState !== "idle") {
+      log(`idle — active_ride_count=0, polling every ${IDLE_POLL_MS}ms (zero burn)`);
+      lastLoggedState = "idle";
+    }
+    await sleep(IDLE_POLL_MS);
+    continue;
+  }
+
+  if (lastLoggedState !== "cranking") {
+    log(`cranking — active_ride_count=${arc} at ${CRANK_INTERVAL_MS}ms cadence`);
+    lastLoggedState = "cranking";
+  }
+
+  try {
+    await signAndExecute(buildCrankTx(), `crank-${tick}`);
+    consecutiveCrankErrs = 0;
+  } catch (err) {
+    consecutiveCrankErrs += 1;
+    if (consecutiveCrankErrs <= 3 || consecutiveCrankErrs % 10 === 0) {
+      log(`[${tick}] crank err #${consecutiveCrankErrs}: ${err.message?.slice(0, 100)}`);
+    }
+    // Many crank errors in a row — the user's ride probably just settled.
+    // Re-poll active_ride_count quickly.
+    if (consecutiveCrankErrs >= 5) {
+      lastLoggedState = "";
+      await sleep(IDLE_POLL_MS);
+      consecutiveCrankErrs = 0;
+      continue;
+    }
+  }
+  await sleep(CRANK_INTERVAL_MS);
+}
+
+// Dead code (the old open/crank/close cycle, kept for reference).
+// The new main loop above never reaches this; it's an infinite while-true.
+async function _legacyOpenCrankCloseCycle() {
+  let loop = 0;
+  let currentRideId = null;
   loop += 1;
   const tStart = Date.now();
 
-  // 1. OPEN
   let openRes;
   try {
     openRes = await signAndExecute(buildOpenTx(), `open-${loop}`);
   } catch (err) {
     log(`[${loop}] open failed — sleep 5s. ${err.message?.slice(0, 120)}`);
     await sleep(5000);
-    continue;
+    return;
   }
   const ridePos = openRes.objectChanges?.find(
     (c) =>
@@ -231,12 +301,11 @@ while (true) {
   if (!ridePos) {
     log(`[${loop}] open returned no ride object — skipping`);
     await sleep(2000);
-    continue;
+    return;
   }
   currentRideId = ridePos.objectId;
   log(`[${loop}] OPEN ride=${currentRideId.slice(0, 12)}… digest=${openRes.digest.slice(0, 16)}`);
 
-  // 2. CRANK at CRANK_INTERVAL_MS cadence
   let crankErrors = 0;
   for (let seg = 0; seg < HOLD_SEGMENTS; seg++) {
     try {
@@ -254,7 +323,6 @@ while (true) {
     await sleep(CRANK_INTERVAL_MS);
   }
 
-  // 3. CLOSE
   try {
     const closeRes = await signAndExecute(buildCloseTx(currentRideId), `close-${loop}`);
     log(`[${loop}] CLOSE digest=${closeRes.digest.slice(0, 16)}`);
@@ -267,3 +335,7 @@ while (true) {
   log(`[${loop}] loop complete in ${dur}s`);
   await sleep(500);
 }
+// End of _legacyOpenCrankCloseCycle (unreachable; the new poll-only loop
+// above is an infinite while-true). Kept as a reference for the old
+// open/crank/close pattern in case we ever want a sentinel that PROVIDES
+// activity rather than just AMPLIFIES it.
