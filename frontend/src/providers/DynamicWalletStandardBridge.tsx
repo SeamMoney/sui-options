@@ -40,7 +40,7 @@
  */
 import { useEffect, useRef } from "react";
 import { useDynamicContext } from "@dynamic-labs/sdk-react-core";
-import { isSuiWallet } from "@dynamic-labs/sui";
+import { isSuiWallet } from "@dynamic-labs/sui-core";
 import { registerWallet } from "@wallet-standard/wallet";
 import { Transaction } from "@mysten/sui/transactions";
 import { SUI_TESTNET_CHAIN } from "@mysten/wallet-standard";
@@ -51,9 +51,11 @@ import type {
   StandardEventsFeature,
   StandardEventsListeners,
   StandardEventsNames,
+} from "@wallet-standard/features";
+import type {
   WalletAccount,
   WalletIcon,
-} from "@wallet-standard/core";
+} from "@wallet-standard/base";
 import type {
   SuiSignAndExecuteTransactionFeature,
   SuiSignTransactionFeature,
@@ -109,7 +111,7 @@ function DynamicWalletStandardBridgeInner() {
 
   useEffect(() => {
     if (!primaryWallet || !isSuiWallet(primaryWallet)) return;
-    const address = primaryWallet.address;
+    const address = (primaryWallet as unknown as { address?: string }).address;
     if (!address) return;
     // Idempotent: only register the first time we see a given address.
     // (dApp Kit retains its own wallet list — re-dispatching the

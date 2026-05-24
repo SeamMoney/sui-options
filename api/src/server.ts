@@ -24,9 +24,10 @@ const RPC_FOR: Record<Deployment["network"], string> = {
   localnet: "http://127.0.0.1:9000",
 };
 
+const rpcUrl = process.env.WICK_API_RPC ?? RPC_FOR[deployment.network];
 const sui = new SuiJsonRpcClient({
   network: deployment.network,
-  url: process.env.WICK_API_RPC ?? RPC_FOR[deployment.network],
+  url: rpcUrl,
 });
 const wick = new WickClient({ sui, deployment });
 

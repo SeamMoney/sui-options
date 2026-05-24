@@ -18,11 +18,14 @@ import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
 
-const ALLOWED_MODULE = "segment_market_v3";
+const ROUTER_MODULE = "wick";
+const MARKET_MODULE = "segment_market_v3";
 const ALLOWED_FUNCTIONS = new Set([
-  "record_segment",
-  "open_segment_ride",
-  "close_segment_ride",
+  "record_segment_v3",
+  "open_segment_ride_v3",
+  "close_segment_ride_v3",
+  "crank_expired_segment_ride_v3",
+  "abort_segment_ride_v3",
 ]);
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -369,8 +372,16 @@ function validateAuxiliaryCommands(
 }
 
 function marketArgumentIndex(functionName: string): number {
-  if (functionName === "close_segment_ride") return 1;
-  return 0;
+  switch (functionName) {
+    case "close_segment_ride_v3":
+    case "crank_expired_segment_ride_v3":
+    case "abort_segment_ride_v3":
+      return 1;
+    case "record_segment_v3":
+    case "open_segment_ride_v3":
+    default:
+      return 0;
+  }
 }
 
 function isSegmentMarketV3Type(type: string, packageId: string): boolean {
@@ -379,7 +390,7 @@ function isSegmentMarketV3Type(type: string, packageId: string): boolean {
   const structName = rest.join("::").split("<")[0];
   return (
     normalizeSuiAddress(address) === packageId &&
-    moduleName === ALLOWED_MODULE &&
+    moduleName === MARKET_MODULE &&
     structName === "SegmentMarketV3"
   );
 }
@@ -418,7 +429,7 @@ async function inspectSponsoredTx(
 
   if (
     moveCall.package !== v3PackageId ||
-    moveCall.module !== ALLOWED_MODULE ||
+    moveCall.module !== ROUTER_MODULE ||
     !ALLOWED_FUNCTIONS.has(moveCall.function)
   ) {
     return "MoveCall is not on the Wick SegmentMarketV3 allowlist";

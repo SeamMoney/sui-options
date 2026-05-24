@@ -201,9 +201,8 @@ async function main() {
     // via /api/sponsor (doc 22 §3.3), so the segment-market wake gate is
     // always satisfied and the chart keeps rendering even when no human is
     // riding. Funded from the protocol's sponsor budget, not the operator's
-    // wallet. See keeper/src/segmentSentinel.ts header for the v2-bridge
-    // caveat (the bot will hit /api/sponsor and get 403 until the v3 module
-    // deploys — that's expected and validates the flow).
+    // wallet. /api/sponsor still enforces the v3 router + SegmentMarketV3
+    // market-object allowlist before co-signing.
     const sentinels: SegmentSentinel[] = [];
     const sentinelBindings = parseSentinelMarketsEnv(
       process.env.WICK_KEEPER_SENTINEL_MARKETS,

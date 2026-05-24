@@ -218,9 +218,9 @@ Responses:
 Allowlist semantics:
 
 - Exactly one Move call is permitted.
-- Target must be `segment_market_v3::record_segment`,
-  `segment_market_v3::open_segment_ride`, or
-  `segment_market_v3::close_segment_ride` on the configured testnet package.
+- Target must be one of the public v3 router calls on `wick`:
+  `record_segment_v3`, `open_segment_ride_v3`, `close_segment_ride_v3`,
+  `crank_expired_segment_ride_v3`, or `abort_segment_ride_v3`.
 - The market object argument must be a
   `segment_market_v3::SegmentMarketV3<...>` object from that same package.
 - `tx.gas.owner` must equal the sponsor address derived from

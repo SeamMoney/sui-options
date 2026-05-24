@@ -34,7 +34,7 @@ async function buildTxBytes(options: {
   tx.moveCall({
     target:
       options.target ??
-      `${PACKAGE_ID}::segment_market_v3::record_segment`,
+      `${PACKAGE_ID}::wick::record_segment_v3`,
     arguments: [
       tx.objectRef(objectRef(MARKET)),
       tx.objectRef(objectRef(RANDOM)),
@@ -83,6 +83,16 @@ async function request(txBytes: string) {
 resetSponsorStateForTests();
 {
   const txBytes = await buildTxBytes({ target: "0x2::sui::transfer" });
+  const out = await handle(await request(txBytes), deps());
+  assert.equal(out.status, 403);
+  assert.match(String(out.body.error), /allowlist/);
+}
+
+resetSponsorStateForTests();
+{
+  const txBytes = await buildTxBytes({
+    target: `${PACKAGE_ID}::segment_market_v3::record_segment`,
+  });
   const out = await handle(await request(txBytes), deps());
   assert.equal(out.status, 403);
   assert.match(String(out.body.error), /allowlist/);

@@ -20,14 +20,11 @@
  *
  * Environment
  * -----------
- * The Dynamic environment ID must be supplied via `VITE_DYNAMIC_ENVIRONMENT_ID`.
- * Register the app at https://app.dynamic.xyz/dashboard/developer/api and
- * paste the env id into `frontend/.env.local`. If unset, the provider still
- * renders (no crash) but the Connect button surfaces a clear "missing env id"
- * message — the rest of the app (markets, charts, ride-test) keeps working
- * via dApp Kit's existing wallet connectors (Slush, etc).
+ * The Dynamic environment ID defaults to the Sui-enabled Dynamic demo snap
+ * shared for the hackathon wallet flow. Override it with
+ * `VITE_DYNAMIC_ENVIRONMENT_ID` for a Wick-owned Dynamic dashboard project.
  *
- * The Sui chain must also be enabled in the Dynamic dashboard at
+ * In a Wick-owned Dynamic dashboard, the Sui chain must also be enabled at
  * https://app.dynamic.xyz/dashboard/chains-and-networks#sui before the
  * SuiWalletConnectors do anything.
  *
@@ -41,26 +38,32 @@ import { DynamicContextProvider } from "@dynamic-labs/sdk-react-core";
 import { SuiWalletConnectors } from "@dynamic-labs/sui";
 
 /**
+ * Decoded from https://go.dynamic.xyz/4a8HgrV. The snap enables Sui, social
+ * login providers, and connect-and-sign mode for the demo wallet flow.
+ */
+const DYNAMIC_DEMO_ENV_ID = "25f40019-73a6-40bc-a4e1-d4ed2b16a2fd";
+
+/**
  * Vite injects `import.meta.env.*` at build time; the cast is here only to
  * dodge `tsc --noEmit` strictness in projects that haven't generated a
  * `vite-env.d.ts` for the keys we read. Both at build and at runtime the
  * value is `string | undefined`.
  */
-const DYNAMIC_ENV_ID = (import.meta.env.VITE_DYNAMIC_ENVIRONMENT_ID ?? "") as string;
+const CONFIGURED_DYNAMIC_ENV_ID = (
+  import.meta.env.VITE_DYNAMIC_ENVIRONMENT_ID ?? ""
+) as string;
+const DYNAMIC_ENV_ID = CONFIGURED_DYNAMIC_ENV_ID.trim() || DYNAMIC_DEMO_ENV_ID;
 
 /**
- * Sentinel exposed to the rest of the app so the Connect button can render
- * a helpful "set VITE_DYNAMIC_ENVIRONMENT_ID" message instead of silently
- * throwing inside Dynamic's modal.
+ * Sentinel exposed to the rest of the app so the Connect button can decide
+ * whether the Dynamic provider is mounted.
  */
 export const HAS_DYNAMIC_ENV_ID = DYNAMIC_ENV_ID.length > 0;
 
 /**
- * Dynamic refuses to mount without an environment id (it logs a hard error
- * and the modal never opens). To keep the dev server bootable for the rest
- * of the app, swap in a no-op fallback when the id is missing — the parallel
- * agent's `/ride-test` page still works via dApp Kit's other connectors,
- * and the Connect button shows the env-id hint instead of opening Dynamic.
+ * Dynamic refuses to mount without an environment id. The shared demo snap
+ * gives Wick a default Sui-enabled environment for hackathon demos while
+ * preserving `VITE_DYNAMIC_ENVIRONMENT_ID` as the production override.
  */
 export function DynamicProvider({ children }: { children: ReactNode }) {
   if (!HAS_DYNAMIC_ENV_ID) {
@@ -75,13 +78,11 @@ export function DynamicProvider({ children }: { children: ReactNode }) {
         // covers both injected Sui wallets (Slush, Suiet) and Dynamic's
         // embedded social-login wallets.
         walletConnectors: [SuiWalletConnectors],
-        // `connect-only` skips the extra signature step on first login —
-        // judges hit "Continue with Google" and land in the app, no second
-        // modal. Switch to `connect-and-sign` later if we want to gate
-        // off-chain features behind an ownership proof.
-        initialAuthenticationMode: "connect-only",
+        // Match the shared Dynamic snap's wallet mode.
+        initialAuthenticationMode: "connect-and-sign",
         appName: "Wick Markets",
       }}
+      theme="light"
     >
       {children}
     </DynamicContextProvider>
