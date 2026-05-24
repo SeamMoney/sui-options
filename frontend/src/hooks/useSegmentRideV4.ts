@@ -58,6 +58,81 @@ const MAX_SEGMENT_RING = 16;
 // of 200_000 was over the cap.
 const DEFAULT_STAKE_PER_SEGMENT_MICROUSD = 100_000n;
 const DEFAULT_MULTIPLIER_BPS = 17_500; // 1.75× (B7 calibration)
+
+// ── Error humanizer (P0 fix — agent #9) ──────────────────────────────────
+//
+// segment_market_v4.move:78-112 abort codes mapped to 1-line user copy.
+// Without this, every chain abort surfaces a raw `MoveAbort … abort code:
+// 11, in '0x...::segment_market_v4::open_segment_ride_v4' (instruction 214)`
+// in the bottom toast — terrifying to the user and saying nothing
+// actionable.
+const MOVE_ABORT_MESSAGES: Record<number, string> = {
+  1:  "Already cashed out — pull to refresh.",
+  2:  "Wrong market — refresh the page.",
+  3:  "Market is paused — try again in a moment.",
+  4:  "Invalid barrier pick.",
+  5:  "Open window closed.",
+  6:  "Bet size out of range — refresh and try again.",
+  7:  "Not enough escrow locked.",
+  8:  "Bet can't be zero.",
+  9:  "Too many rides open right now — wait a few seconds.",
+  10: "You already have a ride open — release first.",
+  11: "Round is full — wait 5 seconds for the next round.",
+  12: "Round still live — can't expire yet.",
+  13: "Touched — release to claim your jackpot.",
+  14: "Chart's waking up — try again.",
+  15: "Market config invalid — contact support.",
+  16: "Too early to abort — try again later.",
+};
+
+const RETRYABLE_PATTERNS = [
+  /unavailable for consumption/i,
+  /current version/i,
+  /already locked by a different transaction/i,
+  /not be re-?used/i,
+  /Transaction needs to be rebuilt/i,
+  /fetch failed/i,
+  /ECONNRESET|ETIMEDOUT|ENOTFOUND/i,
+  /socket hang up/i,
+  /\b50[234]\s/,
+  /transient/i,
+  /timeout/i,
+];
+
+const FATAL_PATTERNS = [
+  /MoveAbort/, // deterministic abort, will repro on retry
+  /InsufficientGas|GasBalanceTooLow/,
+  /Equivocated/,
+  /PackageError/,
+];
+
+function isRetryableSuiError(err: Error | null | undefined): boolean {
+  if (!err) return false;
+  const m = err.message ?? "";
+  if (FATAL_PATTERNS.some((p) => p.test(m))) return false;
+  return RETRYABLE_PATTERNS.some((p) => p.test(m));
+}
+
+function humanizeChainError(rawMsg: string): string {
+  if (!rawMsg) return "Something went wrong — tap again.";
+  // MoveAbort path
+  const abort = rawMsg.match(/MoveAbort[\s\S]*?,\s*(\d+)\s*\)/);
+  if (abort && abort[1]) {
+    const code = Number(abort[1]);
+    if (code in MOVE_ABORT_MESSAGES) return MOVE_ABORT_MESSAGES[code]!;
+    return `Move error ${code} — tap and hold again.`;
+  }
+  if (/rejected as invalid by more than 1\/3 of validators/i.test(rawMsg)) {
+    return "Network busy — tap and hold again.";
+  }
+  if (/insufficient|gas|balance|InsufficientGas/i.test(rawMsg)) {
+    return "Not enough test SUI — tap Get test SUI.";
+  }
+  if (/unavailable for consumption|current version|already locked/i.test(rawMsg)) {
+    return "Network busy — tap and hold again.";
+  }
+  return "Something went wrong — tap and hold again.";
+}
 const DEFAULT_ROUND_DURATION_SEGMENTS = 75;
 
 const DEFAULT_COLLATERAL = "0x2::sui::SUI";
@@ -301,6 +376,51 @@ export function useSegmentRideV4(
   // STALE captured positionId=null from its closure and silently no-ops,
   // leaving the on-chain ride open until round expiry auto-settles it.
   const positionIdRef = useRef<string | null>(null);
+  // P0 fix (agent #8): track mount state so post-unmount async resolvers
+  // skip React state updates + don't fire a queued close after the
+  // component went away.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  // P0 fix (agent #2 + #10): on mount + on tab-return, sweep for orphan
+  // ride positions owned by this session wallet. If the user reloaded mid-
+  // ride or iOS dropped the touchend, the on-chain SegmentRidePositionV4
+  // still exists. Adopt it so the CASH OUT button can close it.
+  useEffect(() => {
+    if (!packageId) return;
+    const sweep = async () => {
+      try {
+        const owned = await client.getOwnedObjects({
+          owner: sender,
+          filter: {
+            StructType: `${packageId}::segment_market_v4::SegmentRidePositionV4`,
+          },
+          options: { showContent: false },
+        });
+        const orphan = owned.data?.[0]?.data?.objectId;
+        if (orphan && !positionIdRef.current && mountedRef.current) {
+          positionIdRef.current = orphan;
+          setPositionId(orphan);
+          setPhase("riding");
+          setLastError(
+            "You had a ride open from before — tap CASH OUT to close it.",
+          );
+        }
+      } catch (err) {
+        console.warn("[useSegmentRideV4] orphan sweep:", (err as Error).message?.slice(0, 120));
+      }
+    };
+    void sweep();
+    const onVis = () => {
+      if (document.visibilityState === "visible") void sweep();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [packageId, client, sender]);
 
   // ── Derived market parameters ────────────────────────────────────────
   const stakePerSegmentMicroUsd: bigint =
@@ -328,7 +448,12 @@ export function useSegmentRideV4(
    * gate either — every segment is open.
    */
   const open = useCallback(() => {
-    if (busyRef.current || positionId) return;
+    // P0 fix (agent #10): read positionIdRef.current, not positionId state.
+    // The captured `positionId` in this closure can lag behind a recent
+    // setPositionId(null) by one render — meaning a second tap right after
+    // a settlement silently no-ops while the closure still sees the
+    // just-closed ride's id. Reading the ref is always live.
+    if (busyRef.current || positionIdRef.current) return;
     if (!packageId || !market.vault || !botRegistryId) {
       setLastError("Segment market deployment incomplete.");
       return;
@@ -341,81 +466,75 @@ export function useSegmentRideV4(
     setPhase("opening");
 
     void (async () => {
-      // Same retry-on-version-conflict pattern as close(): the cranker
-      // (sentinel-v4-fast.mjs) mutates the SegmentMarketV4 shared object
-      // every ~1 s, and our open tx can race that. Up to 4 attempts with
-      // 250 ms × attempt backoff.
-      const MAX_ATTEMPTS = 4;
-      const isRetryable = (err: Error): boolean => {
-        const m = err.message ?? "";
-        return (
-          /unavailable for consumption/i.test(m) ||
-          /current version/i.test(m) ||
-          /already locked by a different transaction/i.test(m) ||
-          /not be re-?used/i.test(m) ||
-          /Transaction needs to be rebuilt/i.test(m)
-        );
-      };
-      let attempt = 0;
+      // P0 fix (agent #3): wrap the entire IIFE in try/finally so a thrown
+      // exception (anywhere — not just inside the retry catch) can never
+      // leave busyRef stuck at `true` and lock the user out permanently.
       let lastErr: Error | null = null;
-      while (attempt < MAX_ATTEMPTS) {
-        attempt += 1;
-        try {
-          const tx = buildOpenSegmentRideV4Tx({
-            packageId,
-            collateralType: market.collateral || DEFAULT_COLLATERAL,
-            sender,
-            marketId: market.market,
-            vaultId: market.vault,
-            botRegistryId,
-            stakePerSegment: stakePerSegmentMicroUsd,
-            escrowMist,
-          });
-          const res = await client.signAndExecuteTransaction({
-            signer: keypair,
-            transaction: tx,
-            options: { showObjectChanges: true, showEffects: true },
-          });
-          const created = (res.objectChanges as ObjectChange[] | undefined)?.find(
-            (c) =>
-              c.type === "created" &&
-              typeof c.objectType === "string" &&
-              c.objectType.includes("::segment_market_v4::SegmentRidePositionV4"),
-          );
-          if (!created?.objectId) {
-            throw new Error("SegmentRidePositionV4 not found in tx result");
+      try {
+        // Backoff: 600ms + 400ms jitter per attempt. Sized to cranker's
+        // ~1.2s cycle (agent #6) so each retry hits a different cranker
+        // phase instead of herding inside the same in-flight tx.
+        const MAX_ATTEMPTS = 6;
+        let attempt = 0;
+        while (attempt < MAX_ATTEMPTS) {
+          attempt += 1;
+          try {
+            const tx = buildOpenSegmentRideV4Tx({
+              packageId,
+              collateralType: market.collateral || DEFAULT_COLLATERAL,
+              sender,
+              marketId: market.market,
+              vaultId: market.vault,
+              botRegistryId,
+              stakePerSegment: stakePerSegmentMicroUsd,
+              escrowMist,
+            });
+            const res = await client.signAndExecuteTransaction({
+              signer: keypair,
+              transaction: tx,
+              options: { showObjectChanges: true, showEffects: true },
+            });
+            const created = (res.objectChanges as ObjectChange[] | undefined)?.find(
+              (c) =>
+                c.type === "created" &&
+                typeof c.objectType === "string" &&
+                c.objectType.includes("::segment_market_v4::SegmentRidePositionV4"),
+            );
+            if (!created?.objectId) {
+              throw new Error("SegmentRidePositionV4 not found in tx result");
+            }
+            positionIdRef.current = created.objectId;
+            setPositionId(created.objectId);
+            setPhase("riding");
+            onBalanceChanged?.();
+            return;
+          } catch (err) {
+            lastErr = err as Error;
+            if (attempt < MAX_ATTEMPTS && isRetryableSuiError(lastErr)) {
+              const backoff = 600 + Math.floor(Math.random() * 400);
+              await new Promise((r) => setTimeout(r, backoff));
+              continue;
+            }
+            break;
           }
-          positionIdRef.current = created.objectId;
-          setPositionId(created.objectId);
-          setPhase("riding");
-          onBalanceChanged?.();
-          busyRef.current = false;
-          if (closeQueuedRef.current) {
-            closeQueuedRef.current = false;
+        }
+        // All attempts exhausted — set idle + humanized error.
+        setPhase("idle");
+        const msg = lastErr?.message ?? "open failed";
+        setLastError(humanizeChainError(msg));
+        console.warn("[useSegmentRideV4] open failed after retries:", msg.slice(0, 200));
+      } finally {
+        // P0: always clear busyRef + drain any queued close, even on
+        // throws above. The mounted-ref check skips the drain if the
+        // component unmounted mid-flight.
+        busyRef.current = false;
+        if (closeQueuedRef.current) {
+          closeQueuedRef.current = false;
+          if (mountedRef.current && positionIdRef.current) {
             closeRef.current();
           }
-          return;
-        } catch (err) {
-          lastErr = err as Error;
-          if (attempt < MAX_ATTEMPTS && isRetryable(lastErr)) {
-            await new Promise((r) => setTimeout(r, 250 * attempt));
-            continue;
-          }
-          break;
         }
       }
-      busyRef.current = false;
-      closeQueuedRef.current = false;
-      setPhase("idle");
-      const msg = lastErr?.message ?? "open failed";
-      setLastError(
-        /insufficient|gas|balance|InsufficientGas/i.test(msg)
-          ? "Not enough test SUI — tap Get test SUI."
-          : isRetryable(lastErr ?? new Error(""))
-            ? "Network busy — tap and hold again."
-            : msg,
-      );
-      console.warn("[useSegmentRideV4] open failed after retries:", lastErr);
     })();
   }, [
     positionId,
@@ -463,77 +582,82 @@ export function useSegmentRideV4(
       // current version: …" or "already locked by a different transaction".
       // Build a fresh tx each attempt — buildCloseSegmentRideV4Tx returns
       // a Transaction object the SDK will re-resolve shared-object refs on.
-      const MAX_ATTEMPTS = 4;
-      const isRetryable = (err: Error): boolean => {
-        const m = err.message ?? "";
-        return (
-          /unavailable for consumption/i.test(m) ||
-          /current version/i.test(m) ||
-          /already locked by a different transaction/i.test(m) ||
-          /not be re-?used/i.test(m) ||
-          /Transaction needs to be rebuilt/i.test(m)
-        );
-      };
-      let attempt = 0;
+      // P0 fix (agent #3): try/finally so busyRef always clears, even on
+      // thrown exceptions outside the retry catch.
       let lastErr: Error | null = null;
-      while (attempt < MAX_ATTEMPTS) {
-        attempt += 1;
-        try {
-          const tx = buildCloseSegmentRideV4Tx({
-            packageId,
-            collateralType: market.collateral || DEFAULT_COLLATERAL,
-            sender,
-            rideId: livePositionId,
-            marketId: market.market,
-            vaultId: market.vault,
-            priceOracleId,
-            tokenStateId: wickTokenStateId,
-            stakingPoolId: wickStakingPoolId,
-          });
-          const res = await client.signAndExecuteTransaction({
-            signer: keypair,
-            transaction: tx,
-            options: { showEvents: true, showEffects: true },
-          });
-          const ev = (res.events as EventEnvelope[] | undefined)?.find((e) =>
-            (e.type ?? "").includes("::segment_market_v4::RideClosedV4"),
-          );
-          let kind = -1;
-          if (ev?.parsedJson && typeof ev.parsedJson === "object") {
-            const f = ev.parsedJson as { settlement_kind?: number | string };
-            if (f.settlement_kind !== undefined) kind = Number(f.settlement_kind);
+      try {
+        const MAX_ATTEMPTS = 6;
+        let attempt = 0;
+        while (attempt < MAX_ATTEMPTS) {
+          attempt += 1;
+          try {
+            const tx = buildCloseSegmentRideV4Tx({
+              packageId,
+              collateralType: market.collateral || DEFAULT_COLLATERAL,
+              sender,
+              rideId: livePositionId,
+              marketId: market.market,
+              vaultId: market.vault,
+              priceOracleId,
+              tokenStateId: wickTokenStateId,
+              stakingPoolId: wickStakingPoolId,
+            });
+            const res = await client.signAndExecuteTransaction({
+              signer: keypair,
+              transaction: tx,
+              options: { showEvents: true, showEffects: true },
+            });
+            const ev = (res.events as EventEnvelope[] | undefined)?.find((e) =>
+              (e.type ?? "").includes("::segment_market_v4::RideClosedV4"),
+            );
+            let kind = -1;
+            if (ev?.parsedJson && typeof ev.parsedJson === "object") {
+              const f = ev.parsedJson as { settlement_kind?: number | string };
+              if (f.settlement_kind !== undefined) kind = Number(f.settlement_kind);
+            }
+            const labelKey = kind as 0 | 1 | 2 | 3 | 4;
+            const label =
+              kind >= 0 && labelKey in SETTLEMENT_NAME_V4
+                ? SETTLEMENT_NAME_V4[labelKey]
+                : "settled";
+            setLastSettlement({ kind, label, digest: res.digest });
+            setLastError(null);
+            positionIdRef.current = null;
+            setPositionId(null);
+            setPhase("idle");
+            onBalanceChanged?.();
+            return;
+          } catch (err) {
+            lastErr = err as Error;
+            // EAlreadyClosed (Move abort 1) means another caller already
+            // settled this ride (e.g., crank_expired). Treat as success —
+            // we don't have the settlement event, but the position is gone.
+            if (lastErr.message && /MoveAbort[\s\S]*?,\s*1\s*\)/i.test(lastErr.message)) {
+              setLastSettlement({ kind: -1, label: "already settled", digest: "" });
+              setLastError(null);
+              positionIdRef.current = null;
+              setPositionId(null);
+              setPhase("idle");
+              onBalanceChanged?.();
+              return;
+            }
+            if (attempt < MAX_ATTEMPTS && isRetryableSuiError(lastErr)) {
+              const backoff = 600 + Math.floor(Math.random() * 400);
+              await new Promise((r) => setTimeout(r, backoff));
+              continue;
+            }
+            break;
           }
-          const labelKey = kind as 0 | 1 | 2 | 3 | 4;
-          const label =
-            kind >= 0 && labelKey in SETTLEMENT_NAME_V4
-              ? SETTLEMENT_NAME_V4[labelKey]
-              : "settled";
-          setLastSettlement({ kind, label, digest: res.digest });
-          positionIdRef.current = null;
-          setPositionId(null);
-          setPhase("idle");
-          onBalanceChanged?.();
-          busyRef.current = false;
-          return;
-        } catch (err) {
-          lastErr = err as Error;
-          if (attempt < MAX_ATTEMPTS && isRetryable(lastErr)) {
-            // 250 ms × attempt backoff — cranker has time to release the lock.
-            await new Promise((r) => setTimeout(r, 250 * attempt));
-            continue;
-          }
-          break;
         }
+        // All attempts exhausted — keep phase="riding" so the user can
+        // tap the CASH OUT button again. Humanize the error.
+        setPhase("riding");
+        const msg = lastErr?.message ?? "cash-out failed";
+        setLastError(humanizeChainError(msg));
+        console.warn("[useSegmentRideV4] close failed after retries:", msg.slice(0, 200));
+      } finally {
+        busyRef.current = false;
       }
-      busyRef.current = false;
-      setPhase("riding");
-      const msg = lastErr?.message ?? "cash-out failed";
-      setLastError(
-        isRetryable(lastErr ?? new Error(""))
-          ? "Network busy — try the CASH OUT button again."
-          : msg,
-      );
-      console.warn("[useSegmentRideV4] close failed after retries:", lastErr);
     })();
   }, [
     phase,

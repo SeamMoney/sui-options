@@ -298,26 +298,38 @@ function CenterHeroV4(props: {
         auto so it captures the tap even though the outer hero stays
         pointer-events-none for the rest of its content.
       */}
-      {(phase === "riding" || phase === "opening") && (
+      {(phase === "riding" || phase === "opening" || phase === "closing") && (
         <div className="mt-6 flex justify-center pointer-events-auto">
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCashOut();
+            aria-label="Cash out — close your active ride"
+            aria-busy={phase === "closing"}
+            disabled={phase === "closing"}
+            // P0 fix (agent #4): use single onPointerUp instead of
+            // onClick + onTouchEnd. The dual-binding doubled-fired close()
+            // because iOS Safari can deliver both the touch-synthesized
+            // click AND the touchend, even with preventDefault. Pointer
+            // events fire exactly once for both mouse and touch.
+            // Empty onTouchStart re-enables iOS :active visual feedback.
+            onTouchStart={() => {
+              /* iOS :active enabler */
             }}
-            onTouchEnd={(e) => {
+            onPointerUp={(e) => {
+              e.stopPropagation();
               e.preventDefault();
-              e.stopPropagation();
               onCashOut();
             }}
-            className="px-8 py-4 rounded-full bg-white text-zinc-950 text-base font-bold uppercase tracking-widest shadow-2xl active:scale-95 transition select-none"
+            className={`px-10 py-5 rounded-full text-base font-bold uppercase tracking-widest shadow-2xl active:scale-95 transition select-none focus-visible:ring-4 focus-visible:ring-amber-300/60 focus-visible:outline-none ${
+              phase === "closing"
+                ? "bg-white/40 text-zinc-700 cursor-not-allowed"
+                : "bg-white text-zinc-950"
+            }`}
             style={{
               touchAction: "manipulation",
-              WebkitTapHighlightColor: "transparent",
+              WebkitTapHighlightColor: "rgba(255,255,255,0.2)",
             }}
           >
-            Cash out
+            {phase === "closing" ? "Cashing out…" : "Cash out"}
           </button>
         </div>
       )}
@@ -392,11 +404,15 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
       onClose: () => ride.close(),
       onStall: () => ride.triggerStallCrank(),
     }),
-    // ride is rebuilt every render; keep the callbacks object stable so
-    // the gesture hook (which holds a ref-snapshotted copy) sees the
-    // latest functions through its own ref-update effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    // P0 fix (agents #1, #10): the previous empty-deps form captured
+    // ride.open / ride.close from the FIRST render forever. The gesture
+    // hook's callbacksRef-update effect at useRideGestureV4.ts:272 fires
+    // when this object's identity changes — empty deps meant it never
+    // did, so the gesture path was wired to the first-render hooks. Today
+    // it happened to work because the underlying refs are stable, but any
+    // future change to open/close that depends on a state value would
+    // break silently. Listing the deps makes the comment true.
+    [ride.open, ride.close, ride.triggerStallCrank],
   );
 
   const settlementToast = useAutoDismissSettlement(ride.lastSettlement);

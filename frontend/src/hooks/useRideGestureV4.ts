@@ -1409,6 +1409,21 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         };
         p.touchEnded = (event?: unknown) => {
           if (stateRef.current.disabled) return true;
+          // P0 fix (agent #2): p5 fires touchEnded on EVERY touchend DOM
+          // event — including when a SECOND finger lifts while the primary
+          // is still held. Without this guard, the secondary finger's lift
+          // would silently cash out the user mid-ride. Only end the press
+          // when ALL fingers are off the screen.
+          const remaining =
+            event && typeof event === "object" && "touches" in event
+              ? (event as TouchEvent).touches?.length ?? 0
+              : 0;
+          if (remaining > 0) {
+            if (event && typeof event === "object" && "preventDefault" in event) {
+              (event as Event).preventDefault();
+            }
+            return false;
+          }
           touchActive = false;
           try {
             endPress();
