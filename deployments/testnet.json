@@ -251,6 +251,26 @@
       "max_stake_per_segment": 150000,
       "max_concurrent_rides": 50,
       "max_rides_per_user": 5
+    },
+    {
+      "name": "WICK-SEG-V4-75-1000bps",
+      "market": "0xa72a369e2fea69c100ee8be10c291f72ffaf18687bf578435565c92bfa981665",
+      "collateral": "0x2::sui::SUI",
+      "vault": "0x73d3a17ab1e1cdc173b8cde1ae7d9789a29d1a177ebfd415196a04a6a10e5b9f",
+      "home_price": 1000000000,
+      "vol_regime_init": 1000000,
+      "round_duration_segments": 75,
+      "barrier_offset_bps": 1000,
+      "multiplier_bps": 17500,
+      "max_payout_per_round": 500000000,
+      "deadband_bps": 20,
+      "sigma_bps_per_sqrt_sec": 100,
+      "cashout_spread_bps": 200,
+      "abort_segment_deadline_ms": 30000,
+      "min_stake_per_segment": 10000,
+      "max_stake_per_segment": 200000,
+      "max_concurrent_rides": 50,
+      "max_rides_per_user": 10
     }
   ]
 }
