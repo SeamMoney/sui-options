@@ -51,7 +51,12 @@ const PRICE_SCALING = 1_000_000;
 const EVENT_POLL_MS = 350;
 /** Ring buffer size — same as v3. */
 const MAX_SEGMENT_RING = 16;
-const DEFAULT_STAKE_PER_SEGMENT_MICROUSD = 200_000n; // $0.20/segment
+// v4 default: $0.10/segment. Must stay within the market's [min, max]
+// stake range. The 2026-05-23 v4 bootstrap on testnet uses
+// max_stake_per_segment=150_000 (= $0.15), so anything above that aborts
+// `open_segment_ride_v4` with `EStakeOutOfRange` (code 6). The old default
+// of 200_000 was over the cap.
+const DEFAULT_STAKE_PER_SEGMENT_MICROUSD = 100_000n;
 const DEFAULT_MULTIPLIER_BPS = 17_500; // 1.75× (B7 calibration)
 const DEFAULT_ROUND_DURATION_SEGMENTS = 75;
 
