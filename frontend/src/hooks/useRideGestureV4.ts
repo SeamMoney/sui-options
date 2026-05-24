@@ -917,17 +917,33 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
             chartArea.x + chartArea.width - candleWidth - rightPadding;
 
           // Build the point list (x, y, proximity) for the last N candles
-          // that fit on screen. We use the candle's close for the y value.
+          // that fit on screen.
+          //
+          // 2026-05-23 — instead of using each candle's raw close (which
+          // makes the tracer overlay the candle bodies exactly and become
+          // redundant noise), we run an EMA over the closes. The smoothed
+          // line reads as a *trend* — clearly above/below the bodies —
+          // which is the visual job the tracer was supposed to do.
+          //   y_ema[i] = α · close[i] + (1 − α) · y_ema[i − 1]
+          // α = 0.28 picks a ~7-candle half-life: clearly smoother than
+          // the candle path but still responsive enough that a sharp turn
+          // shows up within a couple ticks.
+          const EMA_ALPHA = 0.28;
           const visibleN = Math.min(candles.length, maxCandles + CANDLES_PER_SEGMENT);
           const startIdx = candles.length - visibleN;
+          let emaClose: number | null = null;
           const points: Array<{ x: number; y: number; proximity: number }> = [];
           for (let i = startIdx; i < candles.length; i++) {
             const dist = candles.length - 1 - i;
             const x = currentCandleX + candleWidth / 2 - dist * candleSpacing;
             if (x < chartArea.x - candleSpacing) continue;
             const c = candles[i]!;
+            emaClose =
+              emaClose === null
+                ? c.close
+                : EMA_ALPHA * c.close + (1 - EMA_ALPHA) * emaClose;
             const y = p.map(
-              c.close,
+              emaClose,
               priceScale.min,
               priceScale.max,
               chartArea.y + chartArea.height,
@@ -936,7 +952,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
             points.push({
               x,
               y,
-              proximity: nearestBarrierProximity(c.close, upper, lower),
+              proximity: nearestBarrierProximity(emaClose, upper, lower),
             });
           }
           if (points.length < 2) return;
@@ -944,26 +960,17 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           // Sort ascending by x so the line draws left → right cleanly.
           points.sort((a, b) => a.x - b.x);
 
-          // Pass 1 — soft glow underlay.
+          // Single pass — thin trend line. The old 8-px glow underlay + 2-px
+          // crisp overlay made it look like a fat marker pen on top of the
+          // candles; the smoothed EMA + 1-px line reads as a proper
+          // technical-chart trend.
           for (let i = 1; i < points.length; i++) {
             const p0 = points[i - 1]!;
             const p1 = points[i]!;
             const prox = (p0.proximity + p1.proximity) / 2;
             const [r, g, b] = lerpProximityColor(prox);
-            const alpha = 60 + (1 - prox) * 80; // brighter when winning
-            p.stroke(r, g, b, alpha);
-            p.strokeWeight(8);
-            p.line(p0.x, p0.y, p1.x, p1.y);
-          }
-
-          // Pass 2 — crisp line on top.
-          for (let i = 1; i < points.length; i++) {
-            const p0 = points[i - 1]!;
-            const p1 = points[i]!;
-            const prox = (p0.proximity + p1.proximity) / 2;
-            const [r, g, b] = lerpProximityColor(prox);
-            p.stroke(r, g, b, 220);
-            p.strokeWeight(2);
+            p.stroke(r, g, b, 200);
+            p.strokeWeight(1);
             p.line(p0.x, p0.y, p1.x, p1.y);
           }
 
