@@ -344,6 +344,35 @@ export function useSegmentRideV4(
         if (bestRound && bestRound.roundIndex !== lastSeenRoundIndex.current) {
           lastSeenRoundIndex.current = bestRound.roundIndex;
           setRound(roundFromV4Event(bestRound, marketSnapshotRef.current));
+        } else if (!bestRound && marketSnapshotRef.current && lastSeenRoundIndex.current === -1n) {
+          // P0 fix (2026-05-24): a freshly-bootstrapped market emits NO
+          // RoundStartedV4 event for round 0 — that event only fires on
+          // round TRANSITIONS, not the initial round set at bootstrap.
+          // Without this fallback, the gesture stays armed-off (because
+          // `round` is null) until segment 75 advances and round 1
+          // transitions. On a brand-new market with no riders, that
+          // never happens — chicken-and-egg.
+          //
+          // Synthesize a RoundInfo from the market snapshot's cached
+          // fields. Same shape roundFromV4Event produces from a real
+          // event. As soon as a real RoundStartedV4 lands, the branch
+          // above takes over.
+          const snap = marketSnapshotRef.current;
+          const dur = Number(snap.roundDurationSegments);
+          const synthetic: RoundInfo = {
+            index: snap.cachedRoundIndex,
+            startedAtSegment: snap.cachedRoundStartedAtSegment,
+            upperBarrier: Number(snap.cachedUpperBarrier) / PRICE_SCALING,
+            lowerBarrier: Number(snap.cachedLowerBarrier) / PRICE_SCALING,
+            spotAtRoll:
+              (Number(snap.cachedUpperBarrier) + Number(snap.cachedLowerBarrier)) /
+              2 /
+              PRICE_SCALING,
+            roundDurationSegments: dur,
+            openWindowSegments: dur,
+          };
+          lastSeenRoundIndex.current = snap.cachedRoundIndex;
+          setRound(synthetic);
         }
       } catch (err) {
         console.warn("[useSegmentRideV4] poll:", err);
