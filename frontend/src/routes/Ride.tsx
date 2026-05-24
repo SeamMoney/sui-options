@@ -1,56 +1,55 @@
 /**
- * /ride — round-based segment-arcade (doc 19), friction-free hold-to-ride.
+ * /ride — touch-either, always-open segment-arcade (doc 25) with a
+ * graceful fallback to the v3 round-based UI (doc 19) when no v4 market
+ * is deployed.
  *
- * Interaction model:
- *   1. Each 30-second round materialises TWO shared barriers (upper / lower).
- *   2. The first ~5.2 s of each round is the OPEN WINDOW — pick a barrier
- *      (tap the upper or lower half of the chart) and press-and-hold to
- *      open a ride against it.
- *   3. While riding, the price wicks toward your barrier; release to cash
- *      out, or hold to round end (TOUCH_WIN if it touches, else
- *      EXPIRED_LOSS unless you cashed out).
+ * Feature flag:
+ *   - If `deployments.testnet.json` has any entry under `segment_markets_v4`,
+ *     the latest one wins and we render the V4 surface (laser tracer,
+ *     always-open press-anywhere gesture, BarrierFlowV4 right rail, the new
+ *     "TAP AND HOLD TO RIDE" hero). The "Wait for the next round" branch
+ *     is entirely absent from the V4 path.
+ *   - Else, we fall back to the existing V3 surface (BarrierOrderbookGrid,
+ *     barrier-pick affordance, RoundCountdown timer, "Wait for the next
+ *     round" hero when outside the open window).
  *
- * Architecture (doc 17 §15.1, doc 19 §17.5):
- *   - `useSegmentRide` owns the on-chain lifecycle, subscribes to round +
- *     segment events, and decides phase transitions optimistically.
- *   - `useRideGesture` renders the chart by replaying segment keys through
- *     `seededPath.expandSegment` — the chart is the genuinely on-chain
- *     price, not a Math.random walk.
- *   - The burner wallet (`useSessionWallet`) signs locally so the gesture
- *     hold is never interrupted by a wallet popup.
- *
- * The screen shows:
- *   - top-left  : burner balance
- *   - top-mid   : RoundCountdown (round # + open-window + round timer)
- *   - top-right : faucet button (when low) or a quiet "ready" tick
- *   - center    : the state hero — exactly what's happening, always
- *   - the chart : the full-screen barrier-picker + hold target
+ * This way the page never breaks during the migration window: v4 ships
+ * to the Move side first, the bootstrap script writes its market into the
+ * deployments JSON, and the frontend takes over on the next reload.
  */
 import { useEffect, useMemo, useState } from "react";
 import RideChart from "@/components/RideChart";
+import RideChartV4 from "@/components/RideChartV4";
 import { FaucetButton } from "@/components/wallet/FaucetButton";
 import { RoundCountdown } from "@/components/RoundCountdown";
 import { BarrierOrderbookGrid } from "@/components/BarrierOrderbookGrid";
+import { BarrierFlowV4 } from "@/components/BarrierFlowV4";
 import { useSegmentRide } from "@/hooks/useSegmentRide";
+import { useSegmentRideV4 } from "@/hooks/useSegmentRideV4";
 import type { RidePhase } from "@/hooks/useRideGesture";
 import { useSessionWallet } from "@/hooks/useSessionWallet";
 import {
   TESTNET_DEPLOYMENT,
   type SegmentMarketRecord,
+  type SegmentMarketV4Record,
 } from "@/lib/deployments";
 import { BARRIER_UPPER, type BarrierIndex } from "@wick/sdk";
 
 /** Need ~0.05 SUI to ride one round (escrow + gas). Below this → faucet. */
 const MIN_RIDE_BALANCE_MIST = 50_000_000n;
 
-/** Pick a segment market from the deployment — most recent wins.
- *
- * Operators bootstrap a fresh market when they need to fix params (the F1
- * deploy surfaced that the original B7-default at markets[0] is
- * economically broken: round=75 × min_stake=1M × 1.75x = 131M payout
- * exceeds the 20M per-barrier cap, so the open call always aborts with
- * EBarrierCapExceeded). Picking the LAST entry means a re-bootstrap with
- * fixed params automatically takes over without a code change. */
+/**
+ * Pick the latest v4 segment market from the deployment. Operators
+ * append new bootstraps to the array; picking the LAST entry means a
+ * re-bootstrap with fixed params automatically takes over.
+ */
+function pickSegmentMarketV4(): SegmentMarketV4Record | null {
+  const markets = TESTNET_DEPLOYMENT.segment_markets_v4 ?? [];
+  if (markets.length === 0) return null;
+  return markets[markets.length - 1] ?? null;
+}
+
+/** Pick a v3 segment market — fallback when no v4 market is deployed. */
 function pickSegmentMarket(): SegmentMarketRecord | null {
   const markets = TESTNET_DEPLOYMENT.segment_markets ?? [];
   if (markets.length === 0) return null;
@@ -79,8 +78,10 @@ function fmtSui(mist: bigint | null): string {
   return (Number(mist) / 1_000_000_000).toFixed(3);
 }
 
-/** Center hero — the single source of truth for "what's happening now". */
-function CenterHero(props: {
+// ─────────────────────────────────────────────────────────────────────────
+// CenterHeroV3 — the legacy hero kept for the fallback path.
+// ─────────────────────────────────────────────────────────────────────────
+function CenterHeroV3(props: {
   needsFunds: boolean;
   phase: RidePhase;
   pnl: number;
@@ -186,6 +187,97 @@ function CenterHero(props: {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// CenterHeroV4 — the new touch-either hero (doc 25 §5.4).
+//
+// Three states, ALWAYS actionable — no "wait for next round" branch:
+//   idle       → "TAP AND HOLD TO RIDE — press anywhere — touch either side wins 1.75×"
+//   opening    → "Opening your ride — keep holding"
+//   riding     → big PnL number, proximity-coloured
+//   closing    → "Cashing out"
+// ─────────────────────────────────────────────────────────────────────────
+function CenterHeroV4(props: {
+  needsFunds: boolean;
+  phase: RidePhase;
+  pnl: number;
+  stakePaid: number;
+  multiplierX: number;
+}) {
+  const { needsFunds, phase, pnl, stakePaid, multiplierX } = props;
+
+  let kicker = "";
+  let big = "";
+  let sub = "";
+  let tone: "neutral" | "amber" | "win" | "loss" = "neutral";
+
+  if (needsFunds && phase === "idle") {
+    kicker = "One tap to start";
+    big = "Get test SUI";
+    sub = "tap “Get test SUI”, top-right — free, instant, no wallet needed";
+    tone = "amber";
+  } else if (phase === "idle") {
+    // V4: ALWAYS the press-to-ride invitation. No round-phase gating.
+    kicker = "⚡  Tap and hold to ride";
+    big = "TAP AND HOLD";
+    sub = `press anywhere — touch either side wins ${multiplierX.toFixed(2)}×`;
+    tone = "amber";
+  } else if (phase === "opening") {
+    kicker = "Opening your ride";
+    big = "Keep holding…";
+    sub = "your position is going on-chain — ~1-2 seconds";
+  } else if (phase === "riding") {
+    kicker = "You're riding — release to cash out";
+    big = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
+    tone = pnl >= 0 ? "win" : "loss";
+    sub = `hold for jackpot · release to cash out · $${stakePaid.toFixed(2)} staked`;
+  } else {
+    kicker = "Cashing out";
+    big = "Settling…";
+    sub = "your payout is landing — ~1-2 seconds";
+  }
+
+  const bigColor =
+    tone === "win"
+      ? "text-emerald-400"
+      : tone === "loss"
+        ? "text-rose-400"
+        : tone === "amber"
+          ? "text-amber-300"
+          : "text-white";
+
+  return (
+    <div
+      className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[1500] pointer-events-none w-full max-w-[480px] px-6 text-center"
+      role="status"
+      aria-live="polite"
+    >
+      <div
+        className={`text-[11px] uppercase tracking-[0.22em] mb-2 ${
+          tone === "amber" ? "text-amber-300/90" : "text-white/45"
+        }`}
+      >
+        {kicker}
+      </div>
+      <div
+        className={`font-bold tabular-nums leading-none ${bigColor} ${
+          phase === "riding" ? "text-7xl" : "text-3xl"
+        }`}
+        style={{ textShadow: "0 2px 28px rgba(0,0,0,0.7)" }}
+      >
+        {big}
+      </div>
+      <div className="text-xs text-white/60 mt-3 leading-relaxed">{sub}</div>
+      {(phase === "opening" || phase === "closing") && (
+        <div className="mt-4 flex justify-center">
+          <div className="h-1 w-24 rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full w-1/3 bg-amber-300/80 motion-safe:animate-[rideBar_1100ms_ease-in-out_infinite]" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** FundCta — the funding gate shown when the burner is too low to ride. */
 function FundCta(props: {
   balanceMist: bigint | null;
@@ -231,102 +323,55 @@ function FundCta(props: {
   );
 }
 
-export function Ride() {
-  const picked = useMemo(() => pickSegmentMarket(), []);
+// ─────────────────────────────────────────────────────────────────────────
+// RideV4 — the V4 path. Self-contained (uses useSegmentRideV4 +
+// useRideGestureV4 + BarrierFlowV4) so the V3 path doesn't carry its
+// hooks when V4 is active and vice versa.
+// ─────────────────────────────────────────────────────────────────────────
+function RideV4(props: { picked: SegmentMarketV4Record }) {
+  const { picked } = props;
   const session = useSessionWallet();
 
-  // A zeroed fallback so we can call useSegmentRide unconditionally
-  // (React rule of hooks) when no segment market is provisioned.
-  const fallbackMarket: SegmentMarketRecord = {
-    name: "(none)",
-    market: "",
-    collateral: "0x2::sui::SUI",
-    vault: TESTNET_DEPLOYMENT.vault_sui ?? "",
-    home_price: 1_000_000_000,
-  };
-
-  const ride = useSegmentRide({
-    market: picked ?? fallbackMarket,
+  const ride = useSegmentRideV4({
+    market: picked,
     keypair: session.keypair,
     client: session.client,
     onBalanceChanged: session.refreshBalance,
   });
 
-  // The gesture's onOpen → useSegmentRide.open. Also updates the picked
-  // barrier so the chart hook can render the picked-zone highlight.
   const stableCallbacks = useMemo(
     () => ({
-      onOpen: (barrierIndex: BarrierIndex, barrierPrice: number) => {
-        ride.pickBarrier(barrierIndex);
-        ride.open(barrierIndex, barrierPrice);
-      },
+      onOpen: () => ride.open(),
       onClose: () => ride.close(),
       onStall: () => ride.triggerStallCrank(),
     }),
-    // ride is rebuilt every render; keep callbacks stable across renders
-    // by wrapping each in a ref. (The callback is invoked from inside a
-    // closed-over p5 sketch — we must not recreate the closure each render.)
+    // ride is rebuilt every render; keep the callbacks object stable so
+    // the gesture hook (which holds a ref-snapshotted copy) sees the
+    // latest functions through its own ref-update effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  // Update the ref every render so the closure sees the latest callbacks.
-  // The actual closure inside the gesture hook reads through callbacksRef
-  // (set by an effect in useRideGesture), so React's "stale closure"
-  // concern doesn't apply here — the gesture hook re-pipes callbacks.
-  // We still memoize the outer object so useRideGesture doesn't re-set its
-  // ref on every render.
-  // (No-op block above is intentional — keeps the lint comment + intent.)
 
   const settlementToast = useAutoDismissSettlement(ride.lastSettlement);
 
-  // Live PnL — computed inside the gesture hook from the candle stream,
-  // surfaced here for the center hero.
   const [ridePnl, setRidePnl] = useState<{ pnl: number; staked: number }>({
     pnl: 0,
     staked: 0,
   });
 
-  if (!picked) {
-    return (
-      <div className="fixed inset-0 bg-[#0c0c0c] text-foreground flex flex-col items-center justify-center font-mono p-6 text-center">
-        <h1 className="text-2xl font-semibold mb-2">
-          No segment-arcade market provisioned
-        </h1>
-        <p className="text-sm text-muted-foreground max-w-md">
-          The round-based shared-grid arcade (doc 19) needs a bootstrapped{" "}
-          <code className="text-foreground">SegmentMarket&lt;SUI&gt;</code>.
-          Add one to{" "}
-          <code className="text-foreground">deployments/testnet.json</code>
-          {" "}under the{" "}
-          <code className="text-foreground">segment_markets</code> key (
-          name, market, collateral, vault, home_price) and reload.
-        </p>
-      </div>
-    );
-  }
-
   const needsFunds =
     session.balanceMist !== null &&
     session.balanceMist < MIN_RIDE_BALANCE_MIST;
-
   const stakePaid = ridePnl.staked;
   const multiplierX = ride.multiplierBps / 10_000;
 
-  const barrierLabel =
-    ride.pickedBarrier === BARRIER_UPPER
-      ? `above $${ride.round?.upperBarrier.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "—"}`
-      : ride.pickedBarrier !== null
-        ? `below $${ride.round?.lowerBarrier.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "—"}`
-        : "";
-
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#0c0c0c] text-foreground select-none">
-      {/* ── The chart — full-screen barrier-picker + hold target ─────────── */}
+      {/* ── Chart ─────────────────────────────────────────────────────── */}
       <div className="absolute inset-0 mx-auto md:max-w-[800px]">
-        <RideChart
+        <RideChartV4
           callbacks={stableCallbacks}
           phase={ride.phase}
-          pickedBarrier={ride.pickedBarrier}
           round={ride.round}
           segments={ride.segments}
           multiplierBps={ride.multiplierBps}
@@ -336,7 +381,7 @@ export function Ride() {
         />
       </div>
 
-      {/* ── Top bar — balance · round countdown · faucet ─────────────────── */}
+      {/* ── Top bar — balance · round timer · faucet ──────────────────── */}
       <div
         className="fixed left-0 right-0 z-[1600] flex items-start justify-between px-3 pointer-events-none gap-2"
         style={{ top: `calc(env(safe-area-inset-top) + 10px)` }}
@@ -355,7 +400,13 @@ export function Ride() {
           </div>
         </div>
 
-        {/* Round indicator — center, always visible */}
+        {/*
+         * V4: same RoundCountdown component, but in v4 the round duration
+         * IS the open window (we surface openWindowSegments = roundDurationSegments
+         * inside useSegmentRideV4), so the "OPEN" badge stays on the whole round
+         * and the inner amber bar tracks the full round time. Visually it's
+         * a continuously-open timer — no "barriers locked" moment.
+         */}
         <RoundCountdown
           roundIndex={ride.round?.index ?? null}
           startedAtSegment={ride.round?.startedAtSegment ?? null}
@@ -363,7 +414,9 @@ export function Ride() {
           roundDurationSegments={
             ride.round?.roundDurationSegments ?? 75
           }
-          openWindowSegments={ride.round?.openWindowSegments ?? 13}
+          openWindowSegments={
+            ride.round?.openWindowSegments ?? 75
+          }
         />
 
         <div className="pointer-events-auto">
@@ -380,12 +433,19 @@ export function Ride() {
         </div>
       </div>
 
-      {/* ── Right edge: barrier orderbook (doc 19 §14) ───────────────────── */}
-      <div className="fixed right-3 z-[1550] pointer-events-none" style={{ top: `calc(env(safe-area-inset-top) + 80px)` }}>
-        <BarrierOrderbookGrid marketId={picked.market} client={session.client} />
+      {/* ── Right edge: V4 barrier-flow panel ─────────────────────────── */}
+      <div
+        className="fixed right-3 z-[1550] pointer-events-none"
+        style={{ top: `calc(env(safe-area-inset-top) + 80px)` }}
+      >
+        <BarrierFlowV4
+          marketId={picked.market}
+          client={session.client}
+          initialSnapshot={ride.marketSnapshot}
+        />
       </div>
 
-      {/* ── Center: fund CTA when broke, else the state hero ─────────────── */}
+      {/* ── Center: fund CTA when broke, else V4 state hero ──────────── */}
       {needsFunds && ride.phase === "idle" && !settlementToast ? (
         <FundCta
           balanceMist={session.balanceMist}
@@ -393,19 +453,16 @@ export function Ride() {
           onFunded={session.refreshBalance}
         />
       ) : !settlementToast ? (
-        <CenterHero
+        <CenterHeroV4
           needsFunds={needsFunds}
           phase={ride.phase}
           pnl={ridePnl.pnl}
           stakePaid={stakePaid}
           multiplierX={multiplierX}
-          barrierLabel={barrierLabel}
-          inOpenWindow={ride.inOpenWindow}
-          pickedBarrier={ride.pickedBarrier}
         />
       ) : null}
 
-      {/* ── Settlement result ───────────────────────────────────────────── */}
+      {/* ── Settlement result ───────────────────────────────────────── */}
       {settlementToast && (
         <div
           className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[1700] w-full max-w-[440px] px-6 text-center motion-safe:animate-[rideSettleIn_280ms_ease-out]"
@@ -448,7 +505,7 @@ export function Ride() {
         </div>
       )}
 
-      {/* ── Error line ──────────────────────────────────────────────────── */}
+      {/* ── Error line ──────────────────────────────────────────────── */}
       {ride.lastError && ride.phase === "idle" && (
         <div
           className="fixed left-1/2 -translate-x-1/2 z-[1650] pointer-events-none"
@@ -470,6 +527,235 @@ export function Ride() {
           100% { transform: translateX(320%); }
         }
       `}</style>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RideV3 — the legacy V3 path (kept unchanged for fallback).
+// ─────────────────────────────────────────────────────────────────────────
+function RideV3(props: { picked: SegmentMarketRecord }) {
+  const { picked } = props;
+  const session = useSessionWallet();
+
+  const ride = useSegmentRide({
+    market: picked,
+    keypair: session.keypair,
+    client: session.client,
+    onBalanceChanged: session.refreshBalance,
+  });
+
+  const stableCallbacks = useMemo(
+    () => ({
+      onOpen: (barrierIndex: BarrierIndex, barrierPrice: number) => {
+        ride.pickBarrier(barrierIndex);
+        ride.open(barrierIndex, barrierPrice);
+      },
+      onClose: () => ride.close(),
+      onStall: () => ride.triggerStallCrank(),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const settlementToast = useAutoDismissSettlement(ride.lastSettlement);
+
+  const [ridePnl, setRidePnl] = useState<{ pnl: number; staked: number }>({
+    pnl: 0,
+    staked: 0,
+  });
+
+  const needsFunds =
+    session.balanceMist !== null &&
+    session.balanceMist < MIN_RIDE_BALANCE_MIST;
+  const stakePaid = ridePnl.staked;
+  const multiplierX = ride.multiplierBps / 10_000;
+
+  const barrierLabel =
+    ride.pickedBarrier === BARRIER_UPPER
+      ? `above $${ride.round?.upperBarrier.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "—"}`
+      : ride.pickedBarrier !== null
+        ? `below $${ride.round?.lowerBarrier.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "—"}`
+        : "";
+
+  return (
+    <div className="fixed inset-0 overflow-hidden bg-[#0c0c0c] text-foreground select-none">
+      <div className="absolute inset-0 mx-auto md:max-w-[800px]">
+        <RideChart
+          callbacks={stableCallbacks}
+          phase={ride.phase}
+          pickedBarrier={ride.pickedBarrier}
+          round={ride.round}
+          segments={ride.segments}
+          multiplierBps={ride.multiplierBps}
+          stakePerSegmentMicroUsd={ride.stakePerSegmentMicroUsd}
+          onPnlChange={setRidePnl}
+          disabled={needsFunds}
+        />
+      </div>
+
+      <div
+        className="fixed left-0 right-0 z-[1600] flex items-start justify-between px-3 pointer-events-none gap-2"
+        style={{ top: `calc(env(safe-area-inset-top) + 10px)` }}
+      >
+        <div className="glass-container px-3 py-2 rounded-lg font-mono">
+          <div className="glass-filter" />
+          <div className="glass-overlay" />
+          <div className="glass-specular" />
+          <div className="relative z-10 leading-tight">
+            <div className="text-[9px] uppercase tracking-[0.18em] text-white/45">
+              Play balance
+            </div>
+            <div className="text-sm font-semibold tabular-nums text-white">
+              {fmtSui(session.balanceMist)} SUI
+            </div>
+          </div>
+        </div>
+
+        <RoundCountdown
+          roundIndex={ride.round?.index ?? null}
+          startedAtSegment={ride.round?.startedAtSegment ?? null}
+          nextSegmentIndex={ride.nextSegmentIndex}
+          roundDurationSegments={
+            ride.round?.roundDurationSegments ?? 75
+          }
+          openWindowSegments={ride.round?.openWindowSegments ?? 13}
+        />
+
+        <div className="pointer-events-auto">
+          {!needsFunds && session.balanceMist !== null ? (
+            <div className="glass-container px-3 py-2 rounded-lg font-mono">
+              <div className="glass-filter" />
+              <div className="glass-overlay" />
+              <div className="glass-specular" />
+              <div className="relative z-10 text-[11px] text-emerald-400/90 uppercase tracking-wider">
+                ✓ ready
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="fixed right-3 z-[1550] pointer-events-none" style={{ top: `calc(env(safe-area-inset-top) + 80px)` }}>
+        <BarrierOrderbookGrid marketId={picked.market} client={session.client} />
+      </div>
+
+      {needsFunds && ride.phase === "idle" && !settlementToast ? (
+        <FundCta
+          balanceMist={session.balanceMist}
+          address={session.address}
+          onFunded={session.refreshBalance}
+        />
+      ) : !settlementToast ? (
+        <CenterHeroV3
+          needsFunds={needsFunds}
+          phase={ride.phase}
+          pnl={ridePnl.pnl}
+          stakePaid={stakePaid}
+          multiplierX={multiplierX}
+          barrierLabel={barrierLabel}
+          inOpenWindow={ride.inOpenWindow}
+          pickedBarrier={ride.pickedBarrier}
+        />
+      ) : null}
+
+      {settlementToast && (
+        <div
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[1700] w-full max-w-[440px] px-6 text-center motion-safe:animate-[rideSettleIn_280ms_ease-out]"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="text-[11px] uppercase tracking-[0.22em] mb-2 text-white/45">
+            {settlementToast.kind === 1
+              ? "Touch hit — jackpot"
+              : settlementToast.kind === 2
+                ? "Cashed out"
+                : settlementToast.kind === 3
+                  ? "Round ended — no touch"
+                  : settlementToast.kind === 4
+                    ? "Market voided — refunded"
+                    : "Ride settled"}
+          </div>
+          <div
+            className={`text-5xl font-bold leading-none ${
+              settlementToast.kind === 1
+                ? "text-emerald-400"
+                : settlementToast.kind === 2
+                  ? "text-white"
+                  : settlementToast.kind === 3
+                    ? "text-rose-400"
+                    : "text-amber-300"
+            }`}
+            style={{ textShadow: "0 2px 28px rgba(0,0,0,0.7)" }}
+          >
+            {settlementToast.label.replace(/_/g, " ")}
+          </div>
+          <a
+            href={`https://suiscan.xyz/testnet/tx/${settlementToast.digest}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-block text-xs text-white/55 mt-3 underline underline-offset-2"
+          >
+            view transaction →
+          </a>
+        </div>
+      )}
+
+      {ride.lastError && ride.phase === "idle" && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-[1650] pointer-events-none"
+          style={{ bottom: `calc(env(safe-area-inset-bottom) + 18px)` }}
+        >
+          <div className="font-mono text-[11px] text-rose-400/85 text-center max-w-[340px] px-4">
+            {ride.lastError}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes rideSettleIn {
+          from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)); }
+          to   { opacity: 1; transform: translate(-50%, -50%); }
+        }
+        @keyframes rideBar {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(320%); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Ride — feature-flag entry point.
+//
+// Picks V4 if any v4 market is deployed; else falls back to V3; else
+// shows the empty-deployment "no markets provisioned" notice.
+// ─────────────────────────────────────────────────────────────────────────
+export function Ride() {
+  const pickedV4 = useMemo(() => pickSegmentMarketV4(), []);
+  const pickedV3 = useMemo(() => pickSegmentMarket(), []);
+
+  if (pickedV4) return <RideV4 picked={pickedV4} />;
+  if (pickedV3) return <RideV3 picked={pickedV3} />;
+
+  return (
+    <div className="fixed inset-0 bg-[#0c0c0c] text-foreground flex flex-col items-center justify-center font-mono p-6 text-center">
+      <h1 className="text-2xl font-semibold mb-2">
+        No segment-arcade market provisioned
+      </h1>
+      <p className="text-sm text-muted-foreground max-w-md">
+        The touch-either arcade (doc 25) needs a bootstrapped{" "}
+        <code className="text-foreground">SegmentMarketV4&lt;SUI&gt;</code>{" "}
+        or, as fallback, a v3{" "}
+        <code className="text-foreground">SegmentMarket&lt;SUI&gt;</code>.
+        Add one to{" "}
+        <code className="text-foreground">deployments/testnet.json</code>
+        {" "}under the{" "}
+        <code className="text-foreground">segment_markets_v4</code> or
+        {" "}
+        <code className="text-foreground">segment_markets</code> key and reload.
+      </p>
     </div>
   );
 }

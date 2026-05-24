@@ -6,3 +6,4 @@ export * from "./transactions.js";
 export * from "./seededPath.js";
 export * from "./patterns.js";
 export * from "./segmentMarket.js";
+export * from "./segmentMarketV4.js";

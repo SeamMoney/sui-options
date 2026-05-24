@@ -37,12 +37,33 @@ export interface SegmentMarketRecord {
   home_price: number;
 }
 
+/**
+ * Per doc 25 — a SegmentMarketV4<C> singleton; the touch-either, always-open
+ * evolution of v3. Same shape as `SegmentMarketRecord` minus
+ * `open_window_segments` (always-open) and renaming `max_payout_per_barrier`
+ * → `max_payout_per_round`. The frontend reads only the small subset here at
+ * runtime; the rest is read on demand via `fetchSegmentMarketV4`.
+ */
+export interface SegmentMarketV4Record {
+  name: string;
+  /** Shared SegmentMarketV4<C> object id. */
+  market: string;
+  /** Collateral type tag, e.g. `0x2::sui::SUI`. */
+  collateral: string;
+  /** Vault the market binds to (`vault_sui` for SUI). */
+  vault: string;
+  /** Walk home price in micro-USD (display anchor pre-first-segment). */
+  home_price: number;
+}
+
 export interface TestnetDeployment {
   network: string;
   package_id: string;
   vault_sui?: string;
   arcade_markets?: ArcadeMarketRecord[];
   segment_markets?: SegmentMarketRecord[];
+  /** doc 25 — v4 touch-either always-open markets. Empty until v4 deploys. */
+  segment_markets_v4?: SegmentMarketV4Record[];
   risk_config?: string;
   global_exposure_registry?: string;
   bot_registry?: string;
