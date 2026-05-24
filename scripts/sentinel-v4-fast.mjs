@@ -59,7 +59,15 @@ const MIN_STAKE_PER_SEGMENT = BigInt(v4Market.min_stake_per_segment);
 const STAKE_PER_SEGMENT = MIN_STAKE_PER_SEGMENT;
 const ESCROW_MIST = STAKE_PER_SEGMENT * BigInt(ROUND_DURATION_SEGMENTS);
 
-const CRANK_INTERVAL_MS = Number(process.env.CRANK_INTERVAL_MS ?? "200");
+// 2026-05-24 — bumped from 200 to 600 ms after the user's session got
+// locked out: at 200 ms the cranker was holding the SegmentMarketV4
+// shared-object lock almost continuously (~5/sec × ~700 ms RPC roundtrip
+// = >100% duty cycle), and the user's open/close txs hit
+// "object … unavailable for consumption" and "already locked by a
+// different transaction" because they couldn't grab a fresh version
+// between cranks. At 600 ms there's a ~500 ms gap each cycle for the
+// user's tx to land.
+const CRANK_INTERVAL_MS = Number(process.env.CRANK_INTERVAL_MS ?? "600");
 const HOLD_SEGMENTS = Number(process.env.HOLD_SEGMENTS ?? "70");
 const GAS_BUDGET = 100_000_000n; // 0.1 SUI
 
