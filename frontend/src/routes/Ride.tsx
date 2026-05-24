@@ -35,8 +35,21 @@ import {
 } from "@/lib/deployments";
 import { BARRIER_UPPER, type BarrierIndex } from "@wick/sdk";
 
-/** Need ~0.05 SUI to ride one round (escrow + gas). Below this → faucet. */
-const MIN_RIDE_BALANCE_MIST = 50_000_000n;
+/**
+ * Minimum SUI balance to allow a ride. Math for the testnet v4 market:
+ *   escrow:    stake_per_segment × round_duration = 100k × 75 = 7.5M MIST
+ *              (locked at open, refunded at close)
+ *   open gas:  ~5M MIST
+ *   close gas: ~5M MIST
+ *   buffer:    ~7.5M MIST
+ *   ────────────────────────────────────────────────────────
+ *   total:     25M MIST = 0.025 SUI
+ *
+ * The old 0.05 gate was 2× over-provisioned and blocked anyone who burned
+ * down to ~0.04 SUI on failed attempts — exactly the state the user hit
+ * on 2026-05-23 ("I have 0.028 SUI why can't I play").
+ */
+const MIN_RIDE_BALANCE_MIST = 25_000_000n;
 
 /**
  * Pick the latest v4 segment market from the deployment. Operators
