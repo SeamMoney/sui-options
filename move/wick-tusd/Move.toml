@@ -1,0 +1,13 @@
+[package]
+name = "wick_tusd"
+edition = "2024"
+# Standalone testnet stablecoin for the Wick segment arcade. Separate from
+# the main `wick` package because Sui's coin::create_currency requires a
+# one-time witness, which is only valid in init() — and upgrades to an
+# existing package don't re-run init. So TUSD lives in its own publish.
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+
+[addresses]
+wick_tusd = "0x0"

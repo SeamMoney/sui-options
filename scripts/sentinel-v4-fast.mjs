@@ -12,12 +12,26 @@
  * end-to-end. Chart updates land at ~6 candles every 200ms vs every 1.5s.
  *
  * Usage:
+ *   # Default — poll mode (cheap, ~0 SUI when idle, used by frontend's
+ *   # stall-cranker pattern):
  *   node scripts/sentinel-v4-fast.mjs
- *   nohup node scripts/sentinel-v4-fast.mjs > /tmp/sentinel-v4-fast.log 2>&1 &
+ *
+ *   # 24/7 always-active mode — BURNS ~60 SUI/HOUR. Only for live demos:
+ *   CRANKER_MODE=always node scripts/sentinel-v4-fast.mjs
  *
  * Keypair: loads the active sui CLI key from ~/.sui/sui_config/sui.keystore.
  *
- * Burn rate: ~30M MIST/round of gas + ~7.5M MIST/round of escrow (refunded).
+ * Burn-rate budget per mode:
+ *   - poll  (default): ~0 SUI when no rides are open, ~0.05 SUI per
+ *                      real user ride lifecycle.
+ *   - always:           ~0.5 SUI / minute = ~30 SUI / hour. Was draining
+ *                      the operator faster than the Sui faucet refilled.
+ *
+ * 2026-05-24 — Default flipped always→poll. The frontend's client-side
+ * idle walk (useRideGestureV4 v4.15) already fakes visual motion for $0,
+ * so we don't need on-chain cranking when nobody's playing. The always
+ * mode survives behind an env flag for live in-person demos where you
+ * want the on-chain truth visible.
  */
 
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
@@ -211,21 +225,26 @@ process.on("SIGTERM", gracefulShutdown);
 // ── Main loop ─────────────────────────────────────────────────────────────
 //
 // 2026-05-24 — operator mode:
-//   CRANKER_MODE=always   (default) — open a sentinel ride, crank it,
-//                                     close it, repeat. Chart is alive
-//                                     24/7 even with no real users.
-//                                     Burn rate ~0.5 SUI/min during the
-//                                     ride + ~0.01 SUI per open/close
-//                                     overhead. Right for demo / first-
-//                                     impression UX where "chart looks
-//                                     dead" is a deal-killer.
-//   CRANKER_MODE=poll              — only crank when a real user has
-//                                     a ride open (cost ~0 when idle).
-//                                     Wrong for first-time users because
-//                                     they won't tap a frozen chart.
-//                                     Right for production once sponsored
-//                                     cranking lands.
-const CRANKER_MODE = (process.env.CRANKER_MODE ?? "always").toLowerCase();
+//   CRANKER_MODE=poll     (DEFAULT) — only crank when a real user has a
+//                                     ride open. Cost ~0 SUI when idle.
+//                                     The frontend's client-side idle-
+//                                     walk (useRideGestureV4 v4.15) fakes
+//                                     visual motion for $0 so the chart
+//                                     never LOOKS dead to a first-timer.
+//   CRANKER_MODE=always            — open/crank/close in a loop forever.
+//                                     Chart is genuinely on-chain alive
+//                                     24/7 but burns ~60 SUI/HOUR
+//                                     (measured: 0.00909 SUI per crank at
+//                                     600 ms cadence). Only use this for
+//                                     a live in-person demo where you
+//                                     CAN'T trust the idle-walk illusion.
+//                                     STOP IT before walking away.
+//
+// 2026-05-24 default flipped always→poll. Running this script 24/7 in
+// always mode was draining the operator wallet faster than the public
+// Sui faucet refilled it (~1 SUI / 90 s public-faucet drip vs. 60 SUI/
+// hour burn). The idle-walk visual is good enough for the demo.
+const CRANKER_MODE = (process.env.CRANKER_MODE ?? "poll").toLowerCase();
 const IDLE_POLL_MS = Number(process.env.IDLE_POLL_MS ?? "2000");
 
 // ALWAYS-ACTIVE mode — open / crank / close in a loop.
