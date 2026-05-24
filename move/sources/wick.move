@@ -36,6 +36,7 @@ use wick::random_walk_driver::{Self, RandomWalk};
 use wick::risk_config::RiskConfig;
 use wick::segment_market::{Self as sm, SegmentMarket, SegmentRidePosition};
 use wick::segment_market_v3::{Self as sm3, SegmentMarketV3, SegmentRidePositionV3};
+use wick::segment_market_v4::{Self as sm4, SegmentMarketV4, SegmentRidePositionV4};
 use wick::usd_price_oracle::UsdPriceOracle;
 use wick::wick_oracle::WickOracle;
 use wick::wick_staking::WickStakingPool;
@@ -564,6 +565,153 @@ public entry fun prune_settled_segments_v3<C>(
     ctx: &mut TxContext,
 ) {
     sm3::prune_settled_segments<C>(market, round_index, ctx);
+}
+
+// === Segment-market arcade v4 — SDK re-exports ===
+//
+// Per docs/design/v2/25_touch_either_laser_v3.md. v4 is the touch-either
+// + always-open variant that replaces v3's barrier-pick mechanic:
+//   - `open_segment_ride_v4` takes NO `barrier_index` — rides are
+//     direction-neutral, both barriers snapshotted at open, touch on
+//     EITHER side wins the jackpot.
+//   - No `open_window_segments` — every segment in the round accepts new
+//     opens (front-running concern doesn't apply to a volatility bet).
+//   - `max_payout_per_round` replaces v3's per-side `max_payout_per_barrier`.
+//
+// v4 ships ALONGSIDE v2 + v3. Existing testnet markets keep working;
+// new bootstraps wire through these entries.
+
+/// Admin bootstrap: construct + share a SegmentMarketV4<C>.
+///
+/// v4 parameter contract differs from v3:
+///   - DROPPED `open_window_segments` (no window)
+///   - RENAMED `max_payout_per_barrier` → `max_payout_per_round`
+public entry fun bootstrap_segment_market_v4<C>(
+    home_price: u64,
+    vol_regime_init: u64,
+    round_duration_segments: u64,
+    barrier_offset_bps: u64,
+    multiplier_bps: u64,
+    max_payout_per_round: u64,
+    deadband_bps: u64,
+    sigma_bps_per_sqrt_sec: u64,
+    cashout_spread_bps: u64,
+    abort_segment_deadline_ms: u64,
+    min_stake_per_segment: u64,
+    max_stake_per_segment: u64,
+    max_concurrent_rides: u64,
+    max_rides_per_user: u64,
+    vault: &MartingalerVault<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let market = sm4::new_segment_market_v4<C>(
+        vault,
+        home_price,
+        vol_regime_init,
+        round_duration_segments,
+        barrier_offset_bps,
+        multiplier_bps,
+        max_payout_per_round,
+        deadband_bps,
+        sigma_bps_per_sqrt_sec,
+        cashout_spread_bps,
+        abort_segment_deadline_ms,
+        min_stake_per_segment,
+        max_stake_per_segment,
+        max_concurrent_rides,
+        max_rides_per_user,
+        clock,
+        ctx,
+    );
+    sm4::share_segment_market_v4<C>(market);
+}
+
+/// Permissionless v4 cranker entry — `record_segment` on a v4 market.
+public entry fun record_segment_v4<C>(
+    market: &mut SegmentMarketV4<C>,
+    r: &Random,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    sm4::record_segment<C>(market, r, clock, ctx);
+}
+
+/// v4: Open a touch-either ride. No `barrier_index` — touch on EITHER
+/// barrier wins.
+public fun open_segment_ride_v4<C>(
+    market: &mut SegmentMarketV4<C>,
+    vault: &mut MartingalerVault<C>,
+    bot_registry: &BotRegistry,
+    stake_per_segment: u64,
+    escrow: Coin<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): SegmentRidePositionV4 {
+    sm4::open_segment_ride_v4<C>(
+        market, vault, bot_registry,
+        stake_per_segment, escrow, clock, ctx,
+    )
+}
+
+public fun close_segment_ride_v4<C>(
+    ride: &mut SegmentRidePositionV4,
+    market: &mut SegmentMarketV4<C>,
+    vault: &mut MartingalerVault<C>,
+    price_oracle: &UsdPriceOracle,
+    token_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm4::close_segment_ride_v4<C>(
+        ride, market, vault, price_oracle, token_state, staking_pool, clock, ctx,
+    )
+}
+
+public fun crank_expired_segment_ride_v4<C>(
+    ride: &mut SegmentRidePositionV4,
+    market: &mut SegmentMarketV4<C>,
+    vault: &mut MartingalerVault<C>,
+    price_oracle: &UsdPriceOracle,
+    token_state: &mut WickTokenState,
+    staking_pool: &mut WickStakingPool,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm4::crank_expired_segment_ride_v4<C>(
+        ride, market, vault, price_oracle, token_state, staking_pool, clock, ctx,
+    )
+}
+
+public fun abort_segment_ride_v4<C>(
+    ride: &mut SegmentRidePositionV4,
+    market: &mut SegmentMarketV4<C>,
+    vault: &mut MartingalerVault<C>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<C> {
+    sm4::abort_segment_ride_v4<C>(ride, market, vault, clock, ctx)
+}
+
+/// v4 mirror of v3 record_walrus_archive — permissionless.
+public entry fun record_walrus_archive_v4<C>(
+    market: &mut SegmentMarketV4<C>,
+    round_index: u64,
+    walrus_blob_id: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    sm4::record_walrus_archive<C>(market, round_index, walrus_blob_id, ctx);
+}
+
+/// v4 mirror of v3 prune_settled_segments — permissionless, caller pockets
+/// the storage rebate.
+public entry fun prune_settled_segments_v4<C>(
+    market: &mut SegmentMarketV4<C>,
+    round_index: u64,
+    ctx: &mut TxContext,
+) {
+    sm4::prune_settled_segments<C>(market, round_index, ctx);
 }
 
 // === Sponsored cranking (v3.1) — SDK re-export ===
