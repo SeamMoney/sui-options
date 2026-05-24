@@ -11,8 +11,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": false,
-    "types": ["node"]
+    "verbatimModuleSyntax": false
   },
   "include": ["src/**/*", "test/**/*"]
 }
