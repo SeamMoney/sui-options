@@ -171,22 +171,11 @@ export function BarrierFlowV4(props: BarrierFlowV4Props) {
   const upper = toUsd(snapshot.cachedUpperBarrier);
   const lower = toUsd(snapshot.cachedLowerBarrier);
 
-  const riders = Number(snapshot.eitherRiderCount);
-  const totalStakedUsd = toUsd(snapshot.eitherAggregateStake);
-  // JACKPOT figure: total max payout currently committed to this round.
-  // (Each rider's payout = stake × multiplier; the aggregate is precomputed
-  // on chain into either_aggregate_max_payout, so this is exact.)
-  const jackpotUsd = toUsd(snapshot.eitherAggregateMaxPayout);
-
-  // Cap fullness — for the small fill bar at the bottom.
-  const maxPayout = snapshot.maxPayoutPerRound;
-  const fullnessPct =
-    maxPayout > 0n
-      ? Math.min(
-          100,
-          Number((snapshot.eitherAggregateMaxPayout * 100n) / maxPayout),
-        )
-      : 0;
+  // 2026-05-23 declutter: riders / totalStakedUsd / jackpotUsd / fullnessPct
+  // were rendered in the panel but they're spectator metrics — they don't
+  // change the user's decision to tap-and-hold. Dropped along with their
+  // render blocks. The snapshot still carries them on chain so we can
+  // surface them later (admin view, leaderboard, etc.).
 
   return (
     <div className="glass-container px-3 py-2.5 rounded-lg font-mono pointer-events-none select-none min-w-[180px]">
@@ -212,52 +201,15 @@ export function BarrierFlowV4(props: BarrierFlowV4Props) {
           />
         </div>
 
-        {/* Live aggregate (single bucket, no upper/lower split) */}
-        <div className="space-y-1 mb-2.5">
-          <div className="flex items-baseline justify-between">
-            <span className="text-[9px] uppercase tracking-[0.14em] text-white/45">
-              Live riders
-            </span>
-            <span className="text-xs font-semibold tabular-nums text-white">
-              {riders}
-            </span>
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-[9px] uppercase tracking-[0.14em] text-white/45">
-              Total staked
-            </span>
-            <span className="text-xs font-semibold tabular-nums text-white">
-              {fmtUsd(totalStakedUsd)}
-            </span>
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-[9px] uppercase tracking-[0.14em] text-amber-300/80">
-              Jackpot
-            </span>
-            <span className="text-xs font-semibold tabular-nums text-amber-300">
-              {fmtUsd(jackpotUsd)}
-            </span>
-          </div>
-        </div>
-
-        {/* Vault-cap fullness bar — same fullness signal as the v3 OrderbookBar */}
-        {maxPayout > 0n && (
-          <div className="mb-2.5">
-            <div className="flex items-center justify-between text-[8px] uppercase tracking-[0.12em] text-white/35 mb-0.5">
-              <span>round cap</span>
-              <span className="tabular-nums">{fullnessPct}%</span>
-            </div>
-            <div className="h-0.5 w-full rounded-full bg-white/10 overflow-hidden">
-              <div
-                className={`h-full ${fullnessPct >= 95 ? "bg-rose-400/80" : "bg-amber-300/60"}`}
-                style={{ width: `${fullnessPct}%` }}
-              />
-            </div>
-          </div>
-        )}
+        {/* 2026-05-23 declutter: dropped LIVE RIDERS / TOTAL STAKED /
+            JACKPOT / ROUND CAP — spectator metrics that don't change the
+            user's decision. The two-barrier block below is the only
+            actionable info: are the barriers close enough that touching
+            either is plausible? (User feedback: "as little as stuff on
+            the screen as possible".) */}
 
         {/* Two barriers — distance-to-spot for awareness only */}
-        <div className="border-t border-white/10 pt-2 space-y-1">
+        <div className="space-y-1">
           <div className="flex items-baseline justify-between">
             <span className="text-[9px] uppercase tracking-[0.14em] text-emerald-400/80">
               ▲ Upper

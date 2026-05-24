@@ -401,23 +401,14 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
         </div>
 
         {/*
-         * V4: same RoundCountdown component, but in v4 the round duration
-         * IS the open window (we surface openWindowSegments = roundDurationSegments
-         * inside useSegmentRideV4), so the "OPEN" badge stays on the whole round
-         * and the inner amber bar tracks the full round time. Visually it's
-         * a continuously-open timer — no "barriers locked" moment.
+         * V4 declutter: the top-bar RoundCountdown was duplicating info
+         * that BarrierFlowV4 (right rail) already shows — round number +
+         * countdown — plus it still displayed "PICK A BARRIER" copy from
+         * v3 even though v4 has no barrier-pick step. Dropped entirely
+         * for v4. The right-rail panel is the single source of round
+         * status. (User feedback 2026-05-23: "as little as stuff on the
+         * screen as possible".)
          */}
-        <RoundCountdown
-          roundIndex={ride.round?.index ?? null}
-          startedAtSegment={ride.round?.startedAtSegment ?? null}
-          nextSegmentIndex={ride.nextSegmentIndex}
-          roundDurationSegments={
-            ride.round?.roundDurationSegments ?? 75
-          }
-          openWindowSegments={
-            ride.round?.openWindowSegments ?? 75
-          }
-        />
 
         <div className="pointer-events-auto">
           {!needsFunds && session.balanceMist !== null ? (

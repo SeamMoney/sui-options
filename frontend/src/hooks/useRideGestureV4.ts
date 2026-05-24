@@ -474,7 +474,13 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           candles = [];
           seededCandles = [];
           highestExpandedK = null;
-          const homePrice = s.round?.spotAtRoll ?? 100;
+          // Home price for the seeded-path walk. When the round event hasn't
+          // landed yet (s.round is null on first paint), fall back to the
+          // testnet v4 market's bootstrap home_price ($1000) so the candles
+          // render at the right Y-axis range. The old fallback of 100
+          // produced a flat squiggle at $98 while barriers sat at $1100/$900
+          // — visually broken because the chart Y-domain spans both.
+          const homePrice = s.round?.spotAtRoll ?? 1000;
           const homePriceMicro = BigInt(Math.round(homePrice * PRICE_SCALING));
           walkState = newWalkState(
             homePriceMicro,
