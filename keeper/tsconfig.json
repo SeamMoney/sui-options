@@ -12,12 +12,13 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
-    // Explicit types list — implicit lookup picks up empty orphan dirs from
-    // workspace dedup (e.g. node_modules/@types/ws or .../uuid as empty
-    // placeholders left when a peer hoists them deeper). We only need node
-    // and ws; @mysten/sui pulls ws transitively, both are now explicit
-    // devDependencies in keeper/package.json.
-    "types": ["node", "ws"]
+    // Empty types list disables implicit @types/* lookup — the workspace
+    // root has empty orphan @types/* dirs from npm dedup that TS would
+    // otherwise fail on with TS2688. Types we actually use come through
+    // normal module resolution from imports (@mysten/sui, etc.). The
+    // @types/node + @types/ws devDeps stay in keeper/package.json so they
+    // resolve through normal lookup when explicitly imported.
+    "types": []
   },
   "include": ["src/**/*", "test/**/*"]
 }

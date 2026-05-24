@@ -11,7 +11,13 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    // Empty types list disables ALL implicit @types/* lookup. The workspace
+    // root has empty orphan @types/* dirs (ws, uuid, use-sync-external-store…)
+    // from npm dedup that TS would otherwise try to load and fail on with
+    // TS2688. We only need types that come through normal module resolution
+    // from our actual imports (@mysten/sui, etc.) — which still work fine.
+    "types": []
   },
   "include": ["src/**/*"]
 }
