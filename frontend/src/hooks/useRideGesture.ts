@@ -941,20 +941,22 @@ export function useRideGesture(opts: RideGestureOptions) {
             // but the rose-ring overlay no longer draws around the candle.
             const postHoc = c.postHocPatterns?.[c.postHocPatterns.length - 1];
             if (c.armedPattern) {
-              const pulse = 1.5 + Math.sin(p.millis() * 0.012) * 0.9;
+              // 2026-05-23 user feedback: "make the candles themselves glow
+              // with a faint red/yellow/orange glow — not a highlighted box
+              // around them, not noticeable, not in the way."
+              //
+              // Replaced the emerald rectangle outline with a soft warm-amber
+              // glow on the candle body itself, using canvas shadowBlur. No
+              // extra rectangle, no pulse. The body re-fills on top of itself
+              // so the existing color (green for up, red border for down) is
+              // preserved; the shadow halo just adds a subtle amber halo.
+              const pulse = 0.5 + Math.sin(p.millis() * 0.008) * 0.18;
               const ctx = p.drawingContext as CanvasRenderingContext2D;
-              ctx.shadowBlur = 10 + pulse * 3;
-              ctx.shadowColor = "rgba(16, 185, 129, 0.75)";
-              p.noFill();
-              p.stroke(16, 185, 129, 190 * c.animation);
-              p.strokeWeight(2.5);
-              p.rect(
-                x - 5 - pulse,
-                candleTop - 6 - pulse,
-                candleWidth + 10 + pulse * 2,
-                Math.max(10, candleBottom - candleTop + 12 + pulse * 2),
-                4,
-              );
+              ctx.shadowBlur = 8 + pulse * 4;
+              ctx.shadowColor = `rgba(251, 191, 36, ${0.32 + pulse * 0.10})`;
+              p.fill(color[0], color[1], color[2], 200 * c.animation);
+              p.noStroke();
+              p.rect(x, bodyY, candleWidth, Math.max(bodyHeight, 1), 1);
               ctx.shadowBlur = 0;
             }
             if (
