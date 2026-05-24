@@ -297,6 +297,29 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         let candleSpacing = p.windowWidth < 768 ? 9 : 13;
         let maxCandles = MAX_CHART_CANDLES;
         let priceScale = { min: 0, max: 100 };
+        // ── Staggered candle-reveal queue (2026-05-24) ────────────────────
+        // The chain emits one SegmentRecordedV4 event per segment; each
+        // segment deterministically expands to CANDLES_PER_SEGMENT (=6)
+        // OHLC candles via seeded_path::expand_segment. The cranker pushes
+        // segments every ~1s on testnet, so naively pushing all 6 candles
+        // into `candles[]` at once produced a "jump 6, freeze 1s, jump 6"
+        // stutter (user feedback 2026-05-24: "Why is the screen showing
+        // like multiple new candles every frame? Yesterday … the candles
+        // were like live and animated nicely!").
+        //
+        // Fix: applySegment(live) enqueues 6 entries; the draw loop drains
+        // one per `revealCadenceMs` so the visual flow is steady at ~80 ms
+        // per candle (matches the "85 ms fast" feel the user remembered).
+        // Adaptive cadence: if the queue grows past CANDLES_PER_SEGMENT,
+        // the drain accelerates so a cranker burst can't lag the chart.
+        const REVEAL_BASE_MS = 80;
+        type RevealItem = {
+          seeded: ReturnType<typeof expandSegment>["candles"][number];
+          render: RenderCandle;
+          armed: Parameters<typeof armedCueFromSegment>[0] | undefined;
+        };
+        let revealQueue: RevealItem[] = [];
+        let lastRevealMs = 0;
         let priceScaleInit = false;
         let chartArea = { x: 30, y: 90, width: 0, height: 0 };
         let gridAlpha = 0;
@@ -487,40 +510,36 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
             1_000_000n,
             homePriceMicro,
           );
+          // Historical replay path: flush the reveal queue (no staggering
+          // for backfilled candles — user wants the chart fully populated
+          // on load, not slowly drawn) and reveal everything immediately.
+          revealQueue = [];
           for (const seg of segs) {
-            applySegment(seg);
+            applySegment(seg, /* immediate */ true);
           }
         };
 
-        const applySegment = (seg: SegmentInputV4) => {
-          if (!walkState) return;
-          const result = expandSegment(walkState, seg.key);
-          const armedByCandle = new Map(
-            result.armedPatterns.map((armed) => [armed.candleIndex, armed] as const),
-          );
-          walkState = result.newState;
-          for (let i = 0; i < result.candles.length; i++) {
-            const c = result.candles[i]!;
-            const isLast = i === result.candles.length - 1;
-            const rc = renderCandleFromSeeded(c, 1);
-            const armed = armedByCandle.get(i);
-            if (armed) rc.armedPattern = armedCueFromSegment(armed);
-            rc.isLive = isLast;
-            candles.push(rc);
-            seededCandles.push(c);
-            for (const match of detectPostHocPattern(seededCandles)) {
-              const cue = postHocCueFromMatch(match);
-              for (let j = match.startIndex; j <= match.endIndex; j++) {
-                const target = candles[j];
-                if (!target) continue;
-                const existing = target.postHocPatterns ?? [];
-                if (!existing.some((patt) => patt.label === cue.label)) {
-                  target.postHocPatterns = [...existing, cue].slice(-3);
-                }
+        /**
+         * Run post-hoc pattern detection over the full seededCandles series
+         * and attach detected patterns to the corresponding rendered candles.
+         * Called after each reveal (either staggered or immediate).
+         */
+        const runPostHocPatternDetection = () => {
+          for (const match of detectPostHocPattern(seededCandles)) {
+            const cue = postHocCueFromMatch(match);
+            for (let j = match.startIndex; j <= match.endIndex; j++) {
+              const target = candles[j];
+              if (!target) continue;
+              const existing = target.postHocPatterns ?? [];
+              if (!existing.some((patt) => patt.label === cue.label)) {
+                target.postHocPatterns = [...existing, cue].slice(-3);
               }
             }
           }
-          highestExpandedK = seg.k;
+        };
+
+        /** Apply ring-buffer truncation after either reveal path. */
+        const truncateRingBuffer = () => {
           if (candles.length > maxCandles + CANDLES_PER_SEGMENT) {
             const drop = candles.length - (maxCandles + CANDLES_PER_SEGMENT);
             candles.splice(0, drop);
@@ -536,6 +555,72 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
               );
             }
           }
+        };
+
+        const applySegment = (seg: SegmentInputV4, immediate = false) => {
+          if (!walkState) return;
+          const result = expandSegment(walkState, seg.key);
+          const armedByCandle = new Map(
+            result.armedPatterns.map((armed) => [armed.candleIndex, armed] as const),
+          );
+          walkState = result.newState;
+
+          if (immediate) {
+            // Backfill / historical replay — reveal all 6 at once.
+            for (let i = 0; i < result.candles.length; i++) {
+              const c = result.candles[i]!;
+              const isLast = i === result.candles.length - 1;
+              const rc = renderCandleFromSeeded(c, 1);
+              const armed = armedByCandle.get(i);
+              if (armed) rc.armedPattern = armedCueFromSegment(armed);
+              rc.isLive = isLast;
+              candles.push(rc);
+              seededCandles.push(c);
+              runPostHocPatternDetection();
+            }
+          } else {
+            // Live path — enqueue, let drainRevealQueue() reveal one at
+            // a time on the draw loop ticker.
+            for (let i = 0; i < result.candles.length; i++) {
+              const c = result.candles[i]!;
+              const rc = renderCandleFromSeeded(c, 0);
+              const armed = armedByCandle.get(i);
+              revealQueue.push({ seeded: c, render: rc, armed });
+            }
+          }
+          highestExpandedK = seg.k;
+          truncateRingBuffer();
+        };
+
+        /**
+         * Pop one item off `revealQueue` per tick once `revealCadenceMs`
+         * has elapsed. Adaptive: when the queue exceeds CANDLES_PER_SEGMENT
+         * (cranker burst caught up to multiple segments at once), the
+         * cadence accelerates so we don't fall behind.
+         */
+        const drainRevealQueue = (now: number) => {
+          if (revealQueue.length === 0) return;
+          // Speed up the reveal proportionally when the backlog grows.
+          // 1 candle queued → 80 ms; 12 queued → ~40 ms.
+          const cadence = Math.max(
+            40,
+            REVEAL_BASE_MS - (revealQueue.length - CANDLES_PER_SEGMENT) * 6,
+          );
+          if (lastRevealMs > 0 && now - lastRevealMs < cadence) return;
+
+          const item = revealQueue.shift()!;
+          // Demote the previous live candle; the just-revealed one is now live.
+          if (candles.length > 0) {
+            const prev = candles[candles.length - 1]!;
+            prev.isLive = false;
+          }
+          item.render.isLive = true;
+          if (item.armed) item.render.armedPattern = armedCueFromSegment(item.armed);
+          candles.push(item.render);
+          seededCandles.push(item.seeded);
+          runPostHocPatternDetection();
+          truncateRingBuffer();
+          lastRevealMs = now;
         };
 
         const reconcileSegments = () => {
@@ -1217,6 +1302,10 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           const now = p.millis();
 
           reconcileSegments();
+          // Drain one item from the reveal queue per ~80 ms tick so the
+          // chart animates candle-by-candle instead of jumping 6 at a time
+          // when a SegmentRecordedV4 event lands.
+          drainRevealQueue(now);
           checkStall(now);
           const curPhase = stateRef.current.phase;
           if (curPhase !== lastSeenPhase) {
