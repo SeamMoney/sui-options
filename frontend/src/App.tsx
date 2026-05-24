@@ -11,19 +11,22 @@ import { usePortfolio } from "@/hooks/usePortfolio";
 import { RideTest } from "@/routes/RideTest";
 import { Ride } from "@/routes/Ride";
 
-// Minimal pathname-based routing for the /ride-test spike and the /ride
-// demo surface. Avoids pulling in a router lib. The Vercel SPA rewrite in
-// vercel.json (if deployed) serves index.html for non-asset paths;
-// computed once at module load (no hash routing / SPA nav within these
-// pages).
+// Minimal pathname-based routing. Computed once at module load (no hash
+// routing / SPA nav within these pages — the Vercel SPA rewrite in
+// vercel.json serves index.html for non-asset paths so reload works).
+//
+// 2026-05-24 — flipped: `/` is the game now (Ride). The legacy touch-
+// trading shell (MainApp) moved to `/pro`. The old `/ride` URL still
+// renders Ride for any external links / bookmarks that point at it.
+// User: "Just make ride the main page and have the other stuff be on /pro".
 const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
-const IS_RIDE_ROUTE = PATHNAME === "/ride";
+const IS_PRO_ROUTE = PATHNAME === "/pro";
 
 export default function App() {
   if (IS_RIDE_TEST_ROUTE) return <RideTest />;
-  if (IS_RIDE_ROUTE) return <Ride />;
-  return <MainApp />;
+  if (IS_PRO_ROUTE) return <MainApp />;
+  return <Ride />;
 }
 
 function MainApp() {

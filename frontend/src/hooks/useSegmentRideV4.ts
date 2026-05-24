@@ -72,7 +72,10 @@ const MOVE_ABORT_MESSAGES: Record<number, string> = {
   3:  "Market is paused — try again in a moment.",
   4:  "Invalid barrier pick.",
   5:  "Open window closed.",
-  6:  "Bet size out of range — refresh and try again.",
+  // v4.19: abort 6 is EStakeOutOfRange. A refresh does NOT fix it — the
+  // market's max_stake_per_segment is lower than the frontend default,
+  // which only an operator redeploy can change. Tell the user the truth.
+  6:  "This market is misconfigured — ping the maintainer (stake size out of range).",
   7:  "Not enough escrow locked.",
   8:  "Bet can't be zero.",
   9:  "Too many rides open right now — wait a few seconds.",

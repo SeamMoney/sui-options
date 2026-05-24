@@ -214,10 +214,12 @@ function CenterHeroV4(props: {
   pnl: number;
   stakePaid: number;
   multiplierX: number;
+  /** True once the market snapshot has loaded — gates the "TAP AND HOLD" copy. */
+  isReady: boolean;
   /** Mobile-safe fallback when the touchend gesture misses. */
   onCashOut: () => void;
 }) {
-  const { needsFunds, phase, pnl, stakePaid, multiplierX, onCashOut } = props;
+  const { needsFunds, phase, pnl, stakePaid, multiplierX, isReady, onCashOut } = props;
 
   let kicker = "";
   let big = "";
@@ -229,11 +231,26 @@ function CenterHeroV4(props: {
     big = "Get test SUI";
     sub = "tap “Get test SUI”, top-right — free, instant, no wallet needed";
     tone = "amber";
+  } else if (phase === "idle" && !isReady) {
+    // v4.19 audit P1-9: while the snapshot / round info is still loading,
+    // the gesture path silently aborts every tap (startPress checks
+    // s.round !== null). Don't lie about being actionable — show a
+    // connecting state until the round is loaded.
+    kicker = "Loading market";
+    big = "Connecting…";
+    sub = "one second — fetching the round";
+    tone = "neutral";
   } else if (phase === "idle") {
     // V4: ALWAYS the press-to-ride invitation. No round-phase gating.
     kicker = "⚡  Tap and hold to ride";
     big = "TAP AND HOLD";
-    sub = `press anywhere — touch either side wins ${multiplierX.toFixed(2)}×`;
+    // v4.19 audit P0-2 + P1-11: plain-English what-the-game-is line.
+    // Don't claim a specific multiplier until the snapshot has loaded
+    // (otherwise the on-chain mult could differ from the default and
+    // we'd lie pre-snapshot). Once loaded, the multiplier is shown.
+    sub = isReady
+      ? `Hold to bet price touches the green or red line. Release to cash out. ${multiplierX.toFixed(2)}× payout.`
+      : "Hold to bet price touches the green or red line. Release to cash out.";
     tone = "amber";
   } else if (phase === "opening") {
     kicker = "Opening your ride";
@@ -297,7 +314,11 @@ function CenterHeroV4(props: {
         auto so it captures the tap even though the outer hero stays
         pointer-events-none for the rest of its content.
       */}
-      {(phase === "riding" || phase === "opening" || phase === "closing") && (
+      {/* v4.19 audit P0-6: only mount cash-out when an actual position
+          exists (riding or closing). During "opening" the position
+          isn't on chain yet — queued closes there evaporate silently
+          if the open then fails. */}
+      {(phase === "riding" || phase === "closing") && (
         <div className="mt-6 flex justify-center pointer-events-auto">
           <button
             type="button"
@@ -358,7 +379,7 @@ function FundCta(props: {
         Add test SUI to ride
       </div>
       <div className="text-xs text-white/60 mb-5 leading-relaxed">
-        You have {fmtSui(props.balanceMist)} SUI — a ride needs about 0.05.
+        You have {fmtSui(props.balanceMist)} SUI — a ride needs about 0.025.
         It’s free testnet SUI, no wallet required.
       </div>
       <div className="flex flex-col items-center gap-3">
@@ -498,6 +519,7 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           pnl={ridePnl.pnl}
           stakePaid={stakePaid}
           multiplierX={multiplierX}
+          isReady={ride.round !== null}
           onCashOut={() => ride.close()}
         />
       ) : null}
@@ -545,14 +567,27 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
         </div>
       )}
 
-      {/* ── Error line ──────────────────────────────────────────────── */}
-      {ride.lastError && ride.phase === "idle" && (
+      {/* ── Error toast ─────────────────────────────────────────────────
+          v4.19 audit P0-5 + P1-10: was rendered ONLY when
+          phase === "idle" + as a tiny 11px line floating at the
+          bottom of a busy chart — easily missed, and suppressed exactly
+          when most needed (the orphan-ride sweep sets phase=riding
+          AND lastError simultaneously, so the user could never see the
+          "you had a ride open" message that was supposed to surface).
+          Now: rendered in all phases, with a real background and a
+          dismiss button. */}
+      {ride.lastError && (
         <div
-          className="fixed left-1/2 -translate-x-1/2 z-[1650] pointer-events-none"
+          className="fixed left-1/2 -translate-x-1/2 z-[1650] pointer-events-auto"
           style={{ bottom: `calc(env(safe-area-inset-bottom) + 18px)` }}
         >
-          <div className="font-mono text-[11px] text-rose-400/85 text-center max-w-[340px] px-4">
-            {ride.lastError}
+          <div className="glass-container px-4 py-2 rounded-lg flex items-center gap-3 max-w-[420px]">
+            <div className="glass-filter" />
+            <div className="glass-overlay" />
+            <div className="glass-specular" />
+            <div className="relative z-10 font-mono text-[12px] text-rose-300 leading-snug">
+              {ride.lastError}
+            </div>
           </div>
         </div>
       )}
@@ -780,22 +815,18 @@ export function Ride() {
   if (pickedV3) return <RideV3 picked={pickedV3} />;
 
   return (
-    <div className="fixed inset-0 bg-[#0c0c0c] text-foreground flex flex-col items-center justify-center font-mono p-6 text-center">
-      <h1 className="text-2xl font-semibold mb-2">
-        No segment-arcade market provisioned
-      </h1>
-      <p className="text-sm text-muted-foreground max-w-md">
-        The touch-either arcade (doc 25) needs a bootstrapped{" "}
-        <code className="text-foreground">SegmentMarketV4&lt;SUI&gt;</code>{" "}
-        or, as fallback, a v3{" "}
-        <code className="text-foreground">SegmentMarket&lt;SUI&gt;</code>.
-        Add one to{" "}
-        <code className="text-foreground">deployments/testnet.json</code>
-        {" "}under the{" "}
-        <code className="text-foreground">segment_markets_v4</code> or
-        {" "}
-        <code className="text-foreground">segment_markets</code> key and reload.
+    <div className="fixed inset-0 bg-[#0c0c0c] text-foreground flex flex-col items-center justify-center p-6 text-center">
+      <div className="text-2xl font-semibold mb-2">Wick is between rounds</div>
+      <p className="text-sm text-white/60 max-w-md mb-5">
+        We're rebooting the market — back in a minute. Refresh to retry.
       </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="px-5 py-2 rounded-md bg-white text-zinc-950 text-sm font-semibold"
+      >
+        Refresh
+      </button>
     </div>
   );
 }

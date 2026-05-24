@@ -36,7 +36,12 @@ import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
 // per-ride gas math on the smoke market is still 100M MIST/ride, so 0.1
 // SUI is just barely enough for one ride — operators should top up the
 // faucet wallet between sessions until sponsored transactions land.
-const DRIP_MIST = 100_000_000n; // 0.1 SUI
+// 2026-05-24 v4.19 — bumped 100M → 200M (0.1 → 0.2 SUI). With the
+// MIN_RIDE_BALANCE gate at 0.025 SUI and per-ride gas ~0.01 SUI, a
+// 0.1 SUI drip survived only ~7 rides before re-triggering the
+// funding gate + 90 s faucet cooldown. 0.2 SUI doubles that runway
+// with no other cost.
+const DRIP_MIST = 200_000_000n; // 0.2 SUI
 const GAS_BUFFER_MIST = 20_000_000n; // ~0.02 SUI; ample headroom for one transfer
 const COOLDOWN_MS = 90 * 1000; // 90s per recipient
 

@@ -59,18 +59,25 @@ export function RideChartV4({
     callbacksRef.current = callbacks;
   }, [callbacks]);
 
+  // 2026-05-24 v4.19 — scope touchmove preventDefault to the chart
+  // container, NOT document.body. The body-scoped version blocked
+  // pull-to-refresh, page scroll, and iOS rubber-band feedback for
+  // anyone on /ride; it made the whole page feel broken (audit P1-8).
+  // Inside the chart we still need it so a hold-and-drag doesn't scroll
+  // the canvas out from under the gesture. context/select/gesture
+  // listeners stay document-scoped — those are about disabling cmd-A,
+  // right-click menus, and iOS pinch-zoom and need full-page reach.
   useEffect(() => {
     const preventDefault = (e: Event) => e.preventDefault();
-    document.body.addEventListener("touchmove", preventDefault, {
-      passive: false,
-    });
+    const chartEl = chartRef.current;
+    chartEl?.addEventListener("touchmove", preventDefault, { passive: false });
     document.addEventListener("contextmenu", preventDefault);
     document.addEventListener("selectstart", preventDefault);
     document.addEventListener("gesturestart", preventDefault);
     document.addEventListener("gesturechange", preventDefault);
     document.addEventListener("gestureend", preventDefault);
     return () => {
-      document.body.removeEventListener("touchmove", preventDefault);
+      chartEl?.removeEventListener("touchmove", preventDefault);
       document.removeEventListener("contextmenu", preventDefault);
       document.removeEventListener("selectstart", preventDefault);
       document.removeEventListener("gesturestart", preventDefault);
@@ -84,8 +91,13 @@ export function RideChartV4({
   // swipe, screenshot, incoming call, scroll-eligible parent steal). p5
   // does NOT surface `touchcancel`, so without our own listener the ride
   // is left open on chain and the user sees their finger lift do nothing.
-  // We also fire close on visibility/pagehide as a belt-and-suspenders.
-  // ride.close() is idempotent — fires only if there's a live position.
+  //
+  // 2026-05-24 v4.19 — DROPPED `visibilitychange === "hidden"` from the
+  // close triggers. That fired whenever the user switched tabs (copy an
+  // address, read an SMS, take a screenshot) and silently cashed out
+  // their active ride. Audit P0-4. `pagehide` still triggers (genuine
+  // navigation / app close), and `touchcancel` still triggers (real
+  // gesture interruption).
   useEffect(() => {
     const fireClose = () => {
       try {
@@ -95,16 +107,11 @@ export function RideChartV4({
       }
     };
     const onCancel = (_e: TouchEvent) => fireClose();
-    const onVis = () => {
-      if (document.visibilityState === "hidden") fireClose();
-    };
     document.addEventListener("touchcancel", onCancel, { passive: true });
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("pagehide", onVis);
+    window.addEventListener("pagehide", fireClose);
     return () => {
       document.removeEventListener("touchcancel", onCancel);
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("pagehide", onVis);
+      window.removeEventListener("pagehide", fireClose);
     };
   }, []);
 
