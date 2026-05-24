@@ -1,6 +1,6 @@
 {
   "network": "testnet",
-  "package_id": "0x0b94e3daa9ca156f2e541caa177ae27abd40aaacbe599a8f93b3a5a136700e70",
+  "package_id": "0x10c3384310549ca77b881ecc3f956abef5553c913b855e0062233fc9320e7a4e",
   "publisher": "0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455",
   "publish_digest": "7kUBQmP6kFfN1ePFDz9iNYQKRDkFiXdzwqYZ46rgSMiV",
   "published_at": "20260520T050846Z",
@@ -176,6 +176,15 @@
       "upgrade_digest": "6PUSDbPqRRMAYaJwDq7CM9De5SQpK7SXTCPLrLh75LXi",
       "upgrade_capability": "0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590",
       "version": 2
+    },
+    {
+      "from_package_id": "0x0b94e3daa9ca156f2e541caa177ae27abd40aaacbe599a8f93b3a5a136700e70",
+      "to_package_id": "0x10c3384310549ca77b881ecc3f956abef5553c913b855e0062233fc9320e7a4e",
+      "upgraded_at": "20260524T043838Z",
+      "upgrade_digest": "BZQsgWFcBGM9hvhNVxRhv1rJMH4mxapyPtJ4HHhsPNcj",
+      "upgrade_capability": "0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590",
+      "version": 3,
+      "notes": "v4 \u2014 adds segment_market_v4 (touch-either, always-open per doc 25) + sponsor module (sponsored cranking per doc 22). segment_market_v3 + prune_proto stashed to move/sources-stash/ for size; v4 inherits prune_settled_segments + record_walrus_archive. Raw log: deployments/archive/upgrade-20260524T043838Z.json"
     }
   ],
   "segment_markets": [
@@ -220,6 +229,28 @@
       "max_rides_per_user": 5,
       "name": "WICK-SEG-20-1000bps",
       "collateral": "0x2::sui::SUI"
+    }
+  ],
+  "segment_markets_v4": [
+    {
+      "name": "WICK-SEG-V4-75-1000bps",
+      "market": "0xec32d173efe554247bc0b2b676f52a2f98918f6e0e6065d756757590ba526943",
+      "collateral": "0x2::sui::SUI",
+      "vault": "0x73d3a17ab1e1cdc173b8cde1ae7d9789a29d1a177ebfd415196a04a6a10e5b9f",
+      "home_price": 1000000000,
+      "vol_regime_init": 1000000,
+      "round_duration_segments": 75,
+      "barrier_offset_bps": 1000,
+      "multiplier_bps": 17500,
+      "max_payout_per_round": 20000000,
+      "deadband_bps": 20,
+      "sigma_bps_per_sqrt_sec": 100,
+      "cashout_spread_bps": 200,
+      "abort_segment_deadline_ms": 30000,
+      "min_stake_per_segment": 10000,
+      "max_stake_per_segment": 150000,
+      "max_concurrent_rides": 50,
+      "max_rides_per_user": 5
     }
   ]
 }

@@ -35,7 +35,15 @@ use wick::pull_oracle_driver::{Self, KeeperCap, PullFeed};
 use wick::random_walk_driver::{Self, RandomWalk};
 use wick::risk_config::RiskConfig;
 use wick::segment_market::{Self as sm, SegmentMarket, SegmentRidePosition};
-use wick::segment_market_v3::{Self as sm3, SegmentMarketV3, SegmentRidePositionV3};
+// v3 re-exports temporarily disabled for this upgrade — segment_market_v3.move
+// stashed to move/sources-stash/ because the combined package size (v2 + v3 +
+// v4 + sponsor + prune_proto) exceeded the Sui MovePackageTooBig 102_400-byte
+// per-package limit (was 115_023). The v4 module replicates v3's
+// prune_settled_segments + record_walrus_archive entry points, so the v3 track
+// is shippable in a follow-up upgrade once we split the workspace into
+// multiple Move packages. Restore: mv move/sources-stash/segment_market_v3.move
+// move/sources/ + uncomment the use-line and the v3 re-export block below.
+// use wick::segment_market_v3::{Self as sm3, SegmentMarketV3, SegmentRidePositionV3};
 use wick::segment_market_v4::{Self as sm4, SegmentMarketV4, SegmentRidePositionV4};
 use wick::usd_price_oracle::UsdPriceOracle;
 use wick::wick_oracle::WickOracle;
@@ -416,23 +424,13 @@ public fun abort_segment_ride<C>(
 
 // === Segment-market arcade v3 — SDK re-exports ===
 //
-// Per docs/design/v2/23_storage_rebate_pruning_v3.md +
-// docs/design/v2/24_walrus_archive_v3.md. The v3 module
-// (`wick::segment_market_v3`) is a parallel track to the v2
-// `wick::segment_market` so existing testnet markets keep working; new
-// deployments wire through these entries.
-//
-// New on top of v2:
-//   - `record_walrus_archive_v3` — permissionless. Records the 32-byte
-//     Walrus blob ID for a round's archive (doc 24 §5).
-//   - `prune_settled_segments_v3` — permissionless. Deletes a settled
-//     round's SegmentRecord rows; caller pockets the storage rebate
-//     (doc 23 §3.2).
-//
-// `record_segment_v3` mirrors v2's `record_segment` (both are
-// `public(package) entry` per the verifier's `&Random` rule); the
-// router declares its own `entry` form so the keeper can call it.
-
+// TEMPORARILY DISABLED for this upgrade. The combined package size
+// exceeded Sui's MovePackageTooBig 102_400-byte limit (115_023 bytes), so
+// segment_market_v3.move has been stashed to move/sources-stash/ and
+// these re-exports are block-commented. v4 inherits prune_settled_segments
+// + record_walrus_archive functionality (see v4 section below), so no
+// product feature is lost. Restore: move the file back + un-comment.
+/*
 /// Admin bootstrap: construct + share a SegmentMarketV3<C>.
 public entry fun bootstrap_segment_market_v3<C>(
     home_price: u64,
@@ -566,6 +564,7 @@ public entry fun prune_settled_segments_v3<C>(
 ) {
     sm3::prune_settled_segments<C>(market, round_index, ctx);
 }
+*/
 
 // === Segment-market arcade v4 — SDK re-exports ===
 //
