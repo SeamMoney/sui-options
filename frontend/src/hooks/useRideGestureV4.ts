@@ -894,99 +894,20 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         };
 
         /**
-         * NEW v4 — laser tracer (doc 25 §5.2).
+         * DELETED 2026-05-24 — proximity-graded EMA tracer.
          *
-         * Glowing line over the candles, color-graded by proximity to the
-         * nearest barrier:
-         *   emerald (close to a barrier — winning)
-         *     → amber (between)
-         *     → rose (sitting at midpoint — losing).
+         * User feedback: "Just delete it! The laser is the thing that shows
+         * when you tap and hold it's the slope line from the start of your
+         * position to the current price point. It turns red when you're
+         * negative pnl and green in profit."
          *
-         * Two passes: low-alpha thick "glow" stroke first, crisp 2-px line
-         * on top. Then a pulsing live-spot dot at the most recent candle.
+         * That line already exists — `drawSinglePNLLine` (a few lines down)
+         * renders it correctly: green when `tradePnl >= 0`, red when
+         * negative, anchored at entry candle, exit anchored at current spot.
+         * The EMA tracer was a separate, always-on overlay that competed
+         * with the PnL line visually. Removed.
          */
         const drawLaserTrace = () => {
-          const s = stateRef.current;
-          if (!s.round) return;
-          if (candles.length < 2) return;
-
-          const upper = s.round.upperBarrier;
-          const lower = s.round.lowerBarrier;
-          const rightPadding = 8;
-          const currentCandleX =
-            chartArea.x + chartArea.width - candleWidth - rightPadding;
-
-          // Build the point list (x, y, proximity) for the last N candles
-          // that fit on screen.
-          //
-          // 2026-05-23 — instead of using each candle's raw close (which
-          // makes the tracer overlay the candle bodies exactly and become
-          // redundant noise), we run an EMA over the closes. The smoothed
-          // line reads as a *trend* — clearly above/below the bodies —
-          // which is the visual job the tracer was supposed to do.
-          //   y_ema[i] = α · close[i] + (1 − α) · y_ema[i − 1]
-          // α = 0.28 picks a ~7-candle half-life: clearly smoother than
-          // the candle path but still responsive enough that a sharp turn
-          // shows up within a couple ticks.
-          const EMA_ALPHA = 0.28;
-          const visibleN = Math.min(candles.length, maxCandles + CANDLES_PER_SEGMENT);
-          const startIdx = candles.length - visibleN;
-          let emaClose: number | null = null;
-          const points: Array<{ x: number; y: number; proximity: number }> = [];
-          for (let i = startIdx; i < candles.length; i++) {
-            const dist = candles.length - 1 - i;
-            const x = currentCandleX + candleWidth / 2 - dist * candleSpacing;
-            if (x < chartArea.x - candleSpacing) continue;
-            const c = candles[i]!;
-            emaClose =
-              emaClose === null
-                ? c.close
-                : EMA_ALPHA * c.close + (1 - EMA_ALPHA) * emaClose;
-            const y = p.map(
-              emaClose,
-              priceScale.min,
-              priceScale.max,
-              chartArea.y + chartArea.height,
-              chartArea.y,
-            );
-            points.push({
-              x,
-              y,
-              proximity: nearestBarrierProximity(emaClose, upper, lower),
-            });
-          }
-          if (points.length < 2) return;
-
-          // Sort ascending by x so the line draws left → right cleanly.
-          points.sort((a, b) => a.x - b.x);
-
-          // Single pass — thin trend line. The old 8-px glow underlay + 2-px
-          // crisp overlay made it look like a fat marker pen on top of the
-          // candles; the smoothed EMA + 1-px line reads as a proper
-          // technical-chart trend.
-          for (let i = 1; i < points.length; i++) {
-            const p0 = points[i - 1]!;
-            const p1 = points[i]!;
-            const prox = (p0.proximity + p1.proximity) / 2;
-            const [r, g, b] = lerpProximityColor(prox);
-            p.stroke(r, g, b, 200);
-            p.strokeWeight(1);
-            p.line(p0.x, p0.y, p1.x, p1.y);
-          }
-
-          // Pass 3 — pulsing live-spot dot. Radius pulses faster + larger
-          // as proximity → 0 (closer to a barrier → more excitement).
-          const last = points[points.length - 1]!;
-          const [lr, lg, lb] = lerpProximityColor(last.proximity);
-          const baseRadius = 6 + (1 - last.proximity) * 6;
-          const pulseRadius = baseRadius + Math.sin(p.millis() * 0.008) * 1.5;
-          // Outer halo
-          p.noStroke();
-          p.fill(lr, lg, lb, 90);
-          p.circle(last.x, last.y, pulseRadius * 2.6);
-          // Core dot
-          p.fill(lr, lg, lb, 255);
-          p.circle(last.x, last.y, pulseRadius * 2);
         };
 
         /** Render the entry → cursor PnL line + emoji burst origin. */
