@@ -602,6 +602,51 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           truncateRingBuffer();
         };
 
+        // ── IDLE WALK (2026-05-24) ────────────────────────────────────────
+        // Zero-cost client-side chart motion when no chain segments are
+        // arriving. Same expandSegment math as the chain walk, but seeded
+        // with browser randomness instead of `sui::random`. Looks identical
+        // visually. Costs $0.
+        //
+        // Switches off the moment real chain segments start arriving (the
+        // reconciler's gap-detect resets walkState to chain truth). User
+        // never notices the transition because the visual cadence and shape
+        // are the same — only the seed source changed.
+        //
+        // This solves the chicken-and-egg: a first-time visitor sees a
+        // moving chart, decides to tap, the chain takes over for their ride,
+        // then idle-walk resumes after they release. No more "frozen until
+        // someone plays" problem, no more 0.5 SUI/min cranker burn.
+        const IDLE_WALK_INTERVAL_MS = 600;
+        let lastIdleWalkMs = 0;
+        const tickIdleWalk = (now: number) => {
+          if (!walkState) return;
+          const s = stateRef.current;
+          // Don't run idle walk while the user is actually riding — chain
+          // segments will take over and we want them to be the source of truth.
+          if (s.phase === "opening" || s.phase === "riding") return;
+          // If real chain segments have arrived recently, defer to them.
+          if (lastSegmentArrivedMs > 0 && now - lastSegmentArrivedMs < 4000) return;
+          if (now - lastIdleWalkMs < IDLE_WALK_INTERVAL_MS) return;
+          lastIdleWalkMs = now;
+
+          // Generate a fake 32-byte segment key with browser randomness.
+          const fakeKey = new Uint8Array(32);
+          crypto.getRandomValues(fakeKey);
+          const result = expandSegment(walkState, fakeKey);
+          walkState = result.newState;
+          for (let i = 0; i < result.candles.length; i++) {
+            const c = result.candles[i]!;
+            const rc = renderCandleFromSeeded(c, 0);
+            revealQueue.push({ seeded: c, render: rc, armed: undefined });
+          }
+          // Don't bump highestExpandedK — that tracks CHAIN segments only.
+          // When a real chain segment arrives the reconciler will compare
+          // against highestExpandedK + 1n and reset walkState to chain truth,
+          // visually "snapping" to reality with a single rebuild.
+          truncateRingBuffer();
+        };
+
         /**
          * Pop one item off `revealQueue` per tick once `revealCadenceMs`
          * has elapsed. Adaptive: when the queue exceeds CANDLES_PER_SEGMENT
@@ -636,19 +681,27 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         const reconcileSegments = () => {
           const segs = stateRef.current.segments;
           if (segs.length === 0) {
-            if (candles.length === 0 && !walkState) {
+            // No chain segments — bootstrap walkState from the round's
+            // home price so idle-walk has somewhere to walk FROM. Used
+            // both for the initial seed-candle render AND for the
+            // client-side idle walk (which expandSegment's from walkState).
+            if (!walkState) {
               const s = stateRef.current;
-              const seedPrice = s.round?.spotAtRoll ?? 100;
-              candles = [
-                {
-                  open: seedPrice,
-                  high: seedPrice,
-                  low: seedPrice,
-                  close: seedPrice,
-                  animation: 1,
-                  isLive: true,
-                },
-              ];
+              const seedPrice = s.round?.spotAtRoll ?? 1000;
+              const seedMicro = BigInt(Math.round(seedPrice * PRICE_SCALING));
+              walkState = newWalkState(seedMicro, 1_000_000n, seedMicro);
+              if (candles.length === 0) {
+                candles = [
+                  {
+                    open: seedPrice,
+                    high: seedPrice,
+                    low: seedPrice,
+                    close: seedPrice,
+                    animation: 1,
+                    isLive: true,
+                  },
+                ];
+              }
             }
             return;
           }
@@ -1312,6 +1365,9 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           const now = p.millis();
 
           reconcileSegments();
+          // Run idle-walk BEFORE reveal — generates fake segments in-place
+          // when no chain activity, so the queue has something to drain.
+          tickIdleWalk(now);
           // Drain one item from the reveal queue per ~80 ms tick so the
           // chart animates candle-by-candle instead of jumping 6 at a time
           // when a SegmentRecordedV4 event lands.
