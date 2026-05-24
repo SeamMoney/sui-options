@@ -52,6 +52,13 @@ export function RideChartV4({
   const chartRef = useRef<HTMLDivElement | null>(null);
   const p5InstanceRef = useRef<p5 | null>(null);
 
+  // Keep callbacks fresh in a ref so the touchcancel/visibility handlers
+  // (effect-scope below) always call the latest onClose.
+  const callbacksRef = useRef(callbacks);
+  useEffect(() => {
+    callbacksRef.current = callbacks;
+  }, [callbacks]);
+
   useEffect(() => {
     const preventDefault = (e: Event) => e.preventDefault();
     document.body.addEventListener("touchmove", preventDefault, {
@@ -59,7 +66,6 @@ export function RideChartV4({
     });
     document.addEventListener("contextmenu", preventDefault);
     document.addEventListener("selectstart", preventDefault);
-    document.addEventListener("selectionchange", preventDefault);
     document.addEventListener("gesturestart", preventDefault);
     document.addEventListener("gesturechange", preventDefault);
     document.addEventListener("gestureend", preventDefault);
@@ -67,10 +73,38 @@ export function RideChartV4({
       document.body.removeEventListener("touchmove", preventDefault);
       document.removeEventListener("contextmenu", preventDefault);
       document.removeEventListener("selectstart", preventDefault);
-      document.removeEventListener("selectionchange", preventDefault);
       document.removeEventListener("gesturestart", preventDefault);
       document.removeEventListener("gesturechange", preventDefault);
       document.removeEventListener("gestureend", preventDefault);
+    };
+  }, []);
+
+  // P0 fix (agent #2): iOS Safari fires `touchcancel` instead of
+  // `touchend` when the system pulls focus mid-gesture (Control Center
+  // swipe, screenshot, incoming call, scroll-eligible parent steal). p5
+  // does NOT surface `touchcancel`, so without our own listener the ride
+  // is left open on chain and the user sees their finger lift do nothing.
+  // We also fire close on visibility/pagehide as a belt-and-suspenders.
+  // ride.close() is idempotent — fires only if there's a live position.
+  useEffect(() => {
+    const fireClose = () => {
+      try {
+        callbacksRef.current.onClose();
+      } catch {
+        // ignore
+      }
+    };
+    const onCancel = (_e: TouchEvent) => fireClose();
+    const onVis = () => {
+      if (document.visibilityState === "hidden") fireClose();
+    };
+    document.addEventListener("touchcancel", onCancel, { passive: true });
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", onVis);
+    return () => {
+      document.removeEventListener("touchcancel", onCancel);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", onVis);
     };
   }, []);
 
