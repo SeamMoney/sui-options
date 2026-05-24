@@ -116,7 +116,7 @@ function isRetryableSuiError(err: Error | null | undefined): boolean {
 function humanizeChainError(rawMsg: string): string {
   if (!rawMsg) return "Something went wrong — tap again.";
   // MoveAbort path
-  const abort = rawMsg.match(/MoveAbort[\s\S]*?,\s*(\d+)\s*\)/);
+  const abort = rawMsg.match(/abort code:\s*(\d+)\b/i);
   if (abort && abort[1]) {
     const code = Number(abort[1]);
     if (code in MOVE_ABORT_MESSAGES) return MOVE_ABORT_MESSAGES[code]!;
@@ -428,12 +428,24 @@ export function useSegmentRideV4(
           filter: {
             StructType: `${packageId}::segment_market_v4::SegmentRidePositionV4`,
           },
-          options: { showContent: false },
+          // 2026-05-24: ask for content so we can check the `closed` flag.
+          // Without this we'd adopt already-closed rides as if they were
+          // open and every CASH OUT would hit EAlreadyClosed (abort 1).
+          options: { showContent: true },
         });
-        const orphan = owned.data?.[0]?.data?.objectId;
-        if (orphan && !positionIdRef.current && mountedRef.current) {
-          positionIdRef.current = orphan;
-          setPositionId(orphan);
+        // Find the first ride that's still OPEN (not yet settled). The
+        // SegmentRidePositionV4 has a `closed: bool` field; if true the
+        // on-chain ride has already been settled by another caller (the
+        // cranker, crank_expired, or the user themselves in another tab).
+        const liveOrphan = owned.data?.find((o) => {
+          const fields =
+            (o.data?.content as { fields?: { closed?: boolean } } | undefined)
+              ?.fields;
+          return fields?.closed === false;
+        })?.data?.objectId;
+        if (liveOrphan && !positionIdRef.current && mountedRef.current) {
+          positionIdRef.current = liveOrphan;
+          setPositionId(liveOrphan);
           setPhase("riding");
           setLastError(
             "You had a ride open from before — tap CASH OUT to close it.",
@@ -661,7 +673,12 @@ export function useSegmentRideV4(
             // EAlreadyClosed (Move abort 1) means another caller already
             // settled this ride (e.g., crank_expired). Treat as success —
             // we don't have the settlement event, but the position is gone.
-            if (lastErr.message && /MoveAbort[\s\S]*?,\s*1\s*\)/i.test(lastErr.message)) {
+            // Sui's actual error format is: "abort code: 1, in '0x...::module::fn' (instruction N)"
+            // The old regex /MoveAbort[\s\S]*?,\s*(\d+)\s*\)/ matched the
+            // INSTRUCTION number (before the close paren), not the abort
+            // code — so EAlreadyClosed was never recognized and the
+            // close loop kept retrying 6 times on already-settled rides.
+            if (lastErr.message && /abort code:\s*1\b/i.test(lastErr.message)) {
               setLastSettlement({ kind: -1, label: "already settled", digest: "" });
               setLastError(null);
               positionIdRef.current = null;
@@ -710,9 +727,21 @@ export function useSegmentRideV4(
 
   // ── D4 fallback cranker ──────────────────────────────────────────────
   const lastCrankAtMsRef = useRef(0);
+  // 2026-05-24: when RPC starts rate-limiting (429s), the chart's stall
+  // detector fires every 1.5s, each call hits 429, the user's session
+  // wallet burns gas on no-ops, and the console fills with red. Track a
+  // "give-up window": after 3 consecutive failed cranks, back off to a
+  // 30s cooldown so the chart will look frozen but the user's wallet
+  // stops bleeding gas and the RPC ban can decay.
+  const consecutiveCrankErrsRef = useRef(0);
+  const crankCooldownUntilMsRef = useRef(0);
   const triggerStallCrank = useCallback(() => {
     const now = Date.now();
-    if (now - lastCrankAtMsRef.current < 1500) return;
+    if (now < crankCooldownUntilMsRef.current) return; // long cooldown
+    if (now - lastCrankAtMsRef.current < 1500) return; // standard rate limit
+    // Only crank if a ride is actually open — otherwise we just burn the
+    // user's session-wallet gas for nothing (the wake gate would abort).
+    if (phase !== "opening" && phase !== "riding") return;
     lastCrankAtMsRef.current = now;
     void (async () => {
       try {
@@ -727,14 +756,26 @@ export function useSegmentRideV4(
           transaction: tx,
           options: { showEffects: false },
         });
+        consecutiveCrankErrsRef.current = 0;
       } catch (err) {
         const msg = (err as Error).message ?? "";
+        if (/429|Too Many Requests|Failed to fetch|rate.?limit/i.test(msg)) {
+          // RPC is throttling us — apply a 30s cooldown.
+          crankCooldownUntilMsRef.current = Date.now() + 30_000;
+          consecutiveCrankErrsRef.current = 0;
+          return; // don't log; we know what this is
+        }
+        consecutiveCrankErrsRef.current += 1;
+        if (consecutiveCrankErrsRef.current >= 3) {
+          crankCooldownUntilMsRef.current = Date.now() + 30_000;
+          consecutiveCrankErrsRef.current = 0;
+        }
         if (!/already|next|first-write/i.test(msg)) {
           console.warn("[useSegmentRideV4] cranker:", err);
         }
       }
     })();
-  }, [client, keypair, market.market, market.collateral, packageId, sender]);
+  }, [phase, client, keypair, market.market, market.collateral, packageId, sender]);
 
   return {
     round,
