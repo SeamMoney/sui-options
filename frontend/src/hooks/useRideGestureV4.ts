@@ -308,11 +308,21 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         // were like live and animated nicely!").
         //
         // Fix: applySegment(live) enqueues 6 entries; the draw loop drains
-        // one per `revealCadenceMs` so the visual flow is steady at ~80 ms
-        // per candle (matches the "85 ms fast" feel the user remembered).
-        // Adaptive cadence: if the queue grows past CANDLES_PER_SEGMENT,
-        // the drain accelerates so a cranker burst can't lag the chart.
-        const REVEAL_BASE_MS = 80;
+        // one per `revealCadenceMs`. Tuned to match the cranker's actual
+        // segment rate so the queue stays approximately steady — neither
+        // bursting empty (chart freezes) nor blowing up (chart bursts).
+        //
+        // 2026-05-24 — bumped 80 → 200 after the user observed the chart
+        // "starting and stopping". The cranker emits ~6 candles per
+        // ~1200 ms cycle (600 ms sleep + ~600 ms tx roundtrip), so the
+        // natural per-candle rate is 1200/6 = 200 ms. At 80 ms the chart
+        // drained the 6-batch in 480 ms then froze for 720 ms — exactly
+        // the start-stop the user saw.
+        //
+        // Adaptive: when the queue grows past CANDLES_PER_SEGMENT (a
+        // burst caught up), the drain still accelerates so we never lag
+        // — just gently, not in a way that produces the freeze pattern.
+        const REVEAL_BASE_MS = 200;
         type RevealItem = {
           seeded: ReturnType<typeof expandSegment>["candles"][number];
           render: RenderCandle;
@@ -601,10 +611,10 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         const drainRevealQueue = (now: number) => {
           if (revealQueue.length === 0) return;
           // Speed up the reveal proportionally when the backlog grows.
-          // 1 candle queued → 80 ms; 12 queued → ~40 ms.
+          // Floor at 80 ms so even a big burst still feels paced.
           const cadence = Math.max(
-            40,
-            REVEAL_BASE_MS - (revealQueue.length - CANDLES_PER_SEGMENT) * 6,
+            80,
+            REVEAL_BASE_MS - (revealQueue.length - CANDLES_PER_SEGMENT) * 8,
           );
           if (lastRevealMs > 0 && now - lastRevealMs < cadence) return;
 
