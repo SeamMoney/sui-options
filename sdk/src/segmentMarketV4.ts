@@ -201,12 +201,18 @@ export interface BuildOpenSegmentRideV4Args extends BuildSegmentTxBaseV4 {
   stakePerSegment: bigint;
   /** Total escrow to lock — must be ≥ stakePerSegment × roundDurationSegments. */
   escrowMist: bigint;
+  /**
+   * v4.24 — when the market's collateral is NOT 0x2::sui::SUI (e.g. TUSD),
+   * pass the sender's coin object ID to split the escrow from. If omitted
+   * (SUI markets), the escrow is split from gas.
+   */
+  escrowSourceCoinId?: string;
 }
 
 /**
  * Open a direction-neutral ride against the current round. The PTB splits
- * gas → escrow coin, opens the ride, transfers the position to the
- * sender. Optimistic UI per doc 17 §14.5.
+ * the escrow coin (from gas for SUI, from a user-owned coin for other
+ * collaterals), opens the ride, transfers the position to the sender.
  *
  * V4 vs v3: no barrier_index argument; both barriers are snapshotted
  * into the position object.
@@ -218,7 +224,21 @@ export function buildOpenSegmentRideV4Tx(
   if (a.stakePerSegment <= 0n) throw new Error("stakePerSegment must be > 0");
   const tx = new Transaction();
   tx.setSender(a.sender);
-  const [escrow] = tx.splitCoins(tx.gas, [tx.pure.u64(a.escrowMist)]);
+  // v4.24 — coin-source dispatch. Gas is always Coin<SUI>; non-SUI
+  // collaterals must split from a user-owned coin object of the right
+  // type. Otherwise the Move type check fails with arg_idx 4 / TypeMismatch.
+  const isSui = a.collateralType === "0x2::sui::SUI";
+  const escrowSource = isSui
+    ? tx.gas
+    : (() => {
+        if (!a.escrowSourceCoinId) {
+          throw new Error(
+            `escrowSourceCoinId required for non-SUI collateral (${a.collateralType})`,
+          );
+        }
+        return tx.object(a.escrowSourceCoinId);
+      })();
+  const [escrow] = tx.splitCoins(escrowSource, [tx.pure.u64(a.escrowMist)]);
   const ride = tx.moveCall({
     target: `${a.packageId}::wick::open_segment_ride_v4`,
     typeArguments: [a.collateralType],

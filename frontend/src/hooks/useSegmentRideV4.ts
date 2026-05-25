@@ -525,18 +525,54 @@ export function useSegmentRideV4(
         // phase instead of herding inside the same in-flight tx.
         const MAX_ATTEMPTS = 6;
         let attempt = 0;
+        // v4.24 — when collateral is non-SUI (e.g. TUSD), the open tx must
+        // split the escrow from a user-owned coin of that type, not from
+        // gas (which is always Coin<SUI>). Fetch the largest such coin.
+        // For SUI markets, leave escrowSourceCoinId undefined so the
+        // builder splits from gas as before.
+        const collateral = market.collateral || DEFAULT_COLLATERAL;
+        let escrowSourceCoinId: string | undefined = undefined;
+        if (collateral !== "0x2::sui::SUI") {
+          try {
+            const coins = await client.getCoins({
+              owner: sender,
+              coinType: collateral,
+            });
+            // Pick the largest coin so a single split is always enough.
+            const best = (coins.data ?? [])
+              .map((c) => ({ id: c.coinObjectId, bal: BigInt(c.balance) }))
+              .sort((a, b) => (b.bal > a.bal ? 1 : b.bal < a.bal ? -1 : 0))[0];
+            if (!best || best.bal < escrowMist) {
+              const have = best ? best.bal.toString() : "0";
+              setPhase("idle");
+              setLastError(
+                `Not enough TUSD — need ${escrowMist.toString()} raw, have ${have}. Tap Get funds.`,
+              );
+              busyRef.current = false;
+              return;
+            }
+            escrowSourceCoinId = best.id;
+          } catch (err) {
+            console.warn("[useSegmentRideV4] getCoins failed:", err);
+            setPhase("idle");
+            setLastError("Couldn't read your TUSD balance — try again.");
+            busyRef.current = false;
+            return;
+          }
+        }
         while (attempt < MAX_ATTEMPTS) {
           attempt += 1;
           try {
             const tx = buildOpenSegmentRideV4Tx({
               packageId,
-              collateralType: market.collateral || DEFAULT_COLLATERAL,
+              collateralType: collateral,
               sender,
               marketId: market.market,
               vaultId: market.vault,
               botRegistryId,
               stakePerSegment: stakePerSegmentMicroUsd,
               escrowMist,
+              escrowSourceCoinId,
             });
             const res = await client.signAndExecuteTransaction({
               signer: keypair,
