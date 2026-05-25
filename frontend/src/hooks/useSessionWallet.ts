@@ -64,6 +64,17 @@ function loadOrCreateKeypair(): Ed25519Keypair {
   return kp;
 }
 
+export interface SessionWalletOptions {
+  /**
+   * v4.25a — Active market's collateral type tag (e.g.
+   * "0x204d...::tusd::TUSD"). When the burner has to escrow a non-SUI
+   * coin to open a ride, the hook also polls that coin's balance so
+   * the UI can gate on it. Omit (or pass "0x2::sui::SUI") for SUI-only
+   * markets — in that case `collateralBalance` mirrors `balanceMist`.
+   */
+  collateralType?: string;
+}
+
 export interface SessionWallet {
   /** The burner's Sui address (0x…). */
   address: string;
@@ -73,30 +84,63 @@ export interface SessionWallet {
   client: SuiJsonRpcClient;
   /** Live SUI balance in MIST. `null` until the first poll lands. */
   balanceMist: bigint | null;
+  /**
+   * Live balance of the active market's collateral coin in RAW units
+   * (e.g. for TUSD with 6 decimals, 10_000_000 = 10 TUSD). `null` until
+   * the first poll lands. When the market is SUI-collateralized this
+   * equals `balanceMist`.
+   */
+  collateralBalance: bigint | null;
+  /** The coin type the collateralBalance is for. */
+  collateralType: string;
   /** Poke a balance refresh (after a faucet drip or a ride settles). */
   refreshBalance: () => void;
   /** True once the keypair exists (always true after first render). */
   ready: boolean;
 }
 
-export function useSessionWallet(): SessionWallet {
+const SUI_TYPE = "0x2::sui::SUI";
+
+export function useSessionWallet(opts?: SessionWalletOptions): SessionWallet {
+  const collateralType = opts?.collateralType ?? SUI_TYPE;
+
   // Generate exactly once per mount; persisted across reloads via localStorage.
   const keypair = useMemo(() => loadOrCreateKeypair(), []);
   const address = useMemo(() => keypair.toSuiAddress(), [keypair]);
 
   const [balanceMist, setBalanceMist] = useState<bigint | null>(null);
+  const [collateralBalance, setCollateralBalance] = useState<bigint | null>(null);
   const pollRef = useRef<number | null>(null);
 
   const refreshBalance = useCallback(() => {
     void (async () => {
+      // Always fetch SUI (needed for gas regardless of market).
       try {
-        const bal = await sessionClient.getBalance({ owner: address });
-        setBalanceMist(BigInt(bal.totalBalance));
+        const sui = await sessionClient.getBalance({ owner: address });
+        const suiBal = BigInt(sui.totalBalance);
+        setBalanceMist(suiBal);
+        // If the market is SUI-collateralized, mirror it into collateralBalance
+        // so the gate code can use one variable.
+        if (collateralType === SUI_TYPE) {
+          setCollateralBalance(suiBal);
+        }
       } catch (err) {
-        console.warn("[useSessionWallet] balance:", err);
+        console.warn("[useSessionWallet] sui balance:", err);
+      }
+      // Fetch the collateral coin separately when it's not SUI.
+      if (collateralType !== SUI_TYPE) {
+        try {
+          const coll = await sessionClient.getBalance({
+            owner: address,
+            coinType: collateralType,
+          });
+          setCollateralBalance(BigInt(coll.totalBalance));
+        } catch (err) {
+          console.warn("[useSessionWallet] collateral balance:", err);
+        }
       }
     })();
-  }, [address]);
+  }, [address, collateralType]);
 
   useEffect(() => {
     refreshBalance();
@@ -111,6 +155,8 @@ export function useSessionWallet(): SessionWallet {
     keypair,
     client: sessionClient,
     balanceMist,
+    collateralBalance,
+    collateralType,
     refreshBalance,
     ready: true,
   };

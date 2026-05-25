@@ -423,7 +423,12 @@ function FundCta(props: {
 // ─────────────────────────────────────────────────────────────────────────
 function RideV4(props: { picked: SegmentMarketV4Record }) {
   const { picked } = props;
-  const session = useSessionWallet();
+  // v4.25a — pass the active market's collateral type so the session
+  // wallet polls both SUI (gas) AND the collateral coin (escrow). On a
+  // TUSD market this is what lets the UI gate on TUSD funding, not just
+  // SUI. Without this the user could see "0.2 SUI ✓ ready" with 0 TUSD,
+  // tap, and immediately fail at chain time.
+  const session = useSessionWallet({ collateralType: picked.collateral });
 
   const ride = useSegmentRideV4({
     market: picked,
@@ -478,9 +483,40 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
     lastPhaseRef.current = next;
   }, [ride.phase]);
 
-  const needsFunds =
+  // v4.25a — collateral-aware funding gate. The user needs BOTH:
+  //   - SUI for gas (~MIN_RIDE_BALANCE_MIST)
+  //   - the market's collateral coin for escrow (~stake × round × 1.1)
+  // Compute the escrow threshold from the picked market so it stays in
+  // sync if the bootstrap params change (no more hardcoded magic numbers).
+  const escrowThresholdRaw = useMemo(
+    () => {
+      // Defaults match the bootstrap script's `:-10000` / `:-75` fallbacks.
+      const minStake = BigInt(picked.min_stake_per_segment ?? 10_000);
+      const roundDuration = BigInt(picked.round_duration_segments ?? 75);
+      return (minStake * roundDuration * 11n) / 10n;
+    },
+    [picked.min_stake_per_segment, picked.round_duration_segments],
+  );
+  const isSuiCollateral = picked.collateral === "0x2::sui::SUI";
+  // Format collateral balance. TUSD is 6 decimals; SUI is 9. We don't
+  // know decimals for arbitrary coins so default to 6 for non-SUI (TUSD
+  // is the only non-SUI we ship right now).
+  const collateralLabel = isSuiCollateral ? "SUI" : "TUSD";
+  const collateralDecimals = isSuiCollateral ? 9 : 6;
+  const fmtCollateral = (raw: bigint | null): string => {
+    if (raw === null) return "…";
+    return (Number(raw) / 10 ** collateralDecimals).toFixed(
+      collateralDecimals === 6 ? 2 : 3,
+    );
+  };
+  const needsSui =
     session.balanceMist !== null &&
     session.balanceMist < MIN_RIDE_BALANCE_MIST;
+  const needsCollateral =
+    !isSuiCollateral &&
+    session.collateralBalance !== null &&
+    session.collateralBalance < escrowThresholdRaw;
+  const needsFunds = needsSui || needsCollateral;
   const stakePaid = ridePnl.staked;
   const multiplierX = ride.multiplierBps / 10_000;
 
@@ -514,7 +550,17 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
               Play balance
             </div>
             <div className="text-sm font-semibold tabular-nums text-white">
-              {fmtSui(session.balanceMist)} SUI
+              {isSuiCollateral ? (
+                <>{fmtSui(session.balanceMist)} SUI</>
+              ) : (
+                <>
+                  {fmtCollateral(session.collateralBalance)}{" "}
+                  <span className="text-white/55">{collateralLabel}</span>
+                  <span className="text-white/35 text-[10px] ml-1.5">
+                    · {fmtSui(session.balanceMist)} SUI
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -56,6 +56,16 @@ export interface SegmentMarketV4Record {
   vault: string;
   /** Walk home price in micro-USD (display anchor pre-first-segment). */
   home_price: number;
+  /**
+   * Optional bootstrap params present on newer entries. v4.25a uses
+   * these to compute the per-ride escrow threshold without hardcoding
+   * it in the frontend.
+   */
+  min_stake_per_segment?: number;
+  max_stake_per_segment?: number;
+  round_duration_segments?: number;
+  multiplier_bps?: number;
+  max_payout_per_round?: number;
 }
 
 export interface TestnetDeployment {
