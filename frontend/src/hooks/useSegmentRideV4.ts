@@ -35,7 +35,9 @@ import {
   roundStartedV4EventType,
   segmentRecordedV4EventType,
   SETTLEMENT_NAME_V4,
+  subscribeRugFiredV4,
   type RoundStartedV4Event,
+  type RugFiredV4Event,
   type SegmentMarketV4Snapshot,
   type SegmentRecordedV4Event,
 } from "@wick/sdk";
@@ -174,10 +176,28 @@ export interface UseSegmentRideV4Handle {
   multiplierBps: number;
   /** Latest market snapshot — surfaced for the right-rail "barrier flow" UI. */
   marketSnapshot: SegmentMarketV4Snapshot | null;
-  /** Result of the most recent close, surfaced as a toast. */
-  lastSettlement: { kind: number; label: string; digest: string } | null;
+  /**
+   * Result of the most recent close, surfaced as a toast.
+   *
+   * `settlementSubKind === "rugged"` is set when the close lands on
+   * settlement_kind=3 (EXPIRED_LOSS) for the same round_index that we
+   * just observed a `RugFiredV4` event on — the underlying chain
+   * semantics are identical (escrow forfeit), but the UI labels it as
+   * "MARKET HALT" instead of "Round ended — no touch". See
+   * docs/design/v2/26_rug_pull_house_edge_v4.md §5.1.
+   */
+  lastSettlement:
+    | { kind: number; label: string; digest: string; settlementSubKind?: "rugged" }
+    | null;
   /** Human-readable last error, or null. */
   lastError: string | null;
+  /**
+   * Wallclock ms (Date.now()) at which the most recent `RugFiredV4`
+   * event was observed for this market, or null if none seen this
+   * mount. Consumed by `useRideGestureV4` to trigger the MARKET HALT
+   * visual FX. See doc 26 §5.2.
+   */
+  rugFiredAtMs: number | null;
   /** Fallback cranker — called by the chart hook on stall. */
   triggerStallCrank: () => void;
 }
@@ -395,7 +415,7 @@ export function useSegmentRideV4(
   const [phase, setPhase] = useState<RidePhase>("idle");
   const [positionId, setPositionId] = useState<string | null>(null);
   const [lastSettlement, setLastSettlement] = useState<
-    { kind: number; label: string; digest: string } | null
+    { kind: number; label: string; digest: string; settlementSubKind?: "rugged" } | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -418,6 +438,43 @@ export function useSegmentRideV4(
       mountedRef.current = false;
     };
   }, []);
+
+  // ── Rug-fire subscription (doc 26 §5.1) ──────────────────────────────
+  // Parallel to the segment-poll effect above. Mounts a streaming
+  // subscriber on RugFiredV4 events for this market. On each fire we
+  // stamp `rugFiredAtMs` (chart hook's MARKET HALT FX trigger) and
+  // remember the round_index so a subsequent close on the SAME round
+  // can be tagged as "rugged" rather than a plain expire-loss. Cleanup
+  // unsubscribes on unmount and on market.market change, mirroring
+  // SegmentRecordedV4's poll-effect cleanup.
+  const [rugFiredAtMs, setRugFiredAtMs] = useState<number | null>(null);
+  const [lastRugRoundIndex, setLastRugRoundIndex] = useState<bigint | null>(
+    null,
+  );
+  // Ref-mirror so the close handler (below) reads the latest round
+  // index synchronously without re-building its useCallback closure.
+  // Same pattern as positionIdRef.
+  const lastRugRoundIndexRef = useRef<bigint | null>(null);
+  useEffect(() => {
+    lastRugRoundIndexRef.current = lastRugRoundIndex;
+  }, [lastRugRoundIndex]);
+  useEffect(() => {
+    if (!packageId) return;
+    const unsubscribe = subscribeRugFiredV4(
+      client,
+      market.market,
+      packageId,
+      (event: RugFiredV4Event) => {
+        if (!mountedRef.current) return;
+        setRugFiredAtMs(Date.now());
+        setLastRugRoundIndex(event.roundIndex);
+      },
+    );
+    return () => {
+      unsubscribe();
+    };
+  }, [packageId, client, market.market]);
+
   // P0 fix (agent #2 + #10): on mount + on tab-return, sweep for orphan
   // ride positions owned by this session wallet. If the user reloaded mid-
   // ride or iOS dropped the touchend, the on-chain SegmentRidePositionV4
@@ -703,16 +760,44 @@ export function useSegmentRideV4(
               (e.type ?? "").includes("::segment_market_v4::RideClosedV4"),
             );
             let kind = -1;
+            let closedRoundIndex: bigint | null = null;
             if (ev?.parsedJson && typeof ev.parsedJson === "object") {
-              const f = ev.parsedJson as { settlement_kind?: number | string };
+              const f = ev.parsedJson as {
+                settlement_kind?: number | string;
+                round_index?: number | string;
+              };
               if (f.settlement_kind !== undefined) kind = Number(f.settlement_kind);
+              if (f.round_index !== undefined) {
+                try {
+                  closedRoundIndex = BigInt(f.round_index as string | number);
+                } catch {
+                  closedRoundIndex = null;
+                }
+              }
             }
             const labelKey = kind as 0 | 1 | 2 | 3 | 4;
             const label =
               kind >= 0 && labelKey in SETTLEMENT_NAME_V4
                 ? SETTLEMENT_NAME_V4[labelKey]
                 : "settled";
-            setLastSettlement({ kind, label, digest: res.digest });
+            // doc 26 §5.1 — a settlement_kind=3 (EXPIRED_LOSS) close
+            // whose round_index matches the round_index of the last
+            // RugFiredV4 we saw is semantically a rug-loss, not a
+            // time-expiry loss. Same chain semantics (escrow forfeit),
+            // different toast copy ("MARKET HALT" vs "Round ended").
+            const settlementSubKind: "rugged" | undefined =
+              kind === 3 &&
+              closedRoundIndex !== null &&
+              lastRugRoundIndexRef.current !== null &&
+              closedRoundIndex === lastRugRoundIndexRef.current
+                ? "rugged"
+                : undefined;
+            setLastSettlement({
+              kind,
+              label,
+              digest: res.digest,
+              ...(settlementSubKind ? { settlementSubKind } : {}),
+            });
             setLastError(null);
             positionIdRef.current = null;
             setPositionId(null);
@@ -847,6 +932,7 @@ export function useSegmentRideV4(
     marketSnapshot,
     lastSettlement,
     lastError,
+    rugFiredAtMs,
     triggerStallCrank,
   };
 }

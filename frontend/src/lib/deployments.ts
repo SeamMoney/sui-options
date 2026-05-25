@@ -66,6 +66,13 @@ export interface SegmentMarketV4Record {
   round_duration_segments?: number;
   multiplier_bps?: number;
   max_payout_per_round?: number;
+  /**
+   * Per-segment rug-pull probability in bps (doc 26 §2). 150 = 1.5%. Optional
+   * because legacy v4 markets bootstrapped before doc 26 default to 0 (rug
+   * disabled). Used by the frontend to render the "house edge" copy and to
+   * decide whether to subscribe to `RugFiredV4` events.
+   */
+  rug_chance_bps?: number;
 }
 
 export interface TestnetDeployment {

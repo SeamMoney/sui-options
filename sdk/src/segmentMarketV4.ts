@@ -58,6 +58,13 @@ export type TouchedSide = typeof TOUCHED_UPPER | typeof TOUCHED_LOWER | typeof T
 export const SETTLEMENT_OPEN_V4 = 0 as const;
 export const SETTLEMENT_TOUCH_WIN_V4 = 1 as const;
 export const SETTLEMENT_CASHOUT_V4 = 2 as const;
+/**
+ * Also fires for rug-pulls (doc 26 §3.4): when a ride was open at the moment a
+ * `RugFiredV4` event fired in its round, `close_segment_ride_v4` routes the
+ * settlement to `EXPIRED_LOSS`. The frontend distinguishes a rug-loss from an
+ * expire-loss by correlating the close with a `RugFiredV4` event on the same
+ * (market_id, round_index) — see `subscribeRugFiredV4` below.
+ */
 export const SETTLEMENT_EXPIRED_LOSS_V4 = 3 as const;
 export const SETTLEMENT_ABORTED_REFUND_V4 = 4 as const;
 
@@ -416,6 +423,24 @@ export interface RideClosedV4Event {
   touchedSide: TouchedSide;
 }
 
+/**
+ * doc 26 §3.6 — emitted by `record_segment_v4` the first time a per-segment
+ * rug roll passes the `rug_chance_bps` threshold in the current round. Open
+ * rides on this market with `entry_segment_index <= segment_index` settle as
+ * `SETTLEMENT_EXPIRED_LOSS_V4` when next closed; the frontend correlates this
+ * event with the close to render a "MARKET HALT" overlay distinct from a
+ * normal time-expiry loss.
+ */
+export interface RugFiredV4Event {
+  marketId: string;
+  roundIndex: bigint;
+  segmentIndex: bigint;
+  /** Tx digest that emitted the event (for /verify deep-links). */
+  digest: string;
+  /** Chain wall-clock timestamp of the emitting tx, in ms. */
+  timestampMs: number;
+}
+
 // ── Event type tags (for queryEvents / subscribe) ───────────────────────────
 
 export function segmentMarketV4CreatedEventType(packageId: string): string {
@@ -432,6 +457,9 @@ export function rideOpenedV4EventType(packageId: string): string {
 }
 export function rideClosedV4EventType(packageId: string): string {
   return `${packageId}::segment_market_v4::RideClosedV4`;
+}
+export function rugFiredV4EventType(packageId: string): string {
+  return `${packageId}::segment_market_v4::RugFiredV4`;
 }
 
 // ── Event parsers ───────────────────────────────────────────────────────────
@@ -544,6 +572,22 @@ export function parseRideClosedV4Event(
     closedAtMs: asBigInt(json.closed_at_ms),
     payout: asBigInt(json.payout),
     touchedSide: asTouchedSide(json.touched_side),
+  };
+}
+
+/**
+ * Parse just the `parsedJson` payload of a `RugFiredV4` event. The wrapping
+ * `digest` + `timestampMs` fields come from the SuiEvent envelope and are
+ * filled in by `subscribeRugFiredV4` — this helper only handles the on-chain
+ * fields, so it can be reused by replay/verify code paths.
+ */
+export function parseRugFiredV4EventJson(
+  json: Record<string, unknown>,
+): Pick<RugFiredV4Event, "marketId" | "roundIndex" | "segmentIndex"> {
+  return {
+    marketId: asString(json.market_id),
+    roundIndex: asBigInt(json.round_index),
+    segmentIndex: asBigInt(json.segment_index),
   };
 }
 
@@ -769,5 +813,119 @@ export async function fetchSegmentRidePositionV4(
     closed: Boolean(f.closed),
     closedAtMs: asBigInt(f.closed_at_ms),
     settlementKind: asNumber(f.settlement_kind),
+  };
+}
+
+// ── RugFiredV4 subscriber (doc 26 §4.1) ─────────────────────────────────────
+
+/**
+ * Default cadence for the rug subscriber's `queryEvents` polling loop, in ms.
+ * Mirrors `EVENT_POLL_MS` in `frontend/src/hooks/useSegmentRideV4.ts` — sits
+ * just under the 400ms segment tick so a rug event is visible to the UI on
+ * the same animation frame as the segment that fired it.
+ */
+export const DEFAULT_RUG_POLL_MS = 350;
+
+/**
+ * Subscribe to `RugFiredV4` events for a single market. Returns an
+ * unsubscribe function that stops the polling loop and ignores any in-flight
+ * RPC reply.
+ *
+ * Sui's JSON-RPC doesn't expose a push subscription channel for Move events
+ * from the standard HTTP endpoint, so this is a polling loop over
+ * `queryEvents` — same approach taken by `fetchSegmentsV4` and the in-app
+ * `useSegmentRideV4` poller. Each tick scans the most recent page of
+ * `RugFiredV4` events and filters on `market_id == marketId` in `parsedJson`;
+ * events whose digest has already been seen are skipped, so the callback
+ * fires at most once per on-chain emit even across overlapping pages.
+ *
+ * The callback receives `digest` and `timestampMs` lifted from the SuiEvent
+ * envelope so the frontend can deep-link `/verify` and time the visual halt
+ * overlay against the chain clock rather than the wall clock.
+ *
+ * @returns unsubscribe — call to stop polling. Idempotent.
+ */
+export function subscribeRugFiredV4(
+  client: SuiJsonRpcClient,
+  marketId: string,
+  packageId: string,
+  onEvent: (event: RugFiredV4Event) => void,
+  options?: { pollIntervalMs?: number },
+): () => void {
+  const pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_RUG_POLL_MS;
+  const eventType = rugFiredV4EventType(packageId);
+  const seenDigests = new Set<string>();
+  let cancelled = false;
+  let inFlight = false;
+
+  const pollOnce = async (): Promise<void> => {
+    if (cancelled || inFlight) return;
+    inFlight = true;
+    try {
+      const page = await client.queryEvents({
+        query: { MoveEventType: eventType },
+        limit: 50,
+        order: "descending",
+      });
+      if (cancelled) return;
+      // Iterate oldest-first so callbacks fire in chain order even though
+      // the query returns descending.
+      const fresh: RugFiredV4Event[] = [];
+      for (const ev of page.data) {
+        const json = ev.parsedJson as Record<string, unknown> | undefined;
+        if (!json) continue;
+        if (asString(json.market_id) !== marketId) continue;
+        const txDigest = ev.id?.txDigest ?? "";
+        const eventSeq = ev.id?.eventSeq ?? "";
+        const dedupeKey = `${txDigest}:${eventSeq}`;
+        if (seenDigests.has(dedupeKey)) continue;
+        seenDigests.add(dedupeKey);
+        const parsedFields = parseRugFiredV4EventJson(json);
+        fresh.push({
+          marketId: parsedFields.marketId,
+          roundIndex: parsedFields.roundIndex,
+          segmentIndex: parsedFields.segmentIndex,
+          digest: txDigest,
+          timestampMs: ev.timestampMs ? Number(ev.timestampMs) : Date.now(),
+        });
+      }
+      fresh.sort((a, b) =>
+        a.segmentIndex < b.segmentIndex ? -1 : a.segmentIndex > b.segmentIndex ? 1 : 0,
+      );
+      for (const e of fresh) {
+        if (cancelled) return;
+        try {
+          onEvent(e);
+        } catch {
+          // Swallow callback errors so a single bad handler doesn't kill the
+          // polling loop. Subscribers are responsible for their own logging.
+        }
+      }
+      // Bound memory growth on the dedupe set — keep it slightly bigger than
+      // the per-tick page so we don't re-emit, but don't grow unbounded.
+      if (seenDigests.size > 500) {
+        const toDrop = seenDigests.size - 250;
+        let i = 0;
+        for (const k of seenDigests) {
+          if (i++ >= toDrop) break;
+          seenDigests.delete(k);
+        }
+      }
+    } catch {
+      // Network blips are expected; retry on the next interval tick.
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  void pollOnce();
+  const intervalId = setInterval(() => {
+    void pollOnce();
+  }, pollIntervalMs);
+
+  return () => {
+    if (cancelled) return;
+    cancelled = true;
+    clearInterval(intervalId);
   };
 }

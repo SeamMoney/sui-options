@@ -103,6 +103,14 @@ export interface RideGestureV4Options {
   onPnlChange?: (snap: { pnl: number; staked: number }) => void;
   callbacks: RideGestureV4Callbacks;
   disabled?: boolean;
+  /**
+   * Wallclock-ms of the most recent RugFiredV4 event for this market.
+   * Parent passes `Date.now()` when it observes a new RugFiredV4 event;
+   * passing a strictly-greater value than the previous render triggers
+   * the MARKET HALT FX (lossFlash + screenShake + sad audio + text
+   * overlay for 1.5s). Null / unchanged value = no FX.
+   */
+  rugFiredAtMs?: number | null;
 }
 
 // ── Local chart-render types ─────────────────────────────────────────────────
@@ -243,6 +251,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
     onPnlChange,
     callbacks,
     disabled = false,
+    rugFiredAtMs = null,
   } = opts;
 
   const stateRef = useRef({
@@ -254,6 +263,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
     disabled,
     pnl: 0,
     stallFired: false,
+    rugFiredAtMs: rugFiredAtMs ?? null,
   });
   const callbacksRef = useRef(callbacks);
   const onPnlChangeRef = useRef(onPnlChange);
@@ -285,6 +295,14 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
   useLayoutEffect(() => {
     stateRef.current.disabled = disabled;
   }, [disabled]);
+  // v4.26 — rugFiredAtMs sync. useLayoutEffect (matching disabled above)
+  // so the draw loop sees the new value on the very next frame, not one
+  // paint later. The sketch's draw loop compares stateRef.current.rugFiredAtMs
+  // against its own local lastSeenRugFiredAtMs and fires FX when it
+  // observes a strictly-greater value.
+  useLayoutEffect(() => {
+    stateRef.current.rugFiredAtMs = rugFiredAtMs ?? null;
+  }, [rugFiredAtMs]);
   useEffect(() => {
     callbacksRef.current = callbacks;
   }, [callbacks]);
@@ -376,6 +394,14 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         let lastEmojiTime = 0;
         let screenShake = 0;
         let lossFlash = 0;
+        // v4.26 — MARKET HALT (rug pull) FX state. lastSeenRugFiredAtMs
+        // is the wallclock-ms value last consumed from stateRef.current
+        // — if the prop ever bumps to a strictly-greater value we trigger
+        // FX (screenShake + lossFlash + sad audio + 1.5s text overlay).
+        // rugOverlayUntilMs is wallclock (Date.now()) NOT p.millis() — see
+        // the draw-side comment for why timing bases stay split.
+        let lastSeenRugFiredAtMs: number | null = null;
+        let rugOverlayUntilMs = 0;
 
         class MoneyEmoji {
           x: number;
@@ -524,6 +550,49 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           } catch {
             // ignore
           }
+        };
+
+        // v4.26 — MARKET HALT FX trigger. Called once per draw frame.
+        // When stateRef.current.rugFiredAtMs ticks up (parent observes a
+        // RugFiredV4 event and passes Date.now()), we fire the same FX
+        // primitives used by a loss settlement — screenShake (bigger:
+        // 30 vs 15 for emphasis on the "house just took your money"
+        // moment), lossFlash, sad audio — plus a 1.5s "💥 MARKET HALT"
+        // text overlay. Mirrors the onPhaseChange loss branch exactly so
+        // FX behavior stays consistent between a normal expiry-loss and
+        // a rug-loss.
+        const checkRugTrigger = () => {
+          const incoming = stateRef.current.rugFiredAtMs;
+          if (incoming === null) return;
+          if (lastSeenRugFiredAtMs !== null && incoming <= lastSeenRugFiredAtMs) return;
+          lastSeenRugFiredAtMs = incoming;
+          screenShake = 30;
+          lossFlash = 255;
+          tryPlayAudio(
+            "https://assets.mixkit.co/active_storage/sfx/2037/2037-preview.mp3",
+            0.7,
+          );
+          rugOverlayUntilMs = Date.now() + 1500;
+        };
+
+        // v4.26 — MARKET HALT text overlay. Drawn in the same band as
+        // drawPatternTooltip (using the load-bearing quoted-family-name
+        // font convention from v4.17). Fade is linear over the 1.5s
+        // visible window. Date.now() basis matches checkRugTrigger so
+        // the math is consistent — p.millis() would drift relative to
+        // the parent's wallclock-ms event timestamps.
+        const drawRugOverlay = () => {
+          const now = Date.now();
+          if (rugOverlayUntilMs <= now) return;
+          const fade = Math.max(0, Math.min(1, (rugOverlayUntilMs - now) / 1500));
+          p.textFont('"Bai Jamjuree", system-ui, sans-serif');
+          p.textAlign(p.CENTER, p.CENTER);
+          p.textSize(p.width < 768 ? 36 : 56);
+          p.textStyle(p.BOLD);
+          p.noStroke();
+          p.fill(255, 60, 60, fade * 255);
+          p.text("💥 MARKET HALT", p.width / 2, p.height / 2);
+          p.textStyle(p.NORMAL);
         };
 
         // ── Segment → render-candle pipeline (verbatim from v3) ───────────
@@ -1322,7 +1391,16 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
                   "https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3",
                   0.7,
                 );
-              } else if (profit < 0) {
+              } else if (profit < -0.30) {
+                // v4.26 — gate loss FX above the cashout-fee noise floor.
+                // UX audit P2 #23: old `profit < 0` fired the loss sound
+                // + screen shake on any negative PnL, including a $0.05
+                // cashout-fee loss. That punishes cautious play. Real
+                // losses (EXPIRED_LOSS / RUG) on typical $0.10-stake
+                // rides are -$7.50 escrow forfeit; typical cashout fees
+                // are < $0.15. -$0.30 splits the two cleanly without
+                // needing to plumb settlement_kind into the gesture hook.
+                // MARKET HALT has its own dedicated FX in checkRugTrigger.
                 screenShake = 15;
                 lossFlash = 255;
                 tryPlayAudio(
@@ -1381,11 +1459,26 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         // ── Gesture → open/close ──────────────────────────────────────────
         // V4: press ANYWHERE opens — no barrier-pick step. No open-window
         // gate. The parent's hook decides single-flight dedupe.
+
+        // v4.26 — iOS audio prime (UX audit P2 #26). Safari blocks
+        // `new Audio().play()` unless called inside a real user gesture
+        // handler, so the very first win/jackpot was silent — the most
+        // magical moment of the demo. Now: on the FIRST press, play a
+        // 1-second silent WAV via tryPlayAudio. iOS treats that as the
+        // unlock event and subsequent calls succeed. Costs nothing,
+        // user hears nothing, every later sound plays as expected.
+        const SILENT_WAV =
+          "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAVFYAAFRWAAABAAgAZGF0YQAAAAA=";
+        let audioUnlocked = false;
         const startPress = (_mx: number, _my: number) => {
           const s = stateRef.current;
           if (s.disabled) return;
           if (s.phase !== "idle") return;
           if (!s.round) return;
+          if (!audioUnlocked) {
+            audioUnlocked = true;
+            tryPlayAudio(SILENT_WAV, 0);
+          }
           pressMs = p.millis();
           callbacksRef.current.onOpen();
         };
@@ -1484,6 +1577,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           // when a SegmentRecordedV4 event lands.
           drainRevealQueue(now);
           checkStall(now);
+          checkRugTrigger();
           const curPhase = stateRef.current.phase;
           if (curPhase !== lastSeenPhase) {
             onPhaseChange(curPhase, lastSeenPhase);
@@ -1501,6 +1595,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           drawPriceLine();
           drawPriceLabels();
           drawPNLLine();
+          drawRugOverlay();
           gridAlpha = p.lerp(gridAlpha, 40, 0.1);
           if (
             !(curPhase === "riding" || curPhase === "opening") ||

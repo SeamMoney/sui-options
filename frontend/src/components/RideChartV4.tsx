@@ -37,6 +37,12 @@ export interface RideChartV4Props {
   onPnlChange?: (snap: { pnl: number; staked: number }) => void;
   /** Disable press handling. */
   disabled?: boolean;
+  /**
+   * Wallclock-ms of the most recent RugFiredV4 event for this market —
+   * piped to useRideGestureV4 to trigger MARKET HALT FX. See the prop
+   * doc on RideGestureV4Options.rugFiredAtMs for semantics.
+   */
+  rugFiredAtMs?: number | null;
 }
 
 export function RideChartV4({
@@ -48,6 +54,7 @@ export function RideChartV4({
   stakePerSegmentMicroUsd,
   onPnlChange,
   disabled,
+  rugFiredAtMs,
 }: RideChartV4Props) {
   const chartRef = useRef<HTMLDivElement | null>(null);
   const p5InstanceRef = useRef<p5 | null>(null);
@@ -126,6 +133,7 @@ export function RideChartV4({
     onPnlChange,
     callbacks,
     disabled,
+    rugFiredAtMs,
   });
 
   return (

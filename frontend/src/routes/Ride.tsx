@@ -67,10 +67,18 @@ function pickSegmentMarket(): SegmentMarketRecord | null {
   return markets[markets.length - 1] ?? null;
 }
 
+type SettlementToast = {
+  kind: number;
+  label: string;
+  digest: string;
+  /** doc 26 §5.1 — set to "rugged" when kind=3 fired in a rugged round. */
+  settlementSubKind?: "rugged";
+};
+
 function useAutoDismissSettlement(
-  settlement: { kind: number; label: string; digest: string } | null,
+  settlement: SettlementToast | null,
   ttlMs = 6000,
-): { kind: number; label: string; digest: string } | null {
+): SettlementToast | null {
   const [visible, setVisible] = useState(settlement);
   useEffect(() => {
     if (!settlement) {
@@ -532,6 +540,7 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           stakePerSegmentMicroUsd={ride.stakePerSegmentMicroUsd}
           onPnlChange={setRidePnl}
           disabled={needsFunds}
+          rugFiredAtMs={ride.rugFiredAtMs}
         />
       </div>
 
@@ -618,11 +627,14 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
               ? "Touch hit — jackpot"
               : settlementToast.kind === 2
                 ? "Cashed out"
-                : settlementToast.kind === 3
-                  ? "Round ended — no touch"
-                  : settlementToast.kind === 4
-                    ? "Market voided — refunded"
-                    : "Ride settled"}
+                : settlementToast.kind === 3 &&
+                    settlementToast.settlementSubKind === "rugged"
+                  ? "💥 MARKET HALT — ride wiped"
+                  : settlementToast.kind === 3
+                    ? "Round ended — no touch"
+                    : settlementToast.kind === 4
+                      ? "Market voided — refunded"
+                      : "Ride settled"}
           </div>
           <div
             className={`text-5xl font-bold leading-none ${
