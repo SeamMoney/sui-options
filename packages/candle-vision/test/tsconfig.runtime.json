@@ -1,0 +1,20 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "isolatedModules": false,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "../../../scripts/.tmp/candle-vision-release-check/runtime",
+    "rootDir": "..",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "../src/**/*",
+    "./**/*.ts"
+  ]
+}

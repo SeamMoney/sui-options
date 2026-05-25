@@ -1,0 +1,100 @@
+{
+  "name": "@sui-options/candle-vision",
+  "version": "0.1.0",
+  "description": "Framework-agnostic TypeScript candle, chart-pattern, TA, and computer-vision style pattern detection for trading frontends.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog.d.ts",
+      "import": "./dist/catalog.js"
+    },
+    "./detectors": {
+      "types": "./dist/detectors.d.ts",
+      "import": "./dist/detectors.js"
+    },
+    "./features": {
+      "types": "./dist/features.d.ts",
+      "import": "./dist/features.js"
+    },
+    "./ranking": {
+      "types": "./dist/ranking.d.ts",
+      "import": "./dist/ranking.js"
+    },
+    "./ta-lines": {
+      "types": "./dist/ta-lines.d.ts",
+      "import": "./dist/ta-lines.js"
+    },
+    "./registry": {
+      "types": "./dist/registry.d.ts",
+      "import": "./dist/registry.js"
+    },
+    "./scanner": {
+      "types": "./dist/scanner.d.ts",
+      "import": "./dist/scanner.js"
+    },
+    "./presets": {
+      "types": "./dist/presets.d.ts",
+      "import": "./dist/presets.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.js"
+    },
+    "./adapters/lightweight-charts": {
+      "types": "./dist/adapters/lightweight-charts.d.ts",
+      "import": "./dist/adapters/lightweight-charts.js"
+    },
+    "./overlay-lightweight-charts": {
+      "types": "./dist/overlay-lightweight-charts.d.ts",
+      "import": "./dist/overlay-lightweight-charts.js"
+    },
+    "./renderers/pattern-overlay": {
+      "types": "./dist/renderers/pattern-overlay.d.ts",
+      "import": "./dist/renderers/pattern-overlay.js"
+    },
+    "./patterns/candles": {
+      "types": "./dist/patterns/candles/index.d.ts",
+      "import": "./dist/patterns/candles/index.js"
+    },
+    "./patterns/structures": {
+      "types": "./dist/patterns/structures/index.d.ts",
+      "import": "./dist/patterns/structures/index.js"
+    },
+    "./patterns/ta": {
+      "types": "./dist/patterns/ta/index.d.ts",
+      "import": "./dist/patterns/ta/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "examples",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && node ../../scripts/patch-esm-imports.mjs dist",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx test/release-regression.ts",
+    "prepack": "npm run build && npm run test"
+  },
+  "peerDependencies": {
+    "lightweight-charts": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "lightweight-charts": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.7.2"
+  },
+  "sideEffects": false
+}

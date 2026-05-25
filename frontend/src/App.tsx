@@ -10,6 +10,7 @@ import { useLiveMarkets } from "@/hooks/useLiveMarkets";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { RideTest } from "@/routes/RideTest";
 import { Ride } from "@/routes/Ride";
+import { CandleVision } from "@/routes/CandleVision";
 
 // Minimal pathname-based routing. Computed once at module load (no hash
 // routing / SPA nav within these pages — the Vercel SPA rewrite in
@@ -22,8 +23,10 @@ import { Ride } from "@/routes/Ride";
 const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
 const IS_PRO_ROUTE = PATHNAME === "/pro";
+const IS_CANDLE_VISION_ROUTE = PATHNAME === "/candle-vision";
 
 export default function App() {
+  if (IS_CANDLE_VISION_ROUTE) return <CandleVision />;
   if (IS_RIDE_TEST_ROUTE) return <RideTest />;
   if (IS_PRO_ROUTE) return <MainApp />;
   return <Ride />;

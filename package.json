@@ -8,9 +8,17 @@
     "api",
     "keeper",
     "bots",
-    "frontend"
+    "frontend",
+    "packages/candle-vision",
+    "packages/candle-vision-react"
   ],
   "scripts": {
+    "build:candle-vision": "npm -w @sui-options/candle-vision run build",
+    "typecheck:candle-vision": "npm -w @sui-options/candle-vision run typecheck",
+    "test:candle-vision": "npm -w @sui-options/candle-vision run test",
+    "build:candle-vision-react": "npm -w @sui-options/candle-vision-react run build",
+    "typecheck:candle-vision-react": "npm -w @sui-options/candle-vision-react run typecheck",
+    "release:candle-vision": "node scripts/candle-vision-release-check.mjs && npm run build:candle-vision-react",
     "build:sdk": "npm -w @wick/sdk run build",
     "build:api": "npm -w @wick/api run build",
     "build:frontend": "npm -w frontend run build",

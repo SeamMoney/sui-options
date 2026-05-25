@@ -1,0 +1,40 @@
+{
+  "name": "@sui-options/candle-vision-react",
+  "version": "0.1.0",
+  "description": "React hooks and presentational components for Candle Vision pattern signals.",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../candle-vision run build",
+    "build": "tsc",
+    "pretypecheck": "npm --prefix ../candle-vision run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@sui-options/candle-vision": "^0.1.0",
+    "react": "^18.2.0 || ^19.0.0",
+    "react-dom": "^18.2.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25",
+    "@sui-options/candle-vision": "file:../candle-vision",
+    "typescript": "^5.7.2"
+  },
+  "sideEffects": false
+}

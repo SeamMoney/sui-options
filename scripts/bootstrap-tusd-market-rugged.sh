@@ -73,6 +73,7 @@ if [ "$ACTIVE" != "$PUBLISHER" ]; then
   exit 1
 fi
 
+echo "[1/2] bootstrap_segment_market_v4 (no rug param — same as v4.23 bootstrap)"
 MARKET_OUT=$(sui client call \
   --package "$PKG" \
   --module wick \
@@ -94,7 +95,6 @@ MARKET_OUT=$(sui client call \
     "$MAX_STAKE_PER_SEGMENT" \
     "$MAX_CONCURRENT_RIDES" \
     "$MAX_RIDES_PER_USER" \
-    "$RUG_CHANCE_BPS" \
     "$VAULT_TUSD" \
     "$CLOCK_ID" \
   --json)
@@ -106,13 +106,23 @@ MARKET_ID=$(echo "$MARKET_OUT" | jq -r '
 ')
 
 if [ -z "$MARKET_ID" ] || [ "$MARKET_ID" = "null" ]; then
-  echo "MARKET CREATION FAILED — likely arg-order mismatch with the upgraded ABI." >&2
-  echo "Inspect wick.move's bootstrap_segment_market_v4 signature, fix the --args block." >&2
+  echo "MARKET CREATION FAILED" >&2
   echo "$MARKET_OUT" | head -30 >&2
   exit 1
 fi
+echo "    market: $MARKET_ID"
 
-echo "✓ Rug-enabled TUSD market created: $MARKET_ID"
+echo ""
+echo "[2/2] enable_rug — attaches RugConfig dynamic field with rug_chance_bps=$RUG_CHANCE_BPS"
+sui client call \
+  --package "$PKG" \
+  --module wick \
+  --function enable_rug \
+  --type-args "$TUSD_TYPE" \
+  --args "$MARKET_ID" "$RUG_CHANCE_BPS" \
+  --gas-budget 20000000 \
+  --json > /dev/null
+echo "    ✓ Rug enabled on market $MARKET_ID"
 
 TMP=$(mktemp)
 jq --arg market "$MARKET_ID" \
