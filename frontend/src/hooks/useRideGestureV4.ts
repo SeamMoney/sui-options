@@ -335,14 +335,12 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         // segment rate so the queue stays approximately steady — neither
         // bursting empty (chart freezes) nor blowing up (chart bursts).
         //
-        // v4.21 — REVEAL_BASE_MS 200 → 100 to match the user's hard
-        // requirement: "Also another hard requirement is I want the
-        // candles to move fast like 100ms or 85ms like we had before. I
-        // dont want it to be any longer." Push cadence
-        // (IDLE_WALK_INTERVAL_MS) is dropped to 600ms so 6 candles per
-        // 600ms push = 10 candles/sec push matches 10 candles/sec drain.
-        // Queue stays at 0-6 in steady state; no blur, no freeze.
-        const REVEAL_BASE_MS = 100;
+        // v4.22 — REVEAL_BASE_MS 100 → 160. User flagged 100 felt "too
+        // fast" after v4.21 shipped it. 160 ms per candle = ~6.25 fps;
+        // a 6-candle segment animates in ~960 ms. Push cadence
+        // IDLE_WALK_INTERVAL_MS also bumped 600 → 960 to match (push
+        // rate = drain rate, queue stays at 0-6 in steady state).
+        const REVEAL_BASE_MS = 160;
         type RevealItem = {
           seeded: ReturnType<typeof expandSegment>["candles"][number];
           render: RenderCandle;
@@ -637,23 +635,20 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         // moving chart, decides to tap, the chain takes over for their ride,
         // then idle-walk resumes after they release. No more "frozen until
         // someone plays" problem, no more 0.5 SUI/min cranker burn.
-        // v4.21 — IDLE_WALK_INTERVAL_MS dropped to 600ms so push rate
-        // (6 candles per 600ms = 10/sec) matches the 100ms drain rate
-        // exactly. Queue stays empty, user sees a fast 100ms-per-candle
-        // chart as required.
+        // v4.22 — IDLE_WALK_INTERVAL_MS 600 → 960 to match the new
+        // 160ms reveal cadence (6 × 160 = 960). Push rate = drain rate,
+        // chart stays smooth at ~6 candles/sec.
         //
         // CRITICAL — DETERMINISTIC SEED. Before v4.21 the idle walk
         // generated 32 random bytes per push via crypto.getRandomValues,
         // which meant two browsers viewing the same chart saw COMPLETELY
         // DIFFERENT candles between chain cranks. That broke the shared-
-        // market premise (user: "wasnt the whole point of having a global
-        // chart that everyone sees is that it is always running the same
-        // no matter who opens the app?"). Now the seed is derived from
-        // the last chain segment's key + a wallclock counter bucketed to
+        // market premise. Now the seed is derived from the last chain
+        // segment's key + a wallclock counter bucketed to
         // IDLE_WALK_INTERVAL_MS. All clients with the same chain state
         // at the same wallclock moment derive the same key, run
         // expandSegment with the same inputs, and see the same candles.
-        const IDLE_WALK_INTERVAL_MS = 600;
+        const IDLE_WALK_INTERVAL_MS = 960;
         let lastIdleWalkMs = 0;
         // Deterministic 32-byte derivation from (lastChainKey, counter).
         // No SubtleCrypto async needed — a simple LCG mix is enough for
@@ -676,8 +671,20 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         const tickIdleWalk = (now: number) => {
           if (!walkState) return;
           const s = stateRef.current;
-          if (s.phase === "opening" || s.phase === "riding") return;
-          if (lastSegmentArrivedMs > 0 && now - lastSegmentArrivedMs < 4000) return;
+          // v4.22 — DROPPED the "stop during ride" gate. The old version
+          // returned early when phase was opening/riding, which caused
+          // the chart to FREEZE during a ride if chain segments didn't
+          // arrive within 3s (the stall-cranker threshold) — user
+          // reported: "after 1-2s the chart stops moving again, but the
+          // PnL keeps changing." Now idle walk stays alive during a
+          // ride. When real chain segments arrive, reconcileSegments
+          // resets walkState to chain truth and the chart converges.
+          // The user sees continuous motion either way.
+          //
+          // We still defer briefly after a real chain segment lands —
+          // gives reconcileSegments time to apply chain truth before
+          // idle walk pushes more derived candles on top.
+          if (lastSegmentArrivedMs > 0 && now - lastSegmentArrivedMs < 1500) return;
           if (now - lastIdleWalkMs < IDLE_WALK_INTERVAL_MS) return;
           lastIdleWalkMs = now;
 
