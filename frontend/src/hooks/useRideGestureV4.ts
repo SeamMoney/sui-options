@@ -1209,25 +1209,22 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
             adjustedExitX += Math.min(candleSpacing * 3, 60);
             adjustedExitY = entryY;
           }
-          const slope =
-            (adjustedExitY - entryY) / (adjustedExitX - entryXForSlope);
           const entryVisible = actualEntryX >= chartArea.x;
-          let lineStartX = entryVisible ? entryXForSlope : chartArea.x;
-          let lineStartY = entryVisible
-            ? entryY
-            : entryY + slope * (chartArea.x - entryXForSlope);
-          const centerY = chartArea.y + chartArea.height / 2;
-          const maxDeviation = chartArea.height * 0.35;
-          if (Math.abs(lineStartY - centerY) > maxDeviation) {
-            lineStartY =
-              lineStartY > centerY
-                ? centerY + maxDeviation
-                : centerY - maxDeviation;
-          }
-          lineStartY = Math.max(
-            chartArea.y + 10,
-            Math.min(chartArea.y + chartArea.height - 10, lineStartY),
-          );
+          // v4.25d — REMOVED off-screen extrapolation + center-clamping.
+          // The old code tried to draw the line even when the entry
+          // candle had scrolled off-chart: clip lineStartX to
+          // chartArea.x, extrapolate Y by slope, then clamp to center
+          // ±35% of chart height. The clamp pulled the start back into
+          // the chart, but at a Y that didn't correspond to any actual
+          // price — so the line went from a fake left-edge point
+          // corner-to-corner across the chart. User feedback: "the
+          // tracker line segment isnt on the chart. it was more precise
+          // before." Now we hide the line entirely once entry scrolls
+          // off-screen. Either it's a faithful entry→exit segment or
+          // it isn't drawn.
+          if (!entryVisible) return;
+          const lineStartX = entryXForSlope;
+          const lineStartY = entryY;
           const finalEndX = Math.min(
             adjustedExitX,
             chartArea.x + chartArea.width - rightPadding - 5,
