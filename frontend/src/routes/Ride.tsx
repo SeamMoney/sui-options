@@ -17,7 +17,7 @@
  * to the Move side first, the bootstrap script writes its market into the
  * deployments JSON, and the frontend takes over on the next reload.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import RideChart from "@/components/RideChart";
 import RideChartV4 from "@/components/RideChartV4";
 import { FaucetButton } from "@/components/wallet/FaucetButton";
@@ -216,10 +216,12 @@ function CenterHeroV4(props: {
   multiplierX: number;
   /** True once the market snapshot has loaded — gates the "TAP AND HOLD" copy. */
   isReady: boolean;
+  /** Last closed-ride PnL, shown briefly in idle state after release. */
+  lastClosedPnl: number | null;
   /** Mobile-safe fallback when the touchend gesture misses. */
   onCashOut: () => void;
 }) {
-  const { needsFunds, phase, pnl, stakePaid, multiplierX, isReady, onCashOut } = props;
+  const { needsFunds, phase, pnl, stakePaid, multiplierX, isReady, lastClosedPnl, onCashOut } = props;
 
   let kicker = "";
   let big = "";
@@ -228,39 +230,50 @@ function CenterHeroV4(props: {
 
   if (needsFunds && phase === "idle") {
     kicker = "One tap to start";
-    big = "Get test SUI";
-    sub = "tap “Get test SUI”, top-right — free, instant, no wallet needed";
+    big = "Get free funds";
+    sub = "tap “Get free funds”, top-right — SUI for gas + TUSD to bet, no wallet";
     tone = "amber";
+  } else if (phase === "idle" && lastClosedPnl !== null) {
+    // v4.23: PnL flash immediately after release. User said "as soon as
+    // I stop holding and let go it should stop saying cashout. it should
+    // say what my PNL was. and then it should go right back to saying
+    // tap and hold." This is the brief PnL display before reverting
+    // to the TAP AND HOLD invitation (RideV4 clears lastClosedPnl
+    // after ~2.5s).
+    const winning = lastClosedPnl >= 0;
+    kicker = winning ? "Ride closed — nice" : "Ride closed";
+    big = winning ? `+$${lastClosedPnl.toFixed(2)}` : `-$${Math.abs(lastClosedPnl).toFixed(2)}`;
+    sub = "ready when you are — tap and hold again";
+    tone = winning ? "win" : "loss";
   } else if (phase === "idle" && !isReady) {
-    // v4.19 audit P1-9: while the snapshot / round info is still loading,
-    // the gesture path silently aborts every tap (startPress checks
-    // s.round !== null). Don't lie about being actionable — show a
-    // connecting state until the round is loaded.
     kicker = "Loading market";
     big = "Connecting…";
     sub = "one second — fetching the round";
     tone = "neutral";
   } else if (phase === "idle") {
-    // V4: ALWAYS the press-to-ride invitation. No round-phase gating.
     kicker = "⚡  Tap and hold to ride";
     big = "TAP AND HOLD";
-    // v4.19 audit P0-2 + P1-11: plain-English what-the-game-is line.
-    // Don't claim a specific multiplier until the snapshot has loaded
-    // (otherwise the on-chain mult could differ from the default and
-    // we'd lie pre-snapshot). Once loaded, the multiplier is shown.
+    // v4.23: more explicit about the touch-either mechanic. User said
+    // "I want it to be more clear about which direction you want to go
+    // because right now it seems like I make positive pnl if it goes any
+    // direction" — that's CORRECT (touch-either wins both ways). Just
+    // need to make the mechanic legible.
     sub = isReady
-      ? `Hold to bet price touches the green or red line. Release to cash out. ${multiplierX.toFixed(2)}× payout.`
-      : "Hold to bet price touches the green or red line. Release to cash out.";
+      ? `Hold to bet price touches the GREEN line (up) OR the RED line (down). Either direction wins ${multiplierX.toFixed(2)}×.`
+      : "Hold to bet price touches the GREEN line (up) OR the RED line (down). Either direction wins.";
     tone = "amber";
   } else if (phase === "opening") {
     kicker = "Opening your ride";
     big = "Keep holding…";
     sub = "your position is going on-chain — ~1-2 seconds";
   } else if (phase === "riding") {
-    kicker = "You're riding — release to cash out";
+    // v4.23: clearer "let go to close" copy + explicit reminder that
+    // EITHER side wins so the user understands why their PnL goes up
+    // regardless of direction.
+    kicker = "LET GO TO CLOSE";
     big = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
     tone = pnl >= 0 ? "win" : "loss";
-    sub = `hold for jackpot · release to cash out · $${stakePaid.toFixed(2)} staked`;
+    sub = `Either GREEN or RED touch wins ${multiplierX.toFixed(2)}× · $${stakePaid.toFixed(2)} staked`;
   } else {
     kicker = "Cashing out";
     big = "Settling…";
@@ -376,18 +389,19 @@ function FundCta(props: {
         className="text-3xl font-bold text-white leading-none mb-3"
         style={{ textShadow: "0 2px 28px rgba(0,0,0,0.7)" }}
       >
-        Add test SUI to ride
+        Get free test funds
       </div>
       <div className="text-xs text-white/60 mb-5 leading-relaxed">
-        You have {fmtSui(props.balanceMist)} SUI — a ride needs about 0.025.
-        It’s free testnet SUI, no wallet required.
+        You have {fmtSui(props.balanceMist)} SUI. One tap drips 0.2 SUI (for
+        network fees) + 10 TUSD (the stake currency). Free testnet only — no
+        wallet required.
       </div>
       <div className="flex flex-col items-center gap-3">
         <FaucetButton
           recipient={props.address}
           onFunded={props.onFunded}
           size="lg"
-          label="Get free test SUI"
+          label="Get free funds"
         />
         <a
           href={`https://faucet.sui.io/?address=${props.address}`}
@@ -441,6 +455,28 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
     pnl: 0,
     staked: 0,
   });
+
+  // v4.23 — capture the PnL at the moment of release so the hero can
+  // flash it briefly (user feedback: "as soon as I stop holding and let
+  // go it should ... say what my PNL was. and then it should go right
+  // back to saying tap and hold"). The flash auto-clears after 2.5s.
+  const [lastClosedPnl, setLastClosedPnl] = useState<number | null>(null);
+  const lastPhaseRef = useRef<RidePhase>(ride.phase);
+  const livePnlRef = useRef(0);
+  useEffect(() => {
+    livePnlRef.current = ridePnl.pnl;
+  }, [ridePnl.pnl]);
+  useEffect(() => {
+    const prev = lastPhaseRef.current;
+    const next = ride.phase;
+    if ((prev === "riding" || prev === "opening" || prev === "closing") && next === "idle") {
+      setLastClosedPnl(livePnlRef.current);
+      const id = window.setTimeout(() => setLastClosedPnl(null), 2500);
+      lastPhaseRef.current = next;
+      return () => window.clearTimeout(id);
+    }
+    lastPhaseRef.current = next;
+  }, [ride.phase]);
 
   const needsFunds =
     session.balanceMist !== null &&
@@ -520,6 +556,7 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           stakePaid={stakePaid}
           multiplierX={multiplierX}
           isReady={ride.round !== null}
+          lastClosedPnl={lastClosedPnl}
           onCashOut={() => ride.close()}
         />
       ) : null}

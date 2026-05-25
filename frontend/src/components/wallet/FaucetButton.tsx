@@ -53,21 +53,38 @@ export function FaucetButton(props: {
     if (!recipient) return;
     setPending(true);
     const toastId = toast.push({
-      title: "Requesting test SUI…",
+      title: "Funding your wallet…",
       tone: "pending",
     });
     try {
-      const res = await fetch("/api/faucet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipient }),
-      });
-      const data = (await res.json()) as Partial<FaucetSuccess & FaucetError>;
-      if (!res.ok) {
+      // Drip SUI (for gas) + TUSD (for stake) in parallel.
+      // SUI is required for every Sui tx; TUSD is what the v4 market
+      // takes as ride stake. Both endpoints are independently
+      // rate-limited per-recipient (90s cooldown).
+      const [suiRes, tusdRes] = await Promise.all([
+        fetch("/api/faucet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recipient }),
+        }),
+        fetch("/api/faucet-tusd", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recipient }),
+        }),
+      ]);
+
+      const suiData = (await suiRes.json()) as Partial<FaucetSuccess & FaucetError>;
+      const tusdData = (await tusdRes.json()) as Partial<FaucetSuccess & FaucetError>;
+
+      const suiOk = suiRes.ok && Boolean(suiData.digest);
+      const tusdOk = tusdRes.ok && Boolean(tusdData.digest);
+
+      if (!suiOk && !tusdOk) {
         const msg =
-          res.status === 429
-            ? "Rate-limited — try again in a few minutes."
-            : (data.error ?? `HTTP ${res.status}`);
+          suiRes.status === 429 || tusdRes.status === 429
+            ? "Rate-limited — try again in a minute."
+            : (suiData.error ?? tusdData.error ?? `HTTP ${suiRes.status}/${tusdRes.status}`);
         toast.update(toastId, {
           title: "Faucet declined",
           description: msg,
@@ -76,20 +93,21 @@ export function FaucetButton(props: {
         });
         return;
       }
-      if (!data.digest) {
-        toast.update(toastId, {
-          title: "Faucet returned no digest",
-          tone: "error",
-          ttlMs: 6_000,
-        });
-        return;
-      }
+
+      // At least one of the two succeeded. Show a single combined toast.
+      const lines: string[] = [];
+      if (suiOk) lines.push("✓ 0.2 SUI for gas");
+      else lines.push(`✗ SUI failed: ${suiData.error ?? "unknown"}`);
+      if (tusdOk) lines.push("✓ 10 TUSD for staking");
+      else lines.push(`✗ TUSD failed: ${tusdData.error ?? "unknown"}`);
+
+      const successDigest = suiData.digest ?? tusdData.digest;
       toast.update(toastId, {
-        title: "Test SUI sent",
-        description: "Funded — ready to ride.",
-        tone: "success",
-        href: explorerTxUrl(data.digest),
-        hrefLabel: "view tx",
+        title: suiOk && tusdOk ? "Funded — ready to ride" : "Partial fund",
+        description: lines.join(" · "),
+        tone: suiOk && tusdOk ? "success" : "error",
+        href: successDigest ? explorerTxUrl(successDigest) : undefined,
+        hrefLabel: successDigest ? "view tx" : undefined,
         ttlMs: 8_000,
       });
       setCooldownUntil(Date.now() + LOCAL_COOLDOWN_MS);

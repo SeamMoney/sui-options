@@ -271,6 +271,26 @@
       "max_stake_per_segment": 200000,
       "max_concurrent_rides": 50,
       "max_rides_per_user": 10
+    },
+    {
+      "name": "WICK-SEG-V4-TUSD-75-1000bps",
+      "market": "0xe98ace0ba07f165626c66b8d0ef9ec4858fe5d0b7fda8561d41a9e71476fa113",
+      "collateral": "0x204d595c642a06ccc667a32789a6a5a01d0b7ff3340fb53f7f69649c90d00a31::tusd::TUSD",
+      "vault": "0xd9ff33f4f6e4014bcac74e89261ec47ce2ed34be4c6ea1ce10592fe7e081aa4d",
+      "home_price": 1000000000,
+      "vol_regime_init": 1000000,
+      "round_duration_segments": 75,
+      "barrier_offset_bps": 1000,
+      "multiplier_bps": 17500,
+      "max_payout_per_round": 500000000,
+      "deadband_bps": 20,
+      "sigma_bps_per_sqrt_sec": 100,
+      "cashout_spread_bps": 200,
+      "abort_segment_deadline_ms": 30000,
+      "min_stake_per_segment": 10000,
+      "max_stake_per_segment": 150000,
+      "max_concurrent_rides": 50,
+      "max_rides_per_user": 10
     }
   ],
   "tusd": {
@@ -291,5 +311,7 @@
     "refill_target_mist": 300000000,
     "bootstrap_digest": "CdZvgZongjZnqmrRPj3HspWUQ9S7X4p8rmbqhaAh11K2",
     "address_update_digest": "GB9batULm8vTQ2mSAqfhxmBUBvKfqjSv5Hepzn1mMQm5"
-  }
+  },
+  "vault_tusd": "0xd9ff33f4f6e4014bcac74e89261ec47ce2ed34be4c6ea1ce10592fe7e081aa4d",
+  "vault_admin_cap_tusd": "0x9fbcca5761e7928e3a1e2ae09180361d48bb1509753c898dc9bebb214c5ed538"
 }
