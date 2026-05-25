@@ -35,20 +35,19 @@ import {
 import { BARRIER_UPPER, type BarrierIndex } from "@wick/sdk";
 
 /**
- * Minimum SUI balance to allow a ride. Math for the testnet v4 market:
- *   escrow:    stake_per_segment × round_duration = 100k × 75 = 7.5M MIST
- *              (locked at open, refunded at close)
- *   open gas:  ~5M MIST
- *   close gas: ~5M MIST
- *   buffer:    ~7.5M MIST
- *   ────────────────────────────────────────────────────────
- *   total:     25M MIST = 0.025 SUI
+ * Minimum SUI balance to allow a ride.
  *
- * The old 0.05 gate was 2× over-provisioned and blocked anyone who burned
- * down to ~0.04 SUI on failed attempts — exactly the state the user hit
- * on 2026-05-23 ("I have 0.028 SUI why can't I play").
+ * v4.25b — dropped 25M → 10M (0.025 → 0.01 SUI). The old 25M number
+ * assumed escrow was paid in SUI; on the TUSD market that's wrong
+ * (escrow is TUSD now, SUI only pays gas). One open or close tx costs
+ * ~5-10M MIST in gas measured on chain. 10M MIST is just above what
+ * one tx genuinely needs. User feedback: "if you dont have any SUI to
+ * pay for gas + make your bet, then why would you be allowed to touch?"
+ * — so the gate stays, but the threshold now matches real gas cost.
+ * The TUSD-side escrow has its own collateral gate computed from the
+ * market's own params (escrowThresholdRaw).
  */
-const MIN_RIDE_BALANCE_MIST = 25_000_000n;
+const MIN_RIDE_BALANCE_MIST = 10_000_000n;
 
 /**
  * Pick the latest v4 segment market from the deployment. Operators

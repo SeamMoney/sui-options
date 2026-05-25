@@ -31,7 +31,7 @@
  * Decoupling vs the chain layer is the same — phase + segment ring fed
  * in, callbacks fire on press / release / stall.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type p5 from "p5";
 import {
   detectPostHocPattern,
@@ -274,7 +274,15 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
   useEffect(() => {
     stateRef.current.stakePerSegmentMicroUsd = stakePerSegmentMicroUsd ?? 200_000n;
   }, [stakePerSegmentMicroUsd]);
-  useEffect(() => {
+  // v4.25b — useLayoutEffect, not useEffect. The disabled prop is the
+  // gate enforcement: when the funding modal appears, the gesture must
+  // be blocked SAME FRAME. Regular useEffect runs after paint, leaving
+  // a 1-frame window where FundCta is visible but stateRef.current.disabled
+  // is still stale `false` — user's tap during that frame would slip
+  // through the gate. useLayoutEffect runs synchronously after DOM
+  // mutation, before paint, closing the race. User feedback: "If it told
+  // me that I needed more SUI, then why did it let me enter a position?"
+  useLayoutEffect(() => {
     stateRef.current.disabled = disabled;
   }, [disabled]);
   useEffect(() => {
