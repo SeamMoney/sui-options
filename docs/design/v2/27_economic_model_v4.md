@@ -100,14 +100,25 @@ The MartingalerVault<TUSD> sits at 100M TUSD on chain (publisher seed of
 $100M nominal value). Each round produces a small +0.30 TUSD vault
 contribution at $0.10 stake; vault grows monotonically in expectation.
 
-Variance analysis from `scripts/simulate_v4.27_vault_solvency.py`:
+Empirical results from `scripts/simulate_v4.27_vault_solvency.py`
+(10,000 rounds per scenario):
+
+| Concurrent rides | Realized edge | Max drawdown | Net growth / 10k rounds |
+|---:|---:|---:|---:|
+| 1 | +3.98% | -232 TUSD (0.000%) | +2,983 TUSD |
+| 5 | +4.23% | -272 TUSD (0.000%) | +15,848 TUSD |
+| 10 | +3.78% | -422 TUSD (0.000%) | +28,374 TUSD |
+| 50 | +3.80% | -615 TUSD (0.001%) | +142,371 TUSD |
 
 - **Per-round payout cap of 500 TUSD** bounds the worst single-round vault
-  outflow at 500 - 7.5 = 492.5 TUSD = 0.0005% of vault seed.
-- **Worst drawdown over 10,000 rounds** (across {1, 5, 10, 50} concurrent
-  rides) is well under 1% of seed.
-- **At 50 concurrent rides for 10k rounds** (= 500K ride-rounds = ~42
-  hours of full-capacity continuous play), the vault still grows on net.
+  outflow at ~492 TUSD = 0.0005% of vault seed.
+- **Worst observed drawdown across ALL scenarios: 615 TUSD out of 100M
+  vault = 0.001% of seed.**
+- **At 50 concurrent rides for 10k rounds** (= 500K ride-rounds = ~4,167
+  hours of full-capacity continuous play), the vault GROWS by 142K TUSD
+  on net. Monotonic uptrend in practice.
+- Realized house edge across concurrency scenarios stays in the +3.78%
+  to +4.23% band — matches the strategy-sweep prediction of +3.93% ± 0.76%.
 
 **Conclusion:** the vault is effectively infinite for the testnet demo
 + early production. The 100M seed gives ~hundreds of thousands of
