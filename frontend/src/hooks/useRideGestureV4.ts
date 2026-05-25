@@ -612,6 +612,14 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
               rc.isLive = isLast;
               candles.push(rc);
               seededCandles.push(c);
+              // v4.25c — bump completedTrades ages on push so PnL line
+              // endpoints stay anchored to the candle where the ride
+              // actually closed instead of sliding with the chart. See
+              // long note in drainRevealQueue for the full diagnosis.
+              for (const t of completedTrades) {
+                t.entryAgeCandles += 1;
+                t.exitAgeCandles += 1;
+              }
               runPostHocPatternDetection();
             }
           } else {
@@ -747,6 +755,21 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           if (item.armed) item.render.armedPattern = armedCueFromSegment(item.armed);
           candles.push(item.render);
           seededCandles.push(item.seeded);
+          // v4.25c — User report: "the green and red laser pointer
+          // tracker somehow got kind of messed up where it doesnt track
+          // on the right spot as accurately once you let go of the
+          // screen to close position." drawSinglePNLLine indexes the
+          // anchor candle as candles[length - 1 - ageCandles]. When a
+          // new candle is pushed (length+1), the ages don't change, so
+          // candles[length-1-age] now points one slot to the right of
+          // the actual anchor — the line endpoint slides with the chart
+          // instead of staying nailed to the close candle. Bumping ages
+          // by 1 per push keeps the index pointing at the same candle.
+          // truncateRingBuffer already does this on drop (line 583).
+          for (const t of completedTrades) {
+            t.entryAgeCandles += 1;
+            t.exitAgeCandles += 1;
+          }
           runPostHocPatternDetection();
           truncateRingBuffer();
           lastRevealMs = now;

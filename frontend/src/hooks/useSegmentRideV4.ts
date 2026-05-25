@@ -792,8 +792,13 @@ export function useSegmentRideV4(
     const now = Date.now();
     if (now < crankCooldownUntilMsRef.current) return; // long cooldown
     if (now - lastCrankAtMsRef.current < 1500) return; // standard rate limit
-    // Only crank if a ride is actually open — otherwise we just burn the
-    // user's session-wallet gas for nothing (the wake gate would abort).
+    // v4.25c — gate on positionIdRef, not just phase. The optimistic UI
+    // (v4.21) flips phase to 'riding' the instant the user taps, BEFORE
+    // the open tx confirms. During that window positionIdRef is still
+    // null = no on-chain ride exists. Firing record_segment then hits
+    // EChartDormant / ENoActiveRides (abort 14) and spams the console.
+    // Now we only fire when there's a confirmed on-chain position.
+    if (!positionIdRef.current) return;
     if (phase !== "opening" && phase !== "riding") return;
     lastCrankAtMsRef.current = now;
     void (async () => {
