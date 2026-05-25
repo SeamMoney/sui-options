@@ -1,6 +1,6 @@
 {
   "network": "testnet",
-  "package_id": "0x10c3384310549ca77b881ecc3f956abef5553c913b855e0062233fc9320e7a4e",
+  "package_id": "0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924",
   "publisher": "0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455",
   "publish_digest": "7kUBQmP6kFfN1ePFDz9iNYQKRDkFiXdzwqYZ46rgSMiV",
   "published_at": "20260520T050846Z",
@@ -185,6 +185,15 @@
       "upgrade_capability": "0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590",
       "version": 3,
       "notes": "v4 — adds segment_market_v4 (touch-either, always-open per doc 25) + sponsor module (sponsored cranking per doc 22). segment_market_v3 + prune_proto stashed to move/sources-stash/ for size; v4 inherits prune_settled_segments + record_walrus_archive. Raw log: deployments/archive/upgrade-20260524T043838Z.json"
+    },
+    {
+      "from_package_id": "0x10c3384310549ca77b881ecc3f956abef5553c913b855e0062233fc9320e7a4e",
+      "to_package_id": "0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924",
+      "upgraded_at": "20260525T073831Z",
+      "upgrade_digest": "unknown",
+      "upgrade_capability": "0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590",
+      "version": 4,
+      "notes": "v4.26 — rug-pull house edge via dynamic_field per docs/design/v2/26"
     }
   ],
   "segment_markets": [
@@ -291,6 +300,27 @@
       "max_stake_per_segment": 150000,
       "max_concurrent_rides": 50,
       "max_rides_per_user": 10
+    },
+    {
+      "name": "WICK-SEG-V4-TUSD-RUG-150bps",
+      "market": "0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282",
+      "collateral": "0x204d595c642a06ccc667a32789a6a5a01d0b7ff3340fb53f7f69649c90d00a31::tusd::TUSD",
+      "vault": "0xd9ff33f4f6e4014bcac74e89261ec47ce2ed34be4c6ea1ce10592fe7e081aa4d",
+      "home_price": 1000000000,
+      "vol_regime_init": 1000000,
+      "round_duration_segments": 75,
+      "barrier_offset_bps": 1000,
+      "multiplier_bps": 17500,
+      "max_payout_per_round": 500000000,
+      "deadband_bps": 20,
+      "sigma_bps_per_sqrt_sec": 100,
+      "cashout_spread_bps": 200,
+      "abort_segment_deadline_ms": 30000,
+      "min_stake_per_segment": 10000,
+      "max_stake_per_segment": 150000,
+      "max_concurrent_rides": 50,
+      "max_rides_per_user": 10,
+      "rug_chance_bps": 150
     }
   ],
   "tusd": {

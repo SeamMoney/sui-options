@@ -626,6 +626,28 @@ public entry fun bootstrap_segment_market_v4<C>(
     sm4::share_segment_market_v4<C>(market);
 }
 
+/// v4.26 — opt the market into the rug-pull house-edge mechanism (doc 26).
+///
+/// Installs a `RugConfig` dynamic field on the market under the key
+/// `b"rug_config"`. Once enabled, every `record_segment_v4` call rolls a
+/// deterministic dice; with probability `rug_chance_bps / 10_000` the
+/// rug fires and pre-rug rides settle as `EXPIRED_LOSS` on close.
+///
+/// This is a separate entry rather than a parameter on
+/// `bootstrap_segment_market_v4` so the v4 → v4.26 Move upgrade can ship
+/// under Sui's COMPATIBLE policy (changing the bootstrap signature would
+/// be rejected by the upgrade validator).
+///
+/// Aborts:
+///   - `sm4::ERugAlreadyEnabled` (25) if called twice.
+///   - `sm4::EInvalidConfig` (15) if `rug_chance_bps > 10_000`.
+public entry fun enable_rug<C>(
+    market: &mut SegmentMarketV4<C>,
+    rug_chance_bps: u64,
+) {
+    sm4::enable_rug<C>(market, rug_chance_bps);
+}
+
 /// Permissionless v4 cranker entry — `record_segment` on a v4 market.
 public entry fun record_segment_v4<C>(
     market: &mut SegmentMarketV4<C>,

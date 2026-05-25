@@ -62,8 +62,11 @@
 module wick::segment_market_v4;
 
 use std::type_name::{Self, TypeName};
+use sui::bcs;
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
+use sui::dynamic_field;
+use sui::hash;
 use sui::random::{Self as random, Random};
 use sui::table::{Self, Table};
 use wick::bot_registry::{Self as br, BotRegistry};
@@ -109,6 +112,11 @@ const EAlreadyPruned: u64 = 21;
 const ENoWalrusArchive: u64 = 22;
 const EInvalidBlobId: u64 = 23;
 const EArchiveAlreadyRecorded: u64 = 24;
+/// v4.26 — `enable_rug` was called twice on the same market. Rug-config is
+/// installed exactly once via `dynamic_field`; re-enabling would replace
+/// the live rugged state with a fresh `option::none()` which is unsafe
+/// mid-round. Re-disable would need its own entry.
+const ERugAlreadyEnabled: u64 = 25;
 
 // === Settlement kinds === (unchanged from v3)
 const SETTLEMENT_OPEN: u8 = 0;
@@ -140,6 +148,17 @@ const DEFAULT_SEGMENT_MS: u64 = 400;
 const SECONDS_PER_MS: u64 = 1_000;
 const SETTLEMENT_LAG_ROUNDS: u64 = 3;
 const WALRUS_BLOB_ID_LEN: u64 = 32;
+
+/// v4.26 — dynamic-field name under which the per-market `RugConfig` is
+/// attached. Using a `vector<u8>` name keeps the wire format trivial and
+/// avoids inventing a name-type that would itself need an upgrade.
+///
+/// We attach rug state via `sui::dynamic_field` (not a struct field) so
+/// the rug feature can ship under Sui's COMPATIBLE upgrade policy — adding
+/// fields to `SegmentMarketV4<C>` directly would break the upgrade
+/// validator's struct-shape check (E01002). See header comment on
+/// `RugConfig` below for the rationale in full.
+const RUG_CONFIG_KEY: vector<u8> = b"rug_config";
 
 // === Types ===
 
@@ -349,6 +368,46 @@ public struct RoundArchivedV4 has copy, drop {
     archiver: address,
 }
 
+/// v4.26 — per-market rug-pull configuration + live state.
+///
+/// Stored as a `sui::dynamic_field` value under `RUG_CONFIG_KEY` on the
+/// market's UID rather than as struct fields. Rationale: this lets us ship
+/// the rug-pull feature under Sui's COMPATIBLE upgrade policy. Adding two
+/// `u64` / `Option<u64>` fields to `SegmentMarketV4<phantom C>` would
+/// trigger E01002 (struct shape mismatch) on `sui client upgrade` and the
+/// network would reject the publish. Dynamic fields are an additive
+/// extension of an existing object — the upgrade validator only sees the
+/// struct shape, which is unchanged.
+///
+/// Lifecycle:
+///   - Absent on bootstrap (markets without rug enabled behave identically
+///     to today; all accessors gracefully degrade to "rug disabled").
+///   - Installed exactly once via `enable_rug<C>` — subsequent calls abort
+///     with `ERugAlreadyEnabled` so we never wipe live `rugged_at_segment`
+///     state mid-round.
+///   - `rug_chance_bps` is the per-segment fire probability in bps
+///     (0..=10_000). 150 = 1.5% is the doc 26 §2.1 sweet spot.
+///   - `rugged_at_segment` is `option::none()` at the start of each round,
+///     set to the segment index by `record_segment` when `roll_rug` fires,
+///     and cleared back to `option::none()` by `ensure_round_current` on
+///     round transitions.
+public struct RugConfig has store, drop {
+    rug_chance_bps: u64,
+    rugged_at_segment: Option<u64>,
+}
+
+/// v4.26 — emitted by `record_segment` when the deterministic rug roll
+/// fires the rug for the current round. Frontends subscribe to this to
+/// flash the "MARKET HALT" UX (doc 26 §3.6). Open rides at the time of
+/// the rug settle as `SETTLEMENT_EXPIRED_LOSS` lazily on close — no new
+/// settlement kind is introduced (per doc 26 §3.4 the frontend correlates
+/// loss-events with this event by `(market_id, round_index)`).
+public struct RugFiredV4 has copy, drop {
+    market_id: ID,
+    round_index: u64,
+    segment_index: u64,
+}
+
 // === Read accessors ===
 
 public fun market_id_of_ride(r: &SegmentRidePositionV4): ID { r.market_id }
@@ -398,6 +457,37 @@ public fun multiplier_bps<C>(m: &SegmentMarketV4<C>): u64 { m.multiplier_bps }
 public fun max_payout_per_round<C>(m: &SegmentMarketV4<C>): u64 { m.max_payout_per_round }
 public fun deadband_bps<C>(m: &SegmentMarketV4<C>): u64 { m.deadband_bps }
 public fun walk_price<C>(m: &SegmentMarketV4<C>): u64 { sp::state_price(&m.walk) }
+
+// === v4.26 — rug-pull state accessors (doc 26) ===
+//
+// All accessors gracefully degrade to a "disabled" value when the market
+// has no `RugConfig` attached (i.e. `enable_rug` was never called). The
+// SDK reads `rug_chance_bps` for display purposes and `rugged_at_segment`
+// for the close-time `MARKET HALT` toast; `is_rugged` is a hot-path
+// convenience used by both the frontend live indicator and on-chain
+// settlement gating.
+
+/// True iff the market has had `enable_rug<C>` called on it.
+public fun rug_enabled<C>(m: &SegmentMarketV4<C>): bool {
+    dynamic_field::exists_with_type<vector<u8>, RugConfig>(&m.id, RUG_CONFIG_KEY)
+}
+
+/// Per-segment rug-fire probability in bps. 0 when rug is not enabled.
+public fun rug_chance_bps<C>(m: &SegmentMarketV4<C>): u64 {
+    if (!rug_enabled(m)) return 0;
+    dynamic_field::borrow<vector<u8>, RugConfig>(&m.id, RUG_CONFIG_KEY).rug_chance_bps
+}
+
+/// `Some(seg_idx)` once the rug has fired this round, `None` otherwise.
+public fun rugged_at_segment<C>(m: &SegmentMarketV4<C>): Option<u64> {
+    if (!rug_enabled(m)) return option::none();
+    dynamic_field::borrow<vector<u8>, RugConfig>(&m.id, RUG_CONFIG_KEY).rugged_at_segment
+}
+
+/// Has a rug fired in the current round? `false` when rug is not enabled.
+public fun is_rugged<C>(m: &SegmentMarketV4<C>): bool {
+    option::is_some(&rugged_at_segment(m))
+}
 
 public fun has_segment<C>(m: &SegmentMarketV4<C>, k: u64): bool {
     table::contains(&m.segments, k)
@@ -547,6 +637,41 @@ public entry fun share_segment_market_v4<C>(market: SegmentMarketV4<C>) {
     transfer::share_object(market);
 }
 
+// === v4.26 — enable_rug ===
+
+/// Opt the market into the rug-pull house-edge mechanism (doc 26).
+///
+/// Installs a `RugConfig` dynamic field under `RUG_CONFIG_KEY`. From this
+/// point on, every `record_segment` call rolls a deterministic dice
+/// (keccak256(segment_key || market_id_bytes || round_bytes), first 8
+/// bytes mod 10_000) and fires `RugFiredV4` if the roll is below
+/// `rug_chance_bps`. Rides open at or before the fire-segment settle as
+/// `EXPIRED_LOSS` on close (doc 26 §3.4).
+///
+/// Permissionless — the market itself is shared and rug-enabling is
+/// destructive only via the abort, so requiring an admin cap here would
+/// just be ceremony. The intended caller is the bootstrap script
+/// (`scripts/bootstrap-tusd-market-rugged.sh`) which runs immediately
+/// after `bootstrap_segment_market_v4` in the same flow. The validation
+/// gate is the `rug_chance_bps <= BPS_DENOMINATOR` assert + the
+/// `ERugAlreadyEnabled` idempotency abort.
+///
+/// Aborts:
+///   - `ERugAlreadyEnabled` if a `RugConfig` is already attached.
+///   - `EInvalidConfig` if `rug_chance_bps > BPS_DENOMINATOR` (10_000).
+public entry fun enable_rug<C>(
+    market: &mut SegmentMarketV4<C>,
+    rug_chance_bps: u64,
+) {
+    assert!(!rug_enabled(market), ERugAlreadyEnabled);
+    assert!(rug_chance_bps <= BPS_DENOMINATOR, EInvalidConfig);
+    dynamic_field::add<vector<u8>, RugConfig>(
+        &mut market.id,
+        RUG_CONFIG_KEY,
+        RugConfig { rug_chance_bps, rugged_at_segment: option::none<u64>() },
+    );
+}
+
 // === ensure_round_current ===
 
 fun ensure_round_current<C>(market: &mut SegmentMarketV4<C>) {
@@ -567,6 +692,15 @@ fun ensure_round_current<C>(market: &mut SegmentMarketV4<C>) {
     market.either_aggregate_max_payout = 0;
     market.either_rider_count = 0;
 
+    // v4.26 — clear the rugged flag on round-roll so the new round gets a
+    // fresh roll budget (doc 26 §3.5). No-op when rug is not enabled.
+    if (rug_enabled(market)) {
+        let cfg = dynamic_field::borrow_mut<vector<u8>, RugConfig>(
+            &mut market.id, RUG_CONFIG_KEY,
+        );
+        cfg.rugged_at_segment = option::none<u64>();
+    };
+
     sui::event::emit(RoundStartedV4 {
         market_id: object::id(market),
         round_index: current_round,
@@ -582,6 +716,15 @@ fun ensure_round_current<C>(market: &mut SegmentMarketV4<C>) {
 /// Same shape as v2/v3: `entry` (not `public`), single 32-byte random draw,
 /// constant-gas walk. Routes through `wick::wick::record_segment_v4` so
 /// other packages cannot call it directly.
+///
+/// v4.26: after the walk + ledger write, if the market has rug enabled and
+/// no rug has fired in this round yet, performs a deterministic per-segment
+/// rug roll (doc 26 §3.3). If `roll_rug` returns true, the rug fires at
+/// the segment we just recorded (`k`) and `RugFiredV4` is emitted.
+///
+/// Settlement is LAZY — `close_segment_ride_v4` reads `rugged_at_segment`
+/// via `decide_settlement` and routes pre-rug rides to `EXPIRED_LOSS`. We
+/// never iterate active rides here so per-segment gas stays constant.
 public(package) entry fun record_segment<C>(
     market: &mut SegmentMarketV4<C>,
     r: &Random,
@@ -620,6 +763,27 @@ public(package) entry fun record_segment<C>(
         max_price: smax,
         recorded_at_ms: recorded_at,
     });
+
+    // v4.26 — rug roll. All `&market` reads happen inside `roll_rug` —
+    // which folds in the enabled-check, rug_chance_bps gate, already-rugged
+    // gate, and the deterministic dice — before we take the single
+    // `&mut market.id` borrow that fires the rug. Satisfies Move's borrow
+    // checker. The at-most-one-fire-per-round invariant comes from the
+    // `option::is_some` gate in `roll_rug` plus the round-roll clear in
+    // `ensure_round_current`.
+    if (roll_rug<C>(market, &key)) {
+        let cached_round = market.cached_round_index;
+        let market_id_for_event = object::id(market);
+        let cfg_mut = dynamic_field::borrow_mut<vector<u8>, RugConfig>(
+            &mut market.id, RUG_CONFIG_KEY,
+        );
+        option::fill(&mut cfg_mut.rugged_at_segment, k);
+        sui::event::emit(RugFiredV4 {
+            market_id: market_id_for_event,
+            round_index: cached_round,
+            segment_index: k,
+        });
+    };
 }
 
 // === open_segment_ride_v4 ===
@@ -1127,6 +1291,14 @@ fun decrement_unsettled_rides<C>(market: &mut SegmentMarketV4<C>, round: u64) {
 ///   - TOUCH_WIN: the side that actually touched first (UPPER wins ties
 ///     per doc 25 §9 + `touched_side_resolved`)
 ///   - CASHOUT / EXPIRED_LOSS / ABORTED_REFUND: TOUCHED_SIDE_NONE (2)
+///
+/// v4.26 ordering (doc 26 §3.4): rug check fires AFTER vault-abort (so an
+/// aborted market still refunds 1:1 — the abort is the user-protective
+/// invariant) but BEFORE the touch scan, so a ride that was open when the
+/// rug fired CANNOT salvage a TOUCH_WIN by waiting for a later barrier
+/// crossing. The frontend distinguishes rug from natural expiry via the
+/// `RugFiredV4` event (per doc 26 §3.4, the on-chain settlement kind is
+/// the same `SETTLEMENT_EXPIRED_LOSS` to avoid a new wire format).
 fun decide_settlement<C>(
     ride: &SegmentRidePositionV4,
     market: &SegmentMarketV4<C>,
@@ -1144,6 +1316,18 @@ fun decide_settlement<C>(
 
     if (mv::is_market_aborted(vault, market_id)) {
         return (0u64, 0u64, 0u64, SETTLEMENT_ABORTED_REFUND, TOUCHED_SIDE_NONE)
+    };
+
+    // v4.26 — rug routing. If a rug has fired this round AND this ride
+    // was open at or before that segment, settle as EXPIRED_LOSS
+    // regardless of any subsequent barrier touch. Rides opened AFTER the
+    // rug (entry_segment_index > rugged_seg) fall through to the normal
+    // settlement path — the bet was placed knowing the round was rugged.
+    let opt_rugged = rugged_at_segment(market);
+    if (option::is_some(&opt_rugged)
+        && ride.entry_segment_index <= *option::borrow(&opt_rugged)
+    ) {
+        return (stake_paid, 0u64, stake_paid, SETTLEMENT_EXPIRED_LOSS, TOUCHED_SIDE_NONE)
     };
 
     // v4: check EITHER side. If touched, resolve which side wins the
@@ -1323,10 +1507,58 @@ fun saturating_sub(a: u64, b: u64): u64 {
     if (a > b) a - b else 0
 }
 
+// === v4.26 — rug-pull helpers (doc 26 §3.2) ===
+
+/// Deterministic per-segment rug roll, plus the surrounding "should it
+/// fire" gates. Returns `true` iff:
+///   (a) rug is enabled (RugConfig dynamic field is attached),
+///   (b) `rug_chance_bps > 0` (mechanism not disabled),
+///   (c) no rug has fired this round yet, AND
+///   (d) keccak256(segment_key || id_bytes || round_bytes) first-8-bytes
+///       little-endian % 10_000 < `rug_chance_bps`.
+///
+/// `bcs::peel_u64` consumes 8 LE bytes — the exact extraction we want,
+/// without a hand-rolled u64-from-bytes helper.
+///
+/// Folded into a single helper so the caller (`record_segment`) can run
+/// all `&market` reads in one expression and Move can prove the
+/// borrow sequence (read-then-mut) is sound. The hash domain mixes the
+/// segment key (cranker-driven entropy not pre-knowable by the user),
+/// the market id (so two markets don't share a rug sequence), and the
+/// round index (so each round gets a fresh roll budget).
+fun roll_rug<C>(market: &SegmentMarketV4<C>, segment_key: &vector<u8>): bool {
+    if (!rug_enabled(market)) return false;
+    let cfg = dynamic_field::borrow<vector<u8>, RugConfig>(
+        &market.id, RUG_CONFIG_KEY,
+    );
+    if (cfg.rug_chance_bps == 0) return false;
+    if (option::is_some(&cfg.rugged_at_segment)) return false;
+
+    let mut buf = vector<u8>[];
+    vector::append(&mut buf, *segment_key);
+    vector::append(&mut buf, object::id_bytes(market));
+    vector::append(&mut buf, bcs::to_bytes(&market.cached_round_index));
+
+    let mut reader = bcs::new(hash::keccak256(&buf));
+    let roll = bcs::peel_u64(&mut reader) % BPS_DENOMINATOR;
+    roll < cfg.rug_chance_bps
+}
+
 // === Test-only helpers ===
 
 #[test_only]
-public fun test_only_destroy_market<C>(m: SegmentMarketV4<C>) {
+public fun test_only_destroy_market<C>(mut m: SegmentMarketV4<C>) {
+    // v4.26 — if rug was enabled on this market, remove the dynamic-field
+    // RugConfig BEFORE destructuring + deleting `id`. Sui aborts with
+    // `EFieldsRemaining` if `object::delete(id)` runs while any dynamic
+    // field is still attached. `RugConfig` has `drop`, so we just discard
+    // the removed value.
+    if (dynamic_field::exists_with_type<vector<u8>, RugConfig>(&m.id, RUG_CONFIG_KEY)) {
+        let _cfg = dynamic_field::remove<vector<u8>, RugConfig>(
+            &mut m.id, RUG_CONFIG_KEY,
+        );
+    };
+
     let SegmentMarketV4 {
         id, walk: _, next_segment_index: _, segments,
         active_ride_count: _,
@@ -1450,4 +1682,52 @@ public fun test_only_unsettled_rides_raw<C>(market: &SegmentMarketV4<C>, round: 
 #[test_only]
 public fun test_nearer_barrier(spot: u64, upper: u64, lower: u64): u64 {
     nearer_barrier(spot, upper, lower)
+}
+
+// === v4.26 — rug-pull test-only helpers ===
+
+/// Force-fire the rug for the current round at the given segment index,
+/// bypassing the deterministic roll. Used by tests that want to drive
+/// settlement without setting up a hash that happens to land in the
+/// 1.5% band. Requires `enable_rug<C>` to have been called first.
+#[test_only]
+public fun test_only_set_rugged_at_segment<C>(
+    market: &mut SegmentMarketV4<C>,
+    seg: u64,
+) {
+    let cfg = dynamic_field::borrow_mut<vector<u8>, RugConfig>(
+        &mut market.id, RUG_CONFIG_KEY,
+    );
+    cfg.rugged_at_segment = option::some(seg);
+}
+
+/// Clear the rugged flag without rolling the round. Useful for tests
+/// that want to assert `ensure_round_current` cleared the flag without
+/// staging segments. Requires `enable_rug<C>` to have been called first.
+#[test_only]
+public fun test_only_clear_rugged_at_segment<C>(market: &mut SegmentMarketV4<C>) {
+    let cfg = dynamic_field::borrow_mut<vector<u8>, RugConfig>(
+        &mut market.id, RUG_CONFIG_KEY,
+    );
+    cfg.rugged_at_segment = option::none<u64>();
+}
+
+/// Adjust `rug_chance_bps` after `enable_rug` has been called. Lets a
+/// test exercise the `rug_chance_bps == 0` short-circuit branch of
+/// `roll_rug` without re-enabling. Requires `enable_rug<C>` first.
+#[test_only]
+public fun test_only_set_rug_chance_bps<C>(
+    market: &mut SegmentMarketV4<C>,
+    bps: u64,
+) {
+    let cfg = dynamic_field::borrow_mut<vector<u8>, RugConfig>(
+        &mut market.id, RUG_CONFIG_KEY,
+    );
+    cfg.rug_chance_bps = bps;
+}
+
+/// Test view into `roll_rug`. Requires `enable_rug<C>` first.
+#[test_only]
+public fun test_roll_rug<C>(market: &SegmentMarketV4<C>, key: vector<u8>): bool {
+    roll_rug<C>(market, &key)
 }
