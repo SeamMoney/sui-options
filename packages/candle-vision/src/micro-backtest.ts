@@ -44,6 +44,7 @@ export function backtestMicroBot(
   const warmupBars = options.warmupBars ?? 40;
   const barMs = options.barMs ?? 1000;
   let state = createMicroBotState(options.bot);
+  const trades: MicroBotTrade[] = [];
   const equityCurve: MicroBotBacktestResult['equityCurve'] = [];
   let peak = 0;
   let maxDrawdown = 0;
@@ -68,6 +69,7 @@ export function backtestMicroBot(
       requireVolumeConfirmation: false,
       ...options.decision,
     });
+    const previousTradeCount = state.stats.totalTrades;
     state = updateMicroBot({
       state,
       candles: slice,
@@ -76,6 +78,9 @@ export function backtestMicroBot(
       nowMs: index * barMs,
       options: options.bot,
     });
+    if (state.stats.totalTrades > previousTradeCount && state.lastTrade) {
+      trades.push(state.lastTrade);
+    }
 
     peak = Math.max(peak, state.stats.pnl);
     maxDrawdown = Math.max(maxDrawdown, peak - state.stats.pnl);
@@ -89,7 +94,7 @@ export function backtestMicroBot(
 
   return {
     state,
-    trades: state.trades,
+    trades,
     equityCurve,
     summary: {
       ...state.stats,

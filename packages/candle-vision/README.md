@@ -66,6 +66,7 @@ The package also includes a deterministic paper-trading loop for product demos, 
 ```ts
 import {
   backtestMicroBot,
+  calibrateMicroBot,
   createMicroBotState,
   detectUnifiedCandlePatterns,
   decideTradeFromEvents,
@@ -91,6 +92,13 @@ const report = backtestMicroBot(historicalCandles, {
   bot: { minHoldMs: 5000, maxHoldMs: 10000 },
   detection: { lookback: 240, minConfidence: 0.56 },
 });
+
+const calibration = calibrateMicroBot(historicalCandles, {
+  warmupBars: 32,
+  minTrades: 3,
+});
+
+console.log(calibration.best?.preset.label, calibration.best?.expectancy);
 ```
 
 This bot is simulation infrastructure. It does not place real orders and should not be wired to real-money execution without separate risk controls, slippage modeling, venue integration, and compliance review.

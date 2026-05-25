@@ -13,6 +13,7 @@ import {
 } from "lightweight-charts";
 import {
   CANDLE_PATTERN_REGISTRY,
+  calibrateMicroBot,
   createMicroBotState,
   decideTradeFromEvents,
   detectUnifiedCandlePatterns,
@@ -21,6 +22,7 @@ import {
   type CandleInput,
   type CandlePatternEvent,
   type CandlePatternFamily,
+  type MicroBotCalibrationResult,
   type MicroBotPosition,
   type MicroBotSignal,
   type MicroBotState,
@@ -80,6 +82,13 @@ const SCAN_OPTIONS = {
   minSwingDistance: 4,
   minProminencePct: 0.0028,
 };
+const CALIBRATION_OPTIONS = {
+  warmupBars: 24,
+  barMs: 1000,
+  minTrades: 2,
+};
+const CALIBRATION_SAMPLE_BARS = 110;
+const CALIBRATION_RECALC_TICKS = STREAM_TICKS_PER_BAR * 18;
 
 type ManualTradeSide = "long" | "short";
 type ManualTradeTrigger = "keyboard" | "pointer";
@@ -164,12 +173,15 @@ function CandleVisionScannerChart() {
   const manualPositionRef = useRef<ManualPosition | null>(null);
   const closedTradesRef = useRef<ClosedManualTrade[]>([]);
   const microBotRef = useRef<MicroBotState>(createMicroBotState());
+  const calibrationRef = useRef<MicroBotCalibrationResult | null>(null);
+  const calibrationPendingRef = useRef(false);
   const [activeFamily, setActiveFamily] = useState<PatternFamilyFilter>("all");
   const [showAll, setShowAll] = useState(true);
   const [tradeSide, setTradeSide] = useState<ManualTradeSide>("long");
   const [manualPosition, setManualPosition] = useState<ManualPosition | null>(null);
   const [closedTrades, setClosedTrades] = useState<ClosedManualTrade[]>([]);
   const [microBot, setMicroBot] = useState<MicroBotState>(() => microBotRef.current);
+  const [calibration, setCalibration] = useState<MicroBotCalibrationResult | null>(() => calibrationRef.current);
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanState>(() => {
     const starting = scanCandles(initialCandles, true);
@@ -245,6 +257,22 @@ function CandleVisionScannerChart() {
     setSpotlightId(null);
     overlayRef.current?.setSpotlight(null);
     overlayRef.current?.setData(candlesRef.current, eventsRef.current);
+  }, []);
+
+  const scheduleCalibration = useCallback(() => {
+    if (calibrationPendingRef.current) return;
+    calibrationPendingRef.current = true;
+    window.setTimeout(() => {
+      try {
+        const sample = candlesRef.current.slice(-CALIBRATION_SAMPLE_BARS);
+        if (sample.length < 48) return;
+        const nextCalibration = calibrateMicroBot(sample, CALIBRATION_OPTIONS);
+        calibrationRef.current = nextCalibration;
+        setCalibration(nextCalibration);
+      } finally {
+        calibrationPendingRef.current = false;
+      }
+    }, 0);
   }, []);
 
   const spotlightSignal = useCallback((event: CandlePatternEvent | null, holdMs = 0) => {
@@ -524,6 +552,7 @@ function CandleVisionScannerChart() {
     });
     microBotRef.current = startingBot;
     setMicroBot(startingBot);
+    scheduleCalibration();
 
     let accumulatedMs = 0;
     let previousTime = gsap.ticker.time;
@@ -577,6 +606,7 @@ function CandleVisionScannerChart() {
         microBotRef.current = nextBot;
         setMicroBot(nextBot);
       }
+      if (tickRef.current % CALIBRATION_RECALC_TICKS === 0) scheduleCalibration();
       overlay.setData(next, mergeSpotlightEvent(chartEvents, spotlightEventRef.current));
       setScan(nextScan);
     };
@@ -589,7 +619,7 @@ function CandleVisionScannerChart() {
       chartRef.current = null;
       overlayRef.current = null;
     };
-  }, []);
+  }, [scheduleCalibration]);
 
   const setChartHost = useCallback(
     (node: HTMLDivElement | null) => {
@@ -686,7 +716,7 @@ function CandleVisionScannerChart() {
         onHoldStart={() => openManualTrade("pointer")}
       />
 
-      <ScalpBotPanel bot={microBot} />
+      <ScalpBotPanel bot={microBot} calibration={calibration} />
 
       <div
         data-cv-panel
@@ -1033,7 +1063,7 @@ function HoldTradePanel({
   );
 }
 
-function ScalpBotPanel({ bot }: { bot: MicroBotState }) {
+function ScalpBotPanel({ bot, calibration }: { bot: MicroBotState; calibration: MicroBotCalibrationResult | null }) {
   const activeColor = bot.position
     ? bot.position.side === "long" ? THEME.bullish : THEME.bearish
     : bot.signal.side === "short" ? THEME.bearish : bot.signal.side === "long" ? THEME.bullish : THEME.compression;
@@ -1157,7 +1187,86 @@ function ScalpBotPanel({ bot }: { bot: MicroBotState }) {
           </span>
         </div>
       ) : null}
+
+      <CalibrationSummary calibration={calibration} />
     </section>
+  );
+}
+
+function CalibrationSummary({ calibration }: { calibration: MicroBotCalibrationResult | null }) {
+  const best = calibration?.best;
+  if (!calibration || !best) {
+    return (
+      <div
+        data-calibration-panel
+        style={{
+          paddingTop: 8,
+          borderTop: `1px solid ${THEME.border}`,
+          color: THEME.muted,
+          fontSize: 11,
+          fontWeight: 800,
+        }}
+      >
+        Strategy Lab warming up backtest sample...
+      </div>
+    );
+  }
+  const pnlColor = best.pnl >= 0 ? THEME.bullish : THEME.bearish;
+  return (
+    <div
+      data-calibration-panel
+      style={{
+        display: "grid",
+        gap: 8,
+        paddingTop: 8,
+        borderTop: `1px solid ${THEME.border}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: THEME.compression, fontSize: 10, fontWeight: 900, textTransform: "uppercase" }}>
+            strategy lab
+          </div>
+          <div style={{ color: "#f8fafc", fontSize: 13, fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {best.preset.label}
+          </div>
+        </div>
+        <div style={{ color: pnlColor, fontSize: 18, fontWeight: 950 }}>
+          {Math.round(best.score * 100)}
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
+        <BotMetric label="BT P&L" value={formatPnl(best.pnl)} color={pnlColor} />
+        <BotMetric label="Win" value={`${Math.round(best.winRate * 100)}%`} color={THEME.text} />
+        <BotMetric label="Exp" value={formatPnl(best.expectancy)} color={best.expectancy >= 0 ? THEME.bullish : THEME.bearish} />
+        <BotMetric label="DD" value={formatPnl(-best.maxDrawdown)} color={THEME.muted} />
+      </div>
+      <div style={{ display: "grid", gap: 4 }}>
+        {calibration.rows.slice(0, 3).map((row) => (
+          <div
+            key={row.preset.id}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto auto",
+              gap: 8,
+              alignItems: "center",
+              color: row === best ? "#f8fafc" : "#cbd5e1",
+              fontSize: 10,
+            }}
+          >
+            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: row === best ? 900 : 700 }}>
+              {row.preset.label}
+            </span>
+            <span style={{ color: row.pnl >= 0 ? THEME.bullish : THEME.bearish, fontWeight: 900 }}>
+              {formatPnl(row.pnl)}
+            </span>
+            <span style={{ color: THEME.muted, fontWeight: 800 }}>
+              {row.totalTrades}x
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

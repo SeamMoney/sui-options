@@ -191,3 +191,21 @@ console.log(report.summary);
 ```
 
 The bot/backtest APIs are simulation tools. They do not execute real orders.
+
+## 10. Calibrate Presets
+
+Use `calibrateMicroBot` to compare several built-in scalp profiles on the same candle history.
+
+```ts
+import { calibrateMicroBot } from '@sui-options/candle-vision';
+
+const calibration = calibrateMicroBot(historicalCandles, {
+  warmupBars: 32,
+  minTrades: 3,
+});
+
+const best = calibration.best;
+console.log(best?.preset.label, best?.score, best?.expectancy);
+```
+
+The returned rows are sorted best-first and include score, PnL, win rate, expectancy, drawdown, trade count, and the full backtest result for each preset.

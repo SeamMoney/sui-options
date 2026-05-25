@@ -280,6 +280,30 @@ console.log(result.summary.pnl, result.summary.winRate, result.summary.maxDrawdo
 
 The result contains `trades`, `equityCurve`, `summary`, and `finalState`. These APIs are for simulation and research only; they do not place orders.
 
+### `calibrateMicroBot(candles, options?)`
+
+Runs multiple micro-bot presets over the same candle history and ranks them by a blended score: expectancy, win rate, profit factor, activity, and drawdown penalty.
+
+```ts
+import { calibrateMicroBot } from '@sui-options/candle-vision';
+
+const calibration = calibrateMicroBot(candles, {
+  warmupBars: 32,
+  minTrades: 3,
+});
+
+console.table(calibration.rows.map((row) => ({
+  preset: row.preset.label,
+  score: row.score,
+  pnl: row.pnl,
+  winRate: row.winRate,
+  expectancy: row.expectancy,
+  trades: row.totalTrades,
+})));
+```
+
+Use this before presenting a bot preset as active. It is a quick calibration pass, not a statistically complete strategy validation.
+
 ## Catalog And Registry
 
 ### `CANDLE_VISION_PATTERN_CATALOG`

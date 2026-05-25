@@ -22,6 +22,8 @@ Turn Candle Vision from a pattern detector into a live decision layer that can c
 | TD-012 | Simulated micro-scalp bot | Codex | Done | `packages/candle-vision/src/micro-bot.ts`; forming -> confirmed -> 5-10s paper entry/exit loop with target/stop/flip/time exits |
 | TD-013 | Micro-bot backtester | Codex | Done | `packages/candle-vision/src/micro-backtest.ts`; replays candles, emits trades, equity curve, win rate, PnL, max drawdown |
 | TD-014 | Candle Vision bot panel | Codex | Done | Route renders scalp-bot order-flow panel, active position overlay, P&L, countdown, last exit; browser smoke screenshot `/tmp/candle-vision-micro-bot-trading.png` |
+| TD-015 | Strategy calibration layer | Codex | Done | `calibrateMicroBot()` compares built-in scalp presets and ranks them by expectancy, win rate, profit factor, activity, and drawdown |
+| TD-016 | Strategy Lab UI | Codex | Done | Candle Vision bot panel shows best preset, backtest P&L, win rate, expectancy, drawdown, and top preset rows from current candle history |
 
 ## Next Slices
 

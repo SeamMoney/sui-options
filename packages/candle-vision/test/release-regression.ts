@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   CANDLE_VISION_PATTERN_CATALOG,
   backtestMicroBot,
+  calibrateMicroBot,
   createMicroBotState,
   decideTradeFromEvents,
   createPatternShowcaseEvents,
@@ -297,5 +298,23 @@ const backtest = backtestMicroBot(baseCandles(90), {
 assert.equal(backtest.summary.totalTrades, backtest.state.stats.totalTrades, 'backtest summary should mirror final bot state');
 assert.ok(backtest.equityCurve.length > 0, 'backtest should emit an equity curve');
 assert.ok(Number.isFinite(backtest.summary.pnl), 'backtest PnL should be finite');
+assert.equal(backtest.trades.length, backtest.summary.totalTrades, 'backtest should retain every closed trade, not only the bot state cache');
+
+const calibration = calibrateMicroBot(baseCandles(130), {
+  warmupBars: 24,
+  barMs: 1000,
+  minTrades: 2,
+});
+assert.ok(calibration.rows.length >= 3, 'calibration should compare multiple strategy presets');
+assert.ok(calibration.best, 'calibration should select a best preset');
+assert.ok(
+  calibration.rows.every((row) => row.score >= 0 && row.score <= 1 && Number.isFinite(row.expectancy)),
+  'calibration rows should expose bounded scores and finite expectancy',
+);
+assert.deepEqual(
+  calibration.rows.map((row) => row.score),
+  calibration.rows.map((row) => row.score).slice().sort((a, b) => b - a),
+  'calibration rows should be sorted by score descending',
+);
 
 console.log('candle-vision detector and ranking regressions passed');

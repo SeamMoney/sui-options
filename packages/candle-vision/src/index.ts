@@ -6,6 +6,7 @@ export * from './ranking';
 export * from './trade-decision';
 export * from './micro-bot';
 export * from './micro-backtest';
+export * from './micro-calibration';
 export * from './ta-lines';
 export * from './presets';
 export * from './detectors';
