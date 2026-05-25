@@ -2,7 +2,9 @@
 
 > **Touch / no-touch / double-no-touch options on Sui where the position lives only while you hold the screen.** Tap the candle. Watch PnL tick every 400 ms. Release to cash out — or hold for the touch jackpot. The chart is **deterministic from on-chain randomness**, and anyone can replay any ride to verify the house never cheated.
 
-[![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 509/509](https://img.shields.io/badge/move%20tests-509%2F509-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
+> **Now with `MARKET HALT` events (v4.26)** — ~1.5% per second the market freezes and wipes any open ride. Calibrated to a +3.93% house edge so the protocol survives. The roll is deterministic from `keccak256(segment_key)` — anyone can replay and verify the halt was honest. That's how the house wins.
+
+[![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 553/553](https://img.shields.io/badge/move%20tests-553%2F553-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
 
 <p align="center">
   <img src="docs/assets/wick-chat.svg" width="600" alt="A chat between a curious dev and a Wick veteran" />
@@ -16,7 +18,7 @@ Wick asks whether BTC WICKS into a level —
 
 → **Live frontend**: [wick-markets.vercel.app/ride](https://wick-markets.vercel.app/ride)
 → **Verify any closed ride** (one command): `npx tsx scripts/verify.ts --market <id> --ride <id>`
-→ **Explorer**: [package `0x0b94e3da…700e70` v2 on Suiscan](https://suiscan.xyz/testnet/object/0x0b94e3daa9ca156f2e541caa177ae27abd40aaacbe599a8f93b3a5a136700e70)
+→ **Explorer**: [package `0x1fdf78474…815924` v4.26 on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924)
 
 ---
 
@@ -47,7 +49,7 @@ The round structure is shared: everyone sees the **same** barrier grid, the same
 
 ---
 
-## What's live on testnet (2026-05-23)
+## What's live on testnet (2026-05-25)
 
 | Thing | ID |
 |---|---|
@@ -148,13 +150,25 @@ Stakes that lose go to the vault treasury, not the protocol's pocket. The vault 
 
 The walk is integer fixed-point, deterministic, and reseeded only by per-segment `random::generate_bytes(32)`. A pattern FSM arms one of 6 hero shapers (doji / hammer / shooting star / bullish-engulfing / bearish-engulfing / three white soldiers) and the candle materializes inside `expand_segment` with constant-gas branch structure. A 54-predicate catalog detects post-hoc patterns too. The TypeScript port is byte-identical at 10k vectors via a rolling blake2b digest — checked in CI on every PR. See [`docs/design/v2/17_provably_fair_arcade.md`](docs/design/v2/17_provably_fair_arcade.md) and [`docs/design/v2/17a_sui_randomness_spike.md`](docs/design/v2/17a_sui_randomness_spike.md).
 
+### 4. Per-second rug-pull house edge (v4.26)
+
+Every 400 ms segment carries a **1.5% chance the market HALTS** — wiping any open ride. The roll is `keccak256(segment_key) mod 10000 < 150`, derived from the same on-chain random draw that paints the candle, so a player can replay any closed round and prove the halt fired (or didn't) honestly. Across a 75-segment round that compounds to **~40% of rounds ending in a halt before the touch**. It's brutal and it's the point.
+
+Why it exists: without it, the touch-either market is too generous to the player. The ±10% / 1.75× barrier configuration touches ~55% of the time on the seeded walk — without a counter-mechanism that's a negative-edge market and the vault drains. The rug calibrates the protocol to a **+3.93% house edge** so it survives, lining up with mainstream crypto crash games (Stake/Roobet land in the +1.0% to +4.0% band).
+
+Why it's provably-fair: the rug roll is **deterministic from `(segment_key, market_id, round_index)`**, the segment_key comes from `sui::random::generate_bytes(32)` gated by Sui's PTB-Random structural rule (attackers can't grind it), and `npx tsx scripts/verify.ts` re-runs the roll for every segment of any closed ride. If a `kind=3 / rugged` settlement ever fires without a passing roll, the verifier errors out. Same standard as the candle math itself.
+
+Why the player can't avoid it: six adversarial heuristics tested at 50k rounds each (`scripts/simulate_v4.27_strategies.py`) — `hold_full`, `cashout_on_drawdown`, `chase_touch`, `cashout_on_profit`, `early_exit_5`, `mid_hold`. Every one lands in the **+3.93% to +11.71% house-edge band** with 95% confidence. No strategy in the tested family achieves negative house edge. Reactive cashouts make things WORSE because the 2% cashout spread bleeds segments the player didn't need to abandon.
+
+Vault solvency under the rug: at the live 100M TUSD seed with a 500 TUSD per-round payout cap, the worst observed drawdown across 10k-round Monte Carlo simulations (1, 5, 10, and 50 concurrent rides) is **615 TUSD = 0.001% of seed**. The vault grows monotonically in expectation. Full derivation + strategy sweep + LP yield projection in [`docs/design/v2/26_rug_pull_house_edge_v4.md`](docs/design/v2/26_rug_pull_house_edge_v4.md) and [`docs/design/v2/27_economic_model_v4.md`](docs/design/v2/27_economic_model_v4.md).
+
 ---
 
 ## What's verified
 
 | Layer | Verification |
 |---|---|
-| `move/sources/*.move` (25 modules) | **509 / 509** Move tests pass on every commit (`sui move test`) including invariant suite, adversarial suite, spine-test-2 e2e replay, full DNT lifecycle, deadband, deferred-spread, FSM determinism |
+| `move/sources/*.move` (25 modules) | **553 / 553** Move tests pass on every commit (`sui move test`) including invariant suite, adversarial suite, spine-test-2 e2e replay, full DNT lifecycle, deadband, deferred-spread, FSM determinism, and the v4.26 rug-roll determinism + replay suite |
 | `seeded_path::expand_segment` vs `sdk/src/seededPath.ts` | 10k random vectors, rolling blake2b digest, **byte-identical** |
 | Touch / DNT settlement on Sui testnet | Smoke ride 2026-05-23 — opened, recorded 3 segments, closed with CASHOUT, `verify.ts` PASS (extrema match + verdict match) |
 | Asymmetric impact fee for DNT | 15 / 15 DNT tests pass including `lock_and_settle_dnt_market_with_*` |
@@ -192,7 +206,7 @@ git clone https://github.com/SeamMoney/sui-options && cd sui-options
 npm install                                # all workspaces in one go
 
 # Move
-cd move && sui move test && cd ..          # 509/509
+cd move && sui move test && cd ..          # 553/553
 
 # upgrade Move package on testnet (preserves all existing singletons)
 ./scripts/deploy-testnet.sh                # OR sui client upgrade --upgrade-capability <cap>
@@ -227,7 +241,7 @@ npm run bots:run                           # ~1 trade/sec across the fleet
 
 ```
 move/sources/      25 Move modules — market, segment_market, vault, fee_router, …
-move/tests/        509 Move tests including conformance, invariants, adversarial, e2e replay
+move/tests/        553 Move tests including conformance, invariants, adversarial, e2e replay, v4.26 rug-roll suite
 sdk/src/           @wick/sdk — PTB builders, typed event parsers, deterministic walk TS port
 frontend/src/      Vite + React + Sui dApp Kit; live testnet markets
 keeper/src/        Cranker + segment-market poller; permissionless on Move side

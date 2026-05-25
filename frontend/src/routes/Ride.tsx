@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RideChart from "@/components/RideChart";
 import RideChartV4 from "@/components/RideChartV4";
+import { RugFeed } from "@/components/RugFeed";
 import { FaucetButton } from "@/components/wallet/FaucetButton";
 import { RoundCountdown } from "@/components/RoundCountdown";
 import { BarrierOrderbookGrid } from "@/components/BarrierOrderbookGrid";
@@ -266,8 +267,8 @@ function CenterHeroV4(props: {
     // direction" — that's CORRECT (touch-either wins both ways). Just
     // need to make the mechanic legible.
     sub = isReady
-      ? `Hold to bet price touches the GREEN line (up) OR the RED line (down). Either direction wins ${multiplierX.toFixed(2)}×.`
-      : "Hold to bet price touches the GREEN line (up) OR the RED line (down). Either direction wins.";
+      ? `Hold to bet price touches the GREEN or RED line — ${multiplierX.toFixed(2)}× payout. ~1.5% per second the market HALTS and wipes open rides. House edge: ~3.9%.`
+      : "Hold to bet price touches the GREEN or RED line. ~1.5% per second the market HALTS and wipes open rides. House edge: ~3.9%.";
     tone = "amber";
   } else if (phase === "opening") {
     kicker = "Opening your ride";
@@ -401,7 +402,8 @@ function FundCta(props: {
       <div className="text-xs text-white/60 mb-5 leading-relaxed">
         You have {fmtSui(props.balanceMist)} SUI. One tap drips 0.2 SUI (for
         network fees) + 10 TUSD (the stake currency). Free testnet only — no
-        wallet required.
+        wallet required. Heads up: ~1.5% per second the market may HALT and
+        wipe your ride. That's the house's edge.
       </div>
       <div className="flex flex-col items-center gap-3">
         <FaucetButton
@@ -629,7 +631,7 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
                 ? "Cashed out"
                 : settlementToast.kind === 3 &&
                     settlementToast.settlementSubKind === "rugged"
-                  ? "💥 MARKET HALT — ride wiped"
+                  ? "1.5% per-second roll fired · house edge ~3.9%"
                   : settlementToast.kind === 3
                     ? "Round ended — no touch"
                     : settlementToast.kind === 4
@@ -685,6 +687,13 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           </div>
         </div>
       )}
+
+      {/* ── Live MARKET HALT feed (v4.26 — visible to spectators) ─────── */}
+      <RugFeed
+        marketId={picked.market}
+        packageId={TESTNET_DEPLOYMENT.package_id}
+        client={session.client}
+      />
 
       <style>{`
         @keyframes rideSettleIn {
