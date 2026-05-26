@@ -234,3 +234,21 @@ console.table(validation.folds.map((fold) => ({
 ```
 
 The summary reports out-of-sample PnL, win rate, drawdown, positive folds, and stability.
+
+## 12. Get One Strategy Verdict
+
+Use `evaluateMicroBotStrategy` when the UI needs one clear status instead of raw calibration tables.
+
+```ts
+import { evaluateMicroBotStrategy } from '@sui-options/candle-vision';
+
+const lab = evaluateMicroBotStrategy(historicalCandles, {
+  minBars: 96,
+  minOutOfSampleTrades: 4,
+});
+
+console.log(lab.verdict.status, lab.verdict.score);
+console.log(lab.verdict.reasons);
+```
+
+The status is `hot`, `watch`, `reject`, or `warming-up`. It is still paper-trading research output, not an execution command.

@@ -70,6 +70,7 @@ import {
   createMicroBotState,
   detectUnifiedCandlePatterns,
   decideTradeFromEvents,
+  evaluateMicroBotStrategy,
   updateMicroBot,
   walkForwardMicroBot,
 } from '@sui-options/candle-vision';
@@ -108,6 +109,12 @@ const validation = walkForwardMicroBot(historicalCandles, {
 });
 
 console.log(validation.summary.pnl, validation.summary.stability);
+
+const lab = evaluateMicroBotStrategy(historicalCandles, {
+  minOutOfSampleTrades: 4,
+});
+
+console.log(lab.verdict.status, lab.verdict.label, lab.verdict.reasons);
 ```
 
 This bot is simulation infrastructure. It does not place real orders and should not be wired to real-money execution without separate risk controls, slippage modeling, venue integration, and compliance review.

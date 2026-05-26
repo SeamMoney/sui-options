@@ -25,7 +25,7 @@ export type MicroBotCalibrationRow = {
   maxDrawdown: number;
 };
 
-export type MicroBotCalibrationOptions = Omit<MicroBotBacktestOptions, 'detector' | 'decision' | 'bot'> & {
+export type MicroBotCalibrationOptions = MicroBotBacktestOptions & {
   presets?: readonly MicroBotCalibrationPreset[];
   minTrades?: number;
 };
@@ -117,9 +117,9 @@ export function calibrateMicroBot(
       const result = backtestMicroBot(candles, {
         warmupBars: options.warmupBars,
         barMs: options.barMs,
-        detector: preset.detector,
-        decision: preset.decision,
-        bot: preset.bot,
+        detector: { ...options.detector, ...preset.detector },
+        decision: { ...options.decision, ...preset.decision },
+        bot: { ...options.bot, ...preset.bot },
       });
       return rowFromResult(preset, result, minTrades);
     })

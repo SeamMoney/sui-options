@@ -331,6 +331,27 @@ console.log(validation.summary.pnl, validation.summary.stability);
 
 Use this after calibration when you need a stronger signal that a preset still works on candles it did not train on.
 
+### `evaluateMicroBotStrategy(candles, options?)`
+
+Runs calibration plus walk-forward validation and returns one product-facing verdict.
+
+```ts
+import { evaluateMicroBotStrategy } from '@sui-options/candle-vision';
+
+const lab = evaluateMicroBotStrategy(candles, {
+  minBars: 96,
+  minOutOfSampleTrades: 4,
+  calibration: { warmupBars: 24, minTrades: 2 },
+  walkForward: { trainBars: 90, testBars: 30, stepBars: 30 },
+});
+
+console.log(lab.verdict.status); // hot | watch | reject | warming-up
+console.log(lab.verdict.label);
+console.log(lab.verdict.reasons);
+```
+
+Use this when a chart needs a compact "can this bot currently be trusted?" answer. It intentionally separates the verdict from order execution.
+
 ## Catalog And Registry
 
 ### `CANDLE_VISION_PATTERN_CATALOG`

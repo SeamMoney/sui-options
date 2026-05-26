@@ -13,6 +13,7 @@ import {
 } from "lightweight-charts";
 import {
   CANDLE_PATTERN_REGISTRY,
+  DEFAULT_MICRO_BOT_PRESETS,
   calibrateMicroBot,
   createMicroBotState,
   decideTradeFromEvents,
@@ -84,18 +85,38 @@ const SCAN_OPTIONS = {
   minSwingDistance: 4,
   minProminencePct: 0.0028,
 };
+const CHART_STRATEGY_PRESETS = DEFAULT_MICRO_BOT_PRESETS.filter(
+  (preset) => preset.id === "fast-tape" || preset.id === "confirmation",
+);
 const CALIBRATION_OPTIONS = {
-  warmupBars: 24,
+  warmupBars: 16,
   barMs: 1000,
   minTrades: 2,
+  presets: CHART_STRATEGY_PRESETS,
+  detector: {
+    minConfidence: 0.6,
+    includeWeak: true,
+    enableExpandedCandles: true,
+    enableStructures: true,
+    enableTaPatterns: true,
+    lookback: 64,
+    maxBars: 64,
+    maxStructureEvents: 14,
+    maxEventsPerKind: 1,
+    maxPatternAgeBars: 56,
+  },
 };
 const WALK_FORWARD_OPTIONS = {
-  ...CALIBRATION_OPTIONS,
-  trainBars: 70,
-  testBars: 24,
-  stepBars: 24,
+  warmupBars: 16,
+  barMs: 1000,
+  minTrades: 2,
+  presets: CHART_STRATEGY_PRESETS,
+  detector: CALIBRATION_OPTIONS.detector,
+  trainBars: 42,
+  testBars: 14,
+  stepBars: 14,
 };
-const CALIBRATION_SAMPLE_BARS = 150;
+const CALIBRATION_SAMPLE_BARS = 84;
 const CALIBRATION_RECALC_TICKS = STREAM_TICKS_PER_BAR * 18;
 
 type ManualTradeSide = "long" | "short";
@@ -289,6 +310,11 @@ function CandleVisionScannerChart() {
       }
     }, 0);
   }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(scheduleCalibration, 500);
+    return () => window.clearTimeout(id);
+  }, [scheduleCalibration]);
 
   const spotlightSignal = useCallback((event: CandlePatternEvent | null, holdMs = 0) => {
     if (spotlightClearTimerRef.current != null) {

@@ -25,6 +25,7 @@ Turn Candle Vision from a pattern detector into a live decision layer that can c
 | TD-015 | Strategy calibration layer | Codex | Done | `calibrateMicroBot()` compares built-in scalp presets and ranks them by expectancy, win rate, profit factor, activity, and drawdown |
 | TD-016 | Strategy Lab UI | Codex | Done | Candle Vision bot panel shows best preset, backtest P&L, win rate, expectancy, drawdown, and top preset rows from current candle history |
 | TD-017 | Walk-forward validation | Codex | Done | `walkForwardMicroBot()` rolls train/test windows, reports out-of-sample P&L, fold stability, selected presets, and route-level Strategy Lab validation |
+| TD-018 | Strategy verdict API | Codex | Done | `evaluateMicroBotStrategy()` returns `hot` / `watch` / `reject` / `warming-up` with bounded score and reasons for reusable chart integrations |
 
 ## Next Slices
 
