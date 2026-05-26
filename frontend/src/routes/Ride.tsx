@@ -439,11 +439,29 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
   // tap, and immediately fail at chain time.
   const session = useSessionWallet({ collateralType: picked.collateral });
 
+  // v4.30 — bump per-segment stake to the market's max. The default in
+  // useSegmentRideV4 falls back to MIN stake (10000 micro-USD/sec =
+  // $0.75/ride), which produces variance so small the player can't feel
+  // the +3.93% house edge: max win ≈ $0.56, max loss ≈ $0.75. User
+  // report 2026-05-25: "I dont really lose money ever ... my balance
+  // would always just go back to 40 TUSD." Using max stake = ~10× the
+  // min ($0.15/sec = $11.25/ride at the current testnet market) makes
+  // both wins and losses ~10× more visible. Still within the per-round
+  // payout cap ($500), still safe for the vault.
+  const stakePerSegmentMicroUsd = useMemo(() => {
+    const max = picked?.max_stake_per_segment;
+    const min = picked?.min_stake_per_segment;
+    if (typeof max === "number" && max > 0) return BigInt(max);
+    if (typeof min === "number" && min > 0) return BigInt(min) * 10n;
+    return undefined; // hook falls back to market snapshot's min
+  }, [picked]);
+
   const ride = useSegmentRideV4({
     market: picked,
     keypair: session.keypair,
     client: session.client,
     onBalanceChanged: session.refreshBalance,
+    stakePerSegmentMicroUsd,
   });
 
   const stableCallbacks = useMemo(
