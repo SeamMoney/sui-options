@@ -308,6 +308,36 @@ export function buildCloseSegmentRideV4Tx(
 ): Transaction {
   const tx = new Transaction();
   tx.setSender(a.sender);
+  // v4.31e — atomic crank-then-close. The chain's settlement math is:
+  //   segments_held = max(0, next_segment_index - entry_segment_index)
+  //   stake_paid    = stake_per_segment × segments_held
+  //   payout        = bachelier_cashout(stake_paid, ...)  // or jackpot
+  //
+  // When the user releases fast (or no sentinel cranker is running),
+  // `next_segment_index` hasn't advanced past `entry_segment_index`,
+  // so segments_held = 0, stake_paid = 0, payout = 0 — the whole ride
+  // round-trips as a free no-op (full escrow refunded) AND a touch is
+  // impossible to detect because no segments exist to scan against.
+  //
+  // Forensics 2026-05-26 on session wallet 0x29a4…dac6: 16 RideClosedV4
+  // events ALL came back with stake=0/payout=0/kind=CASHOUT. The user's
+  // entire session was effectively client-side simulation; the chain
+  // never had a chance to register a touch.
+  //
+  // Fix: chain a record_segment_v4 call BEFORE the close in the same
+  // PTB. The crank advances next_segment_index by 1 (and scans for
+  // touch on the way), guaranteeing segments_held ≥ 1 at close. If a
+  // touch happened, it's now detectable. If no touch, the user pays
+  // the spread on at least one segment instead of getting a free
+  // round-trip. PTB-Random rule: record_segment_v4 uses sui::random,
+  // which Sui's PTB validator requires to live in a separate command
+  // ordering — the `tx.moveCall` here satisfies that since it's its
+  // own command.
+  tx.moveCall({
+    target: `${a.packageId}::wick::record_segment_v4`,
+    typeArguments: [a.collateralType],
+    arguments: [tx.object(a.marketId), tx.object("0x8"), tx.object.clock()],
+  });
   const payout = tx.moveCall({
     target: `${a.packageId}::wick::close_segment_ride_v4`,
     typeArguments: [a.collateralType],
