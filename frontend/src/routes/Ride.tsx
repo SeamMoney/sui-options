@@ -732,10 +732,17 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
                   and the gate's threshold was lower than the actual
                   per-ride escrow, so users saw the error without any
                   clickable funding action. */}
-              {/funds|insufficient|gas|balance/i.test(ride.lastError) ? (
+              {/funds|insufficient|gas|balance|TUSD|drip/i.test(ride.lastError) ? (
                 <FaucetButton
                   recipient={session.address}
-                  onFunded={session.refreshBalance}
+                  onFunded={() => {
+                    session.refreshBalance();
+                    // v4.31c — clear the stale error so the user knows
+                    // the drip landed. Without this the toast keeps
+                    // saying "Not enough" forever and the user thinks
+                    // the Drip button "did nothing".
+                    ride.clearLastError?.();
+                  }}
                   size="sm"
                   label="Drip"
                 />

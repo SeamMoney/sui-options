@@ -214,6 +214,16 @@ export interface BuildOpenSegmentRideV4Args extends BuildSegmentTxBaseV4 {
    * (SUI markets), the escrow is split from gas.
    */
   escrowSourceCoinId?: string;
+  /**
+   * v4.31c — extra coins of the same collateral type to MERGE into
+   * `escrowSourceCoinId` before splitting. Solves the field-reported
+   * case where a user has e.g. 39 TUSD spread across 4-5 small drip
+   * coins (each below the per-ride escrow), so no SINGLE coin can
+   * source the split — but the TOTAL is plenty. The PTB merges them
+   * first, then splits, so the user never has to think about coin
+   * objects. Ignored when collateralType is SUI (gas merges itself).
+   */
+  additionalCoinIds?: ReadonlyArray<string>;
 }
 
 /**
@@ -235,16 +245,32 @@ export function buildOpenSegmentRideV4Tx(
   // collaterals must split from a user-owned coin object of the right
   // type. Otherwise the Move type check fails with arg_idx 4 / TypeMismatch.
   const isSui = a.collateralType === "0x2::sui::SUI";
-  const escrowSource = isSui
-    ? tx.gas
-    : (() => {
-        if (!a.escrowSourceCoinId) {
-          throw new Error(
-            `escrowSourceCoinId required for non-SUI collateral (${a.collateralType})`,
-          );
-        }
-        return tx.object(a.escrowSourceCoinId);
-      })();
+  let escrowSource;
+  if (isSui) {
+    escrowSource = tx.gas;
+  } else {
+    if (!a.escrowSourceCoinId) {
+      throw new Error(
+        `escrowSourceCoinId required for non-SUI collateral (${a.collateralType})`,
+      );
+    }
+    escrowSource = tx.object(a.escrowSourceCoinId);
+    // v4.31c — merge any additional coins of the same type into the
+    // primary BEFORE splitting. Without this, a user with e.g. 39
+    // TUSD spread across 4 small drip coins can't open a $12 ride
+    // because no single coin is big enough. With this, the PTB
+    // consolidates them on the fly. Filters out the primary id from
+    // the merge list so we never try to merge a coin into itself.
+    const extras = (a.additionalCoinIds ?? []).filter(
+      (id) => id !== a.escrowSourceCoinId,
+    );
+    if (extras.length > 0) {
+      tx.mergeCoins(
+        escrowSource,
+        extras.map((id) => tx.object(id)),
+      );
+    }
+  }
   const [escrow] = tx.splitCoins(escrowSource, [tx.pure.u64(a.escrowMist)]);
   const ride = tx.moveCall({
     target: `${a.packageId}::wick::open_segment_ride_v4`,

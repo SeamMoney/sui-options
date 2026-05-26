@@ -592,26 +592,42 @@ export function useSegmentRideV4(
         // builder splits from gas as before.
         const collateral = market.collateral || DEFAULT_COLLATERAL;
         let escrowSourceCoinId: string | undefined = undefined;
+        let additionalCoinIds: string[] = [];
         if (collateral !== "0x2::sui::SUI") {
           try {
             const coins = await client.getCoins({
               owner: sender,
               coinType: collateral,
             });
-            // Pick the largest coin so a single split is always enough.
-            const best = (coins.data ?? [])
+            // v4.31c — pick the largest as the merge target, pass the
+            // rest as extras. The PTB merges them all before splitting
+            // escrow. This fixes "I have 39 TUSD but it says 6.7" —
+            // 39 was the total across 5 small drip coins; 6.7 was the
+            // largest single coin (the old behaviour required ONE
+            // coin to be big enough). Now we sum across all coins.
+            const sorted = (coins.data ?? [])
               .map((c) => ({ id: c.coinObjectId, bal: BigInt(c.balance) }))
-              .sort((a, b) => (b.bal > a.bal ? 1 : b.bal < a.bal ? -1 : 0))[0];
-            if (!best || best.bal < escrowMist) {
-              const have = best ? best.bal.toString() : "0";
+              .sort((a, b) => (b.bal > a.bal ? 1 : b.bal < a.bal ? -1 : 0));
+            const total = sorted.reduce((acc, c) => acc + c.bal, 0n);
+            if (total < escrowMist) {
+              const tusdNeeded = (Number(escrowMist) / 1_000_000).toFixed(2);
+              const tusdHave = (Number(total) / 1_000_000).toFixed(2);
               setPhase("idle");
               setLastError(
-                `Not enough TUSD — need ${escrowMist.toString()} raw, have ${have}. Tap Get funds.`,
+                `Not enough TUSD — need ${tusdNeeded}, have ${tusdHave}. Tap Drip to top up.`,
               );
               busyRef.current = false;
               return;
             }
-            escrowSourceCoinId = best.id;
+            const primary = sorted[0];
+            if (!primary) {
+              setPhase("idle");
+              setLastError("No TUSD coins found — tap Drip to fund.");
+              busyRef.current = false;
+              return;
+            }
+            escrowSourceCoinId = primary.id;
+            additionalCoinIds = sorted.slice(1).map((c) => c.id);
           } catch (err) {
             console.warn("[useSegmentRideV4] getCoins failed:", err);
             setPhase("idle");
@@ -633,6 +649,7 @@ export function useSegmentRideV4(
               stakePerSegment: stakePerSegmentMicroUsd,
               escrowMist,
               escrowSourceCoinId,
+              additionalCoinIds,
             });
             const res = await client.signAndExecuteTransaction({
               signer: keypair,
@@ -935,6 +952,10 @@ export function useSegmentRideV4(
     marketSnapshot,
     lastSettlement,
     lastError,
+    // v4.31c — let callers clear the error (e.g. after the inline
+    // Drip button funds the wallet; otherwise the toast keeps saying
+    // "Not enough TUSD" even after balance updates).
+    clearLastError: () => setLastError(null),
     rugFiredAtMs,
     triggerStallCrank,
   };
