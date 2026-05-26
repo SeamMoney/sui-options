@@ -418,7 +418,16 @@ export function useSegmentRideV4(
   const [phase, setPhase] = useState<RidePhase>("idle");
   const [positionId, setPositionId] = useState<string | null>(null);
   const [lastSettlement, setLastSettlement] = useState<
-    { kind: number; label: string; digest: string; settlementSubKind?: "rugged" } | null
+    {
+      kind: number;
+      label: string;
+      digest: string;
+      settlementSubKind?: "rugged";
+      /** v4.31d — chain-attested stake (raw micro-USD). */
+      stakePaidRaw?: bigint;
+      /** v4.31d — chain-attested payout (raw micro-USD). */
+      payoutRaw?: bigint;
+    } | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -781,10 +790,14 @@ export function useSegmentRideV4(
             );
             let kind = -1;
             let closedRoundIndex: bigint | null = null;
+            let stakePaidRaw: bigint | undefined;
+            let payoutRaw: bigint | undefined;
             if (ev?.parsedJson && typeof ev.parsedJson === "object") {
               const f = ev.parsedJson as {
                 settlement_kind?: number | string;
                 round_index?: number | string;
+                stake_paid?: number | string;
+                payout?: number | string;
               };
               if (f.settlement_kind !== undefined) kind = Number(f.settlement_kind);
               if (f.round_index !== undefined) {
@@ -793,6 +806,15 @@ export function useSegmentRideV4(
                 } catch {
                   closedRoundIndex = null;
                 }
+              }
+              // v4.31d — extract chain-attested settlement amounts so
+              // the toast can show "+$2.18 net" instead of just "TOUCH
+              // WIN" with no dollar reconcile to the wallet delta.
+              if (f.stake_paid !== undefined) {
+                try { stakePaidRaw = BigInt(f.stake_paid as string | number); } catch {}
+              }
+              if (f.payout !== undefined) {
+                try { payoutRaw = BigInt(f.payout as string | number); } catch {}
               }
             }
             const labelKey = kind as 0 | 1 | 2 | 3 | 4;
@@ -817,6 +839,8 @@ export function useSegmentRideV4(
               label,
               digest: res.digest,
               ...(settlementSubKind ? { settlementSubKind } : {}),
+              ...(stakePaidRaw !== undefined ? { stakePaidRaw } : {}),
+              ...(payoutRaw !== undefined ? { payoutRaw } : {}),
             });
             setLastError(null);
             positionIdRef.current = null;

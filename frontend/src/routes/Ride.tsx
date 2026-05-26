@@ -691,6 +691,36 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           >
             {settlementToast.label.replace(/_/g, " ")}
           </div>
+          {/* v4.31d — chain-attested net amount + stake/paid breakdown.
+              User report 2026-05-26: "my balance isnt changing
+              accurately to the trades and the pnl I am getting." Live
+              PnL preview is client-computed; settlement toast only
+              showed the kind ("TOUCH WIN"); balance pill lags ~5s.
+              Three views, nothing to reconcile against. Surfacing the
+              real chain numbers from RideClosedV4 closes the loop. */}
+          {settlementToast.stakePaidRaw !== undefined &&
+            settlementToast.payoutRaw !== undefined && (() => {
+              const netRaw = settlementToast.payoutRaw - settlementToast.stakePaidRaw;
+              const netUsd = Number(netRaw) / 1_000_000;
+              const sign = netRaw > 0n ? "+" : netRaw < 0n ? "−" : "";
+              const tone = netRaw > 0n
+                ? "text-emerald-300"
+                : netRaw < 0n
+                  ? "text-rose-300"
+                  : "text-white/60";
+              return (
+                <>
+                  <div className={`mt-3 text-2xl font-mono tabular-nums ${tone}`}>
+                    {sign}${Math.abs(netUsd).toFixed(2)} TUSD
+                  </div>
+                  <div className="mt-1 text-[11px] text-white/40 font-mono tabular-nums">
+                    stake ${(Number(settlementToast.stakePaidRaw) / 1_000_000).toFixed(2)}
+                    {" → "}
+                    paid ${(Number(settlementToast.payoutRaw) / 1_000_000).toFixed(2)}
+                  </div>
+                </>
+              );
+            })()}
           <a
             href={`https://suiscan.xyz/testnet/tx/${settlementToast.digest}`}
             target="_blank"
