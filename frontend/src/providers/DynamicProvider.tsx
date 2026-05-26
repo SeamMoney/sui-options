@@ -38,21 +38,30 @@ import { DynamicContextProvider } from "@dynamic-labs/sdk-react-core";
 import { SuiWalletConnectors } from "@dynamic-labs/sui";
 
 /**
- * Decoded from https://go.dynamic.xyz/4a8HgrV. The snap enables Sui, social
- * login providers, and connect-and-sign mode for the demo wallet flow.
- */
-const DYNAMIC_DEMO_ENV_ID = "25f40019-73a6-40bc-a4e1-d4ed2b16a2fd";
-
-/**
- * Vite injects `import.meta.env.*` at build time; the cast is here only to
- * dodge `tsc --noEmit` strictness in projects that haven't generated a
- * `vite-env.d.ts` for the keys we read. Both at build and at runtime the
- * value is `string | undefined`.
+ * v4.31g — DROPPED the shared demo-snap fallback. Without VITE_DYNAMIC_ENVIRONMENT_ID
+ * configured, we now do NOT mount DynamicContextProvider at all. Reason:
+ * the previous default (`25f40019…`) is a shared demo snap whose origin
+ * whitelist does NOT include `wick-markets.vercel.app`, so every page
+ * load fired a wall of CORS errors against `app.dynamicauth.com` while
+ * the Dynamic SDK tried to fetch /sdkSettings, /nonce, /settings — none
+ * of which it could ever reach. The errors didn't affect Wick's session-
+ * wallet flow but spammed the console relentlessly and confused users
+ * who thought their game was broken.
+ *
+ * To wire up real Dynamic auth, create a project at https://app.dynamic.xyz,
+ * enable the Sui chain, add `https://wick-markets.vercel.app` (and any
+ * preview URLs) under Security → CORS origins, then set the env var in
+ * Vercel → Project → Settings → Environment Variables:
+ *
+ *   VITE_DYNAMIC_ENVIRONMENT_ID=<your-env-id-uuid>
+ *
+ * Trigger a redeploy and the `Sign in` button (DynamicConnectButton)
+ * will start opening the real Dynamic modal.
  */
 const CONFIGURED_DYNAMIC_ENV_ID = (
   import.meta.env.VITE_DYNAMIC_ENVIRONMENT_ID ?? ""
 ) as string;
-const DYNAMIC_ENV_ID = CONFIGURED_DYNAMIC_ENV_ID.trim() || DYNAMIC_DEMO_ENV_ID;
+const DYNAMIC_ENV_ID = CONFIGURED_DYNAMIC_ENV_ID.trim();
 
 /**
  * Sentinel exposed to the rest of the app so the Connect button can decide

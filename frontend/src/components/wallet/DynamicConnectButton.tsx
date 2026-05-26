@@ -32,7 +32,16 @@ import { HAS_DYNAMIC_ENV_ID } from "@/providers/DynamicProvider";
  */
 export function DynamicConnectButton() {
   if (!HAS_DYNAMIC_ENV_ID) {
-    return <ConnectButton connectText="Connect wallet" />;
+    // v4.31g — render nothing when Dynamic isn't configured. The /ride
+    // flow doesn't need any wallet — the session wallet in localStorage
+    // IS the user. Falling back to dApp Kit's ConnectButton here used
+    // to surface a confusing "Connect wallet" CTA that, when tapped,
+    // promised to connect Slush/Suiet but those wallets aren't actually
+    // wired to do anything useful in the Ride flow (they'd just sit
+    // connected and be ignored). Hiding it entirely keeps the UI
+    // honest. Once VITE_DYNAMIC_ENVIRONMENT_ID is configured, the real
+    // Dynamic Sign-in button appears via DynamicConnectButtonInner.
+    return null;
   }
   return <DynamicConnectButtonInner />;
 }

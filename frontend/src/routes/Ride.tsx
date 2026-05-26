@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import RideChart from "@/components/RideChart";
 import RideChartV4 from "@/components/RideChartV4";
 import { RugFeed } from "@/components/RugFeed";
+import { DynamicConnectButton } from "@/components/wallet/DynamicConnectButton";
 import { RegimeBadge } from "@/components/RegimeBadge";
 import { FaucetButton } from "@/components/wallet/FaucetButton";
 import { RoundCountdown } from "@/components/RoundCountdown";
@@ -622,7 +623,12 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
          * so they don't compete with the chart for real estate.
          */}
 
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto flex items-center gap-2">
+          {/* v4.31g — Dynamic Sign-in button. Renders nothing unless
+              VITE_DYNAMIC_ENVIRONMENT_ID is configured (see
+              DynamicProvider.tsx). When wired up, this is the
+              entry point for social-login auth. */}
+          <DynamicConnectButton />
           {!needsFunds && session.balanceMist !== null ? (
             <div className="glass-container px-3 py-2 rounded-lg font-mono">
               <div className="glass-filter" />
