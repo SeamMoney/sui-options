@@ -105,6 +105,11 @@ export interface Candle {
  * Move stores these as `u8`; here they are `bigint` so the conformance fold
  * is uniform — all carried state is one `bigint` array.
  */
+// Lazy bind via import() at runtime so this module stays tree-shakeable
+// for consumers that only want the walk math. The actual import below
+// resolves to @noble/hashes/sha3.js per v2 exports.
+import { keccak_256 } from "@noble/hashes/sha3.js";
+
 export interface WalkState {
   price: bigint;
   momentum: Signed;
@@ -178,10 +183,6 @@ export function regimeDriftForRound(
   marketId: string,
   roundIndex: bigint,
 ): RegimeDrift {
-  // Lazy import keccak so consumers that only need the walk math don't
-  // pull @noble/hashes/sha3 into their bundle.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { keccak_256 } = require("@noble/hashes/sha3");
   const marketBytes = hexToBytes(marketId);
   const roundBytes = u64Bytes(roundIndex);
   const buf = new Uint8Array(marketBytes.length + roundBytes.length);

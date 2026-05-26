@@ -30,7 +30,7 @@ const EZeroAmount: u64 = 1;
 const EBucketUnknown: u64 = 2;
 const ENotAdmin: u64 = 3;
 const EShareOutOfRange: u64 = 4;
-const EInsufficientProtocolBucket: u64 = 5;
+// v4.31 — removed unused EInsufficientProtocolBucket to free bytecode budget.
 
 const BPS_DENOMINATOR: u64 = 10_000;
 

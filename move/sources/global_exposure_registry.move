@@ -23,8 +23,8 @@ use sui::vec_map::{Self, VecMap};
 const EWMA_HALF_LIFE_MS: u64 = 3_600_000;  // 1 hour, per reconciliation §6
 
 const ENotAdmin: u64 = 0;
-const EBucketAlreadyExists: u64 = 1;
-const EBucketUnknown: u64 = 2;
+// v4.31 — removed unused EBucketAlreadyExists, EBucketUnknown to free
+// bytecode budget for the regime drift in segment_market_v4.
 
 public struct UnderlyingSideKey has copy, drop, store {
     underlying: String,
