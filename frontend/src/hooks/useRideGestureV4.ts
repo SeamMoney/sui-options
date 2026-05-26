@@ -35,8 +35,10 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import type p5 from "p5";
 import {
   detectPostHocPattern,
+  applyCumulativeDrift,
   expandSegment,
   newState as newWalkState,
+  regimeDriftForRound,
   type Candle as SeededCandle,
   type PostHocPatternMatch,
   type SegmentArmedPattern,
@@ -111,6 +113,12 @@ export interface RideGestureV4Options {
    * overlay for 1.5s). Null / unchanged value = no FX.
    */
   rugFiredAtMs?: number | null;
+  /**
+   * v4.31 — market ID, used to derive the per-round drift regime so the
+   * client-side walk applies the same drift the chain does. When omitted
+   * the regime defaults to RANGE (zero drift) — visual stays Brownian.
+   */
+  marketId?: string;
 }
 
 // ── Local chart-render types ─────────────────────────────────────────────────
@@ -252,6 +260,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
     callbacks,
     disabled = false,
     rugFiredAtMs = null,
+    marketId,
   } = opts;
 
   const stateRef = useRef({
@@ -682,6 +691,25 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
 
         const applySegment = (seg: SegmentInputV4, immediate = false) => {
           if (!walkState) return;
+          // v4.31 — shift walk.home per segment to match the chain's
+          // drift regime. Chain does the exact same computation in
+          // `segment_market_v4::record_segment` before each
+          // `expand_segment` call, so client + chain walk identically.
+          // No-op when marketId is missing, when there's no round yet,
+          // or when the regime is RANGE.
+          const round = stateRef.current.round;
+          if (marketId && round) {
+            const drift = regimeDriftForRound(marketId, round.index);
+            const segOffset =
+              BigInt(seg.k) > round.startedAtSegment
+                ? BigInt(seg.k) - round.startedAtSegment
+                : 0n;
+            const baselineMicro = BigInt(
+              Math.round(round.spotAtRoll * PRICE_SCALING),
+            );
+            const shifted = applyCumulativeDrift(baselineMicro, drift, segOffset);
+            walkState = { ...walkState, home: shifted };
+          }
           const result = expandSegment(walkState, seg.key);
           const armedByCandle = new Map(
             result.armedPatterns.map((armed) => [armed.candleIndex, armed] as const),
@@ -802,6 +830,33 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           // is the same on every client within the same 600ms tick.
           const counter = Math.floor(Date.now() / IDLE_WALK_INTERVAL_MS);
           const fakeKey = deriveIdleKey(lastChainKey, counter);
+          // v4.31 — same regime shift as the chain path, with the
+          // segment offset estimated from chain segment count: we
+          // don't have a real seg.k for idle-walk pushes, so use
+          // "chain segments seen this round + idle-walk ticks since
+          // last chain segment" as a proxy. Close enough — when the
+          // chain catches up, reconcileSegments snaps to truth.
+          if (marketId && s.round) {
+            const drift = regimeDriftForRound(marketId, s.round.index);
+            const chainSegsThisRound =
+              segs.length > 0
+                ? Math.max(
+                    0,
+                    Number(BigInt(segs[segs.length - 1]!.k) - s.round.startedAtSegment) +
+                      1,
+                  )
+                : 0;
+            const idleSinceLastChain =
+              lastSegmentArrivedMs > 0
+                ? Math.floor((now - lastSegmentArrivedMs) / IDLE_WALK_INTERVAL_MS)
+                : Math.floor(now / IDLE_WALK_INTERVAL_MS) % 75;
+            const estSegOffset = BigInt(chainSegsThisRound + idleSinceLastChain);
+            const baselineMicro = BigInt(
+              Math.round(s.round.spotAtRoll * PRICE_SCALING),
+            );
+            const shifted = applyCumulativeDrift(baselineMicro, drift, estSegOffset);
+            walkState = { ...walkState, home: shifted };
+          }
           const result = expandSegment(walkState, fakeKey);
           walkState = result.newState;
           for (let i = 0; i < result.candles.length; i++) {

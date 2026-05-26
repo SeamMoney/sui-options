@@ -747,6 +747,15 @@ public fun state_with_pattern(
 public fun state_price(s: &WalkState): u64 { s.price }
 public fun state_vol_regime(s: &WalkState): u64 { s.vol_regime }
 public fun state_home(s: &WalkState): u64 { s.home }
+
+/// v4.31 — surgical setter so `wick::segment_market_v4` can shift the
+/// mean-reversion target per segment to introduce regime drift. The
+/// walk's C_REVERT pulls `price` toward `home` each tick; shifting
+/// `home` upward by Xbps/segment makes the chart trend up over the
+/// round. Adding a NEW public function is COMPATIBLE under Sui's
+/// upgrade rules; no struct fields change, no signature changes.
+public fun set_home(s: &mut WalkState, new_home: u64) { s.home = new_home; }
+
 public fun state_momentum_neg(s: &WalkState): bool { s.momentum.neg }
 public fun state_momentum_mag(s: &WalkState): u128 { s.momentum.mag }
 public fun state_pattern_id(s: &WalkState): u8 { s.pattern_id }

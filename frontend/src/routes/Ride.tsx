@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import RideChart from "@/components/RideChart";
 import RideChartV4 from "@/components/RideChartV4";
 import { RugFeed } from "@/components/RugFeed";
+import { RegimeBadge } from "@/components/RegimeBadge";
 import { FaucetButton } from "@/components/wallet/FaucetButton";
 import { RoundCountdown } from "@/components/RoundCountdown";
 import { BarrierOrderbookGrid } from "@/components/BarrierOrderbookGrid";
@@ -561,6 +562,7 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           onPnlChange={setRidePnl}
           disabled={needsFunds}
           rugFiredAtMs={ride.rugFiredAtMs}
+          marketId={picked.market}
         />
       </div>
 
@@ -711,6 +713,12 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
         marketId={picked.market}
         packageId={TESTNET_DEPLOYMENT.package_id}
         client={session.client}
+      />
+
+      {/* ── v4.31 — per-round drift regime badge ─────────────────────── */}
+      <RegimeBadge
+        marketId={picked.market}
+        roundIndex={ride.round?.index ?? null}
       />
 
       <style>{`

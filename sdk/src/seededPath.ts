@@ -114,6 +114,115 @@ export interface WalkState {
   candlesRemaining: bigint;
 }
 
+// === v4.31 — drift regimes ===
+//
+// Byte-identical mirror of `wick::segment_market_v4::regime_drift_for_round`
+// and `apply_cumulative_drift`. These are NOT in `expand_segment` itself
+// (the walk math is regime-naive); the chain shifts `walk.home` per
+// segment before each `expand_segment` call to introduce drift, and the
+// client does the same in `useRideGestureV4`.
+//
+// Three regimes, derived deterministically from keccak256(market_id_bytes
+// || round_index_le_u64_bytes)[0] mod 3:
+//   0 = RANGE      — drift 0
+//   1 = TREND_UP   — drift +50 bps / segment (price target shifts up)
+//   2 = TREND_DOWN — drift -50 bps / segment
+export const REGIME_RANGE = 0 as const;
+export const REGIME_TREND_UP = 1 as const;
+export const REGIME_TREND_DOWN = 2 as const;
+export const REGIME_DRIFT_BPS_PER_SEG = 50n;
+
+export type RegimeKind =
+  | typeof REGIME_RANGE
+  | typeof REGIME_TREND_UP
+  | typeof REGIME_TREND_DOWN;
+
+export interface RegimeDrift {
+  kind: RegimeKind;
+  /** True if the drift is negative (shifting home down). */
+  neg: boolean;
+  /** Magnitude in bps per segment. 0 in RANGE. */
+  magBps: bigint;
+}
+
+/** Strip an optional 0x prefix and decode hex. Throws on bad input. */
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (clean.length % 2 !== 0) throw new Error("hex must be even length");
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+/** BCS-encode a u64 as 8 little-endian bytes. */
+function u64Bytes(n: bigint): Uint8Array {
+  const out = new Uint8Array(8);
+  let v = n;
+  for (let i = 0; i < 8; i++) {
+    out[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return out;
+}
+
+/**
+ * Derive the per-round drift regime. Pure function — chain and client
+ * call it independently and arrive at the same answer.
+ *
+ * @param marketId 32-byte Sui object id, hex string (with or without 0x).
+ * @param roundIndex Current round index (u64).
+ */
+export function regimeDriftForRound(
+  marketId: string,
+  roundIndex: bigint,
+): RegimeDrift {
+  // Lazy import keccak so consumers that only need the walk math don't
+  // pull @noble/hashes/sha3 into their bundle.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { keccak_256 } = require("@noble/hashes/sha3");
+  const marketBytes = hexToBytes(marketId);
+  const roundBytes = u64Bytes(roundIndex);
+  const buf = new Uint8Array(marketBytes.length + roundBytes.length);
+  buf.set(marketBytes, 0);
+  buf.set(roundBytes, marketBytes.length);
+  const h: Uint8Array = keccak_256(buf);
+  const mod3 = h[0]! % 3;
+  if (mod3 === REGIME_TREND_UP) {
+    return { kind: REGIME_TREND_UP, neg: false, magBps: REGIME_DRIFT_BPS_PER_SEG };
+  } else if (mod3 === REGIME_TREND_DOWN) {
+    return { kind: REGIME_TREND_DOWN, neg: true, magBps: REGIME_DRIFT_BPS_PER_SEG };
+  }
+  return { kind: REGIME_RANGE, neg: false, magBps: 0n };
+}
+
+/**
+ * Apply cumulative drift to a baseline price. Mirrors
+ * `apply_cumulative_drift` in segment_market_v4.move bit-for-bit.
+ * Saturates at 1 to avoid underflow on extreme down trends.
+ */
+export function applyCumulativeDrift(
+  baseline: bigint,
+  drift: RegimeDrift,
+  segOffset: bigint,
+): bigint {
+  if (drift.magBps === 0n || segOffset === 0n) return baseline;
+  const cumulativeBps = drift.magBps * segOffset;
+  const shift = (baseline * cumulativeBps) / 10000n;
+  if (drift.neg) {
+    return baseline > shift ? baseline - shift : 1n;
+  }
+  return baseline + shift;
+}
+
+/** Human label for the regime — used by the chart corner badge. */
+export const REGIME_LABEL: Readonly<Record<RegimeKind, string>> = {
+  [REGIME_RANGE]: "↔ RANGING",
+  [REGIME_TREND_UP]: "📈 TRENDING UP",
+  [REGIME_TREND_DOWN]: "📉 TRENDING DOWN",
+};
+
 export type ArmedPatternPhase = "arming" | "firing" | "fired";
 
 export interface ArmedPatternDetection {

@@ -43,6 +43,8 @@ export interface RideChartV4Props {
    * doc on RideGestureV4Options.rugFiredAtMs for semantics.
    */
   rugFiredAtMs?: number | null;
+  /** v4.31 — market ID, piped to useRideGestureV4 for regime drift. */
+  marketId?: string;
 }
 
 export function RideChartV4({
@@ -55,6 +57,7 @@ export function RideChartV4({
   onPnlChange,
   disabled,
   rugFiredAtMs,
+  marketId,
 }: RideChartV4Props) {
   const chartRef = useRef<HTMLDivElement | null>(null);
   const p5InstanceRef = useRef<p5 | null>(null);
@@ -134,6 +137,7 @@ export function RideChartV4({
     callbacks,
     disabled,
     rugFiredAtMs,
+    marketId,
   });
 
   return (

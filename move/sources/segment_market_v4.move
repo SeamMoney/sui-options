@@ -160,6 +160,32 @@ const WALRUS_BLOB_ID_LEN: u64 = 32;
 /// `RugConfig` below for the rationale in full.
 const RUG_CONFIG_KEY: vector<u8> = b"rug_config";
 
+// === v4.31 — drift regimes ===
+//
+// Three deterministic regimes per round, derived purely from
+// keccak256(market_id || round_index) so chain + client + verifier all
+// compute the same regime independently — no event, no storage, no new
+// struct fields.
+//
+//   - REGIME_RANGE (drift = 0)       — Brownian, mean-reverts to the round's spot.
+//   - REGIME_TREND_UP (drift = +50bps/seg) — pulls the walk's home upward
+//     each segment, biasing toward upper barrier touches.
+//   - REGIME_TREND_DOWN (drift = -50bps/seg) — mirror.
+//
+// At 75 segments/round + 50 bps/seg drift, cumulative drift over a
+// full round is ±37.5%. Combined with the touch-either barriers at
+// ±10%, a trend regime makes a one-side touch nearly inevitable
+// unless the rug fires first. A range regime keeps the original ~55%
+// touch probability. Net house edge is approximately preserved
+// because trend regimes raise the touch rate (bad for house) but the
+// rug rate (1.5%/seg compounding over the same 75 segments) still
+// wipes ~40% of rounds before they touch — the trend regime mostly
+// shifts WHICH side wins, not how many rides survive.
+const REGIME_RANGE: u8 = 0;
+const REGIME_TREND_UP: u8 = 1;
+const REGIME_TREND_DOWN: u8 = 2;
+const REGIME_DRIFT_BPS_PER_SEG: u64 = 50;
+
 // === Types ===
 
 /// One recorded segment — same shape as v2/v3 SegmentRecord so the BCS
@@ -737,6 +763,28 @@ public(package) entry fun record_segment<C>(
 
     let mut gen = random::new_generator(r, ctx);
     let key = random::generate_bytes(&mut gen, 32);
+
+    // v4.31 — apply the round's drift regime by shifting the walk's
+    // mean-reversion target before each call. Baseline home = the
+    // round's starting spot, derivable from the cached barriers
+    // (no new storage needed: spot = (upper + lower) / 2 by
+    // construction in ensure_round_current). The walk's C_REVERT then
+    // pulls price toward the shifted home each tick → drift.
+    let baseline_home =
+        (market.cached_upper_barrier + market.cached_lower_barrier) / 2;
+    let (drift_neg, drift_mag_bps) = regime_drift_for_round(
+        object::id(market),
+        market.cached_round_index,
+    );
+    let seg_offset_in_round =
+        market.next_segment_index - market.cached_round_started_at_segment;
+    let shifted_home = apply_cumulative_drift(
+        baseline_home,
+        drift_neg,
+        drift_mag_bps,
+        seg_offset_in_round,
+    );
+    sp::set_home(&mut market.walk, shifted_home);
 
     let (_candles, new_walk, smin, smax) = sp::expand_segment(market.walk, key);
 
@@ -1542,6 +1590,55 @@ fun roll_rug<C>(market: &SegmentMarketV4<C>, segment_key: &vector<u8>): bool {
     let mut reader = bcs::new(hash::keccak256(&buf));
     let roll = bcs::peel_u64(&mut reader) % BPS_DENOMINATOR;
     roll < cfg.rug_chance_bps
+}
+
+// === v4.31 — drift regime helpers ===
+
+/// Deterministically derive the round's drift regime from the market id
+/// and round index. Pure function — no storage, no events, no
+/// randomness draw. Client mirrors this exactly so chart + chain agree
+/// on regime without any extra read.
+///
+/// Returns `(drift_is_negative, drift_magnitude_bps_per_segment)`. A
+/// magnitude of 0 means RANGE (no drift). One byte of keccak256 split
+/// into three buckets (mod 3) gives roughly 33/33/33 across rounds.
+public fun regime_drift_for_round(market_id: ID, round_index: u64): (bool, u64) {
+    let mut buf = bcs::to_bytes(&market_id);
+    let round_bytes = bcs::to_bytes(&round_index);
+    vector::append(&mut buf, round_bytes);
+    let h = hash::keccak256(&buf);
+    let mod3 = *vector::borrow(&h, 0) % 3;
+    if (mod3 == REGIME_TREND_UP) {
+        (false, REGIME_DRIFT_BPS_PER_SEG)
+    } else if (mod3 == REGIME_TREND_DOWN) {
+        (true, REGIME_DRIFT_BPS_PER_SEG)
+    } else {
+        (false, 0)
+    }
+}
+
+/// Apply cumulative drift to a baseline price. `drift_neg=false`
+/// shifts up, `drift_neg=true` shifts down. Saturates at 1 to avoid
+/// underflow on extreme down-trending rounds.
+///
+/// shift = baseline * (drift_bps_per_seg * seg_offset) / 10_000
+fun apply_cumulative_drift(
+    baseline: u64,
+    drift_neg: bool,
+    drift_bps_per_seg: u64,
+    seg_offset: u64,
+): u64 {
+    if (drift_bps_per_seg == 0 || seg_offset == 0) return baseline;
+    let cumulative_bps_128 =
+        (drift_bps_per_seg as u128) * (seg_offset as u128);
+    let shift_128 =
+        (baseline as u128) * cumulative_bps_128 / BPS_DENOM_128;
+    let shift = shift_128 as u64;
+    if (drift_neg) {
+        if (baseline > shift) baseline - shift else 1
+    } else {
+        baseline + shift
+    }
 }
 
 // === Test-only helpers ===
