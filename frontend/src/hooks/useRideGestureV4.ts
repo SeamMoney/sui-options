@@ -602,6 +602,24 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           candles = [];
           seededCandles = [];
           highestExpandedK = null;
+          // v4.29 — clear completedTrades on rebuild. Their PnL line
+          // endpoints are stored as ageCandles (an index back from the
+          // tail of `candles`). rebuildFromSegments then loops
+          // `applySegment(seg, immediate=true)` over every chain segment,
+          // and the immediate path bumps `entryAgeCandles += 1` per
+          // pushed candle — so a 50-segment catch-up (300 pushes) bumps
+          // every completed trade's age by 300, leaving its line either
+          // hidden off-screen or anchored at the wrong on-screen candle.
+          // User report 2026-05-25: "the green line segments don't stay
+          // on the correct spot on the screen attached to the
+          // candlestick chart, they separate after a little bit, they
+          // drift apart as they move to the left side of the screen."
+          // Triggered by Sui public-RPC rate-limiting (v4.29 also moves
+          // the RPC URL to publicnode.com which has 10× the throttle
+          // budget) — every throttled poll grew the segment gap until
+          // the next successful poll triggered a rebuild. The lines
+          // weren't accurate post-rebuild anyway, so just drop them.
+          completedTrades = [];
           // Home price for the seeded-path walk. When the round event hasn't
           // landed yet (s.round is null on first paint), fall back to the
           // testnet v4 market's bootstrap home_price ($1000) so the candles
