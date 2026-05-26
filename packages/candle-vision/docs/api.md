@@ -271,14 +271,14 @@ Replays the same detector, decision, and bot state machine across historical can
 import { backtestMicroBot } from '@sui-options/candle-vision';
 
 const result = backtestMicroBot(candles, {
-  detection: { lookback: 240, minConfidence: 0.56, includeWeak: true },
+  detector: { lookback: 240, minConfidence: 0.56, includeWeak: true },
   bot: { minHoldMs: 5000, maxHoldMs: 10000, entryThreshold: 0.4 },
 });
 
 console.log(result.summary.pnl, result.summary.winRate, result.summary.maxDrawdown);
 ```
 
-The result contains `trades`, `equityCurve`, `summary`, and `finalState`. These APIs are for simulation and research only; they do not place orders.
+The result contains `state`, `trades`, `equityCurve`, and `summary`. These APIs are for simulation and research only; they do not place orders.
 
 ### `calibrateMicroBot(candles, options?)`
 
@@ -303,6 +303,33 @@ console.table(calibration.rows.map((row) => ({
 ```
 
 Use this before presenting a bot preset as active. It is a quick calibration pass, not a statistically complete strategy validation.
+
+### `walkForwardMicroBot(candles, options?)`
+
+Calibrates presets on a rolling train window, then runs the selected preset on the following out-of-sample test window.
+
+```ts
+import { walkForwardMicroBot } from '@sui-options/candle-vision';
+
+const validation = walkForwardMicroBot(candles, {
+  trainBars: 90,
+  testBars: 30,
+  stepBars: 30,
+  warmupBars: 24,
+});
+
+console.table(validation.folds.map((fold) => ({
+  fold: fold.index + 1,
+  preset: fold.preset.label,
+  trainScore: fold.trainScore,
+  testPnl: fold.test.summary.pnl,
+  testTrades: fold.test.summary.totalTrades,
+})));
+
+console.log(validation.summary.pnl, validation.summary.stability);
+```
+
+Use this after calibration when you need a stronger signal that a preset still works on candles it did not train on.
 
 ## Catalog And Registry
 

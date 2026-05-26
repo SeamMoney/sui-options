@@ -71,6 +71,7 @@ import {
   detectUnifiedCandlePatterns,
   decideTradeFromEvents,
   updateMicroBot,
+  walkForwardMicroBot,
 } from '@sui-options/candle-vision';
 
 let bot = createMicroBotState();
@@ -90,7 +91,7 @@ for (const nextCandles of liveWindows) {
 
 const report = backtestMicroBot(historicalCandles, {
   bot: { minHoldMs: 5000, maxHoldMs: 10000 },
-  detection: { lookback: 240, minConfidence: 0.56 },
+  detector: { lookback: 240, minConfidence: 0.56 },
 });
 
 const calibration = calibrateMicroBot(historicalCandles, {
@@ -99,6 +100,14 @@ const calibration = calibrateMicroBot(historicalCandles, {
 });
 
 console.log(calibration.best?.preset.label, calibration.best?.expectancy);
+
+const validation = walkForwardMicroBot(historicalCandles, {
+  trainBars: 90,
+  testBars: 30,
+  stepBars: 30,
+});
+
+console.log(validation.summary.pnl, validation.summary.stability);
 ```
 
 This bot is simulation infrastructure. It does not place real orders and should not be wired to real-money execution without separate risk controls, slippage modeling, venue integration, and compliance review.

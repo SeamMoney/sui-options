@@ -182,7 +182,7 @@ export function onCandles(nextCandles: CandleInput[]) {
 import { backtestMicroBot } from '@sui-options/candle-vision';
 
 const report = backtestMicroBot(historicalCandles, {
-  detection: { lookback: 240, minConfidence: 0.56, includeWeak: true },
+  detector: { lookback: 240, minConfidence: 0.56, includeWeak: true },
   bot: { minHoldMs: 5000, maxHoldMs: 10000, entryThreshold: 0.4 },
 });
 
@@ -209,3 +209,28 @@ console.log(best?.preset.label, best?.score, best?.expectancy);
 ```
 
 The returned rows are sorted best-first and include score, PnL, win rate, expectancy, drawdown, trade count, and the full backtest result for each preset.
+
+## 11. Run Walk-Forward Validation
+
+`walkForwardMicroBot` repeatedly picks the best preset on a train window, then evaluates it on the next unseen test window. This is the better panel to show users when you want to avoid a fake "best preset" that only fit the latest history.
+
+```ts
+import { walkForwardMicroBot } from '@sui-options/candle-vision';
+
+const validation = walkForwardMicroBot(historicalCandles, {
+  trainBars: 90,
+  testBars: 30,
+  stepBars: 30,
+  warmupBars: 24,
+});
+
+console.log(validation.summary);
+console.table(validation.folds.map((fold) => ({
+  fold: fold.index + 1,
+  preset: fold.preset.label,
+  oosPnl: fold.test.summary.pnl,
+  oosWinRate: fold.test.summary.winRate,
+})));
+```
+
+The summary reports out-of-sample PnL, win rate, drawdown, positive folds, and stability.

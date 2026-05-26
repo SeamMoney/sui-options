@@ -10,6 +10,7 @@ import {
   detectUnifiedCandlePatterns,
   rankPatternSignals,
   updateMicroBot,
+  walkForwardMicroBot,
 } from '../src/index';
 import { baseCandles, patternFixtures } from './fixtures';
 import type { CandleInput, CandlePatternEvent } from '../src/types';
@@ -315,6 +316,29 @@ assert.deepEqual(
   calibration.rows.map((row) => row.score),
   calibration.rows.map((row) => row.score).slice().sort((a, b) => b - a),
   'calibration rows should be sorted by score descending',
+);
+
+const walkForward = walkForwardMicroBot(baseCandles(150), {
+  warmupBars: 20,
+  trainBars: 70,
+  testBars: 24,
+  stepBars: 24,
+  barMs: 1000,
+  minTrades: 2,
+});
+assert.ok(walkForward.folds.length >= 2, 'walk-forward should emit multiple train/test folds');
+assert.equal(
+  walkForward.summary.totalTrades,
+  walkForward.folds.reduce((sum, fold) => sum + fold.test.summary.totalTrades, 0),
+  'walk-forward summary should aggregate fold test trades',
+);
+assert.ok(
+  walkForward.folds.every((fold) => fold.testStart === fold.trainEnd && fold.testEnd > fold.testStart),
+  'walk-forward folds should keep train/test windows ordered',
+);
+assert.ok(
+  walkForward.folds.every((fold) => fold.efficiency >= 0 && fold.efficiency <= 1),
+  'walk-forward efficiency should stay bounded',
 );
 
 console.log('candle-vision detector and ranking regressions passed');

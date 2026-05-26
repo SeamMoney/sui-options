@@ -19,6 +19,7 @@ import {
   detectUnifiedCandlePatterns,
   rankPatternSignals,
   updateMicroBot,
+  walkForwardMicroBot,
   type CandleInput,
   type CandlePatternEvent,
   type CandlePatternFamily,
@@ -26,6 +27,7 @@ import {
   type MicroBotPosition,
   type MicroBotSignal,
   type MicroBotState,
+  type MicroBotWalkForwardResult,
   type TradeDecision,
   type TradeDecisionReason,
 } from "@sui-options/candle-vision";
@@ -87,7 +89,13 @@ const CALIBRATION_OPTIONS = {
   barMs: 1000,
   minTrades: 2,
 };
-const CALIBRATION_SAMPLE_BARS = 110;
+const WALK_FORWARD_OPTIONS = {
+  ...CALIBRATION_OPTIONS,
+  trainBars: 70,
+  testBars: 24,
+  stepBars: 24,
+};
+const CALIBRATION_SAMPLE_BARS = 150;
 const CALIBRATION_RECALC_TICKS = STREAM_TICKS_PER_BAR * 18;
 
 type ManualTradeSide = "long" | "short";
@@ -174,6 +182,7 @@ function CandleVisionScannerChart() {
   const closedTradesRef = useRef<ClosedManualTrade[]>([]);
   const microBotRef = useRef<MicroBotState>(createMicroBotState());
   const calibrationRef = useRef<MicroBotCalibrationResult | null>(null);
+  const walkForwardRef = useRef<MicroBotWalkForwardResult | null>(null);
   const calibrationPendingRef = useRef(false);
   const [activeFamily, setActiveFamily] = useState<PatternFamilyFilter>("all");
   const [showAll, setShowAll] = useState(true);
@@ -182,6 +191,7 @@ function CandleVisionScannerChart() {
   const [closedTrades, setClosedTrades] = useState<ClosedManualTrade[]>([]);
   const [microBot, setMicroBot] = useState<MicroBotState>(() => microBotRef.current);
   const [calibration, setCalibration] = useState<MicroBotCalibrationResult | null>(() => calibrationRef.current);
+  const [walkForward, setWalkForward] = useState<MicroBotWalkForwardResult | null>(() => walkForwardRef.current);
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanState>(() => {
     const starting = scanCandles(initialCandles, true);
@@ -267,8 +277,13 @@ function CandleVisionScannerChart() {
         const sample = candlesRef.current.slice(-CALIBRATION_SAMPLE_BARS);
         if (sample.length < 48) return;
         const nextCalibration = calibrateMicroBot(sample, CALIBRATION_OPTIONS);
+        const nextWalkForward = sample.length >= WALK_FORWARD_OPTIONS.trainBars + WALK_FORWARD_OPTIONS.testBars
+          ? walkForwardMicroBot(sample, WALK_FORWARD_OPTIONS)
+          : null;
         calibrationRef.current = nextCalibration;
+        walkForwardRef.current = nextWalkForward;
         setCalibration(nextCalibration);
+        setWalkForward(nextWalkForward);
       } finally {
         calibrationPendingRef.current = false;
       }
@@ -716,7 +731,7 @@ function CandleVisionScannerChart() {
         onHoldStart={() => openManualTrade("pointer")}
       />
 
-      <ScalpBotPanel bot={microBot} calibration={calibration} />
+      <ScalpBotPanel bot={microBot} calibration={calibration} walkForward={walkForward} />
 
       <div
         data-cv-panel
@@ -1063,7 +1078,15 @@ function HoldTradePanel({
   );
 }
 
-function ScalpBotPanel({ bot, calibration }: { bot: MicroBotState; calibration: MicroBotCalibrationResult | null }) {
+function ScalpBotPanel({
+  bot,
+  calibration,
+  walkForward,
+}: {
+  bot: MicroBotState;
+  calibration: MicroBotCalibrationResult | null;
+  walkForward: MicroBotWalkForwardResult | null;
+}) {
   const activeColor = bot.position
     ? bot.position.side === "long" ? THEME.bullish : THEME.bearish
     : bot.signal.side === "short" ? THEME.bearish : bot.signal.side === "long" ? THEME.bullish : THEME.compression;
@@ -1189,6 +1212,7 @@ function ScalpBotPanel({ bot, calibration }: { bot: MicroBotState; calibration: 
       ) : null}
 
       <CalibrationSummary calibration={calibration} />
+      <WalkForwardSummary walkForward={walkForward} />
     </section>
   );
 }
@@ -1262,6 +1286,85 @@ function CalibrationSummary({ calibration }: { calibration: MicroBotCalibrationR
             </span>
             <span style={{ color: THEME.muted, fontWeight: 800 }}>
               {row.totalTrades}x
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WalkForwardSummary({ walkForward }: { walkForward: MicroBotWalkForwardResult | null }) {
+  if (!walkForward || walkForward.folds.length === 0) {
+    return (
+      <div
+        data-walk-forward-panel
+        style={{
+          paddingTop: 8,
+          borderTop: `1px solid ${THEME.border}`,
+          color: THEME.muted,
+          fontSize: 11,
+          fontWeight: 800,
+        }}
+      >
+        Waiting for train/test validation window...
+      </div>
+    );
+  }
+  const summary = walkForward.summary;
+  const pnlColor = summary.pnl >= 0 ? THEME.bullish : THEME.bearish;
+  const stabilityColor = summary.stability >= 0.58 ? THEME.bullish : summary.stability >= 0.34 ? THEME.neutral : THEME.bearish;
+  return (
+    <div
+      data-walk-forward-panel
+      style={{
+        display: "grid",
+        gap: 8,
+        paddingTop: 8,
+        borderTop: `1px solid ${THEME.border}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: stabilityColor, fontSize: 10, fontWeight: 900, textTransform: "uppercase" }}>
+            walk-forward validation
+          </div>
+          <div style={{ color: "#f8fafc", fontSize: 13, fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {summary.bestPresetLabel ?? "No stable preset"}
+          </div>
+        </div>
+        <div style={{ color: stabilityColor, fontSize: 18, fontWeight: 950 }}>
+          {Math.round(summary.stability * 100)}%
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
+        <BotMetric label="OOS P&L" value={formatPnl(summary.pnl)} color={pnlColor} />
+        <BotMetric label="OOS Win" value={`${Math.round(summary.winRate * 100)}%`} color={THEME.text} />
+        <BotMetric label="Folds" value={`${summary.positiveFolds}/${walkForward.folds.length}`} color={stabilityColor} />
+        <BotMetric label="DD" value={formatPnl(-summary.maxDrawdown)} color={THEME.muted} />
+      </div>
+      <div style={{ display: "grid", gap: 3 }}>
+        {walkForward.folds.slice(-3).map((fold) => (
+          <div
+            key={`${fold.index}:${fold.testStart}`}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "auto 1fr auto auto",
+              gap: 7,
+              alignItems: "center",
+              color: "#cbd5e1",
+              fontSize: 10,
+            }}
+          >
+            <span style={{ color: THEME.muted, fontWeight: 900 }}>F{fold.index + 1}</span>
+            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 800 }}>
+              {fold.preset.label}
+            </span>
+            <span style={{ color: fold.test.summary.pnl >= 0 ? THEME.bullish : THEME.bearish, fontWeight: 900 }}>
+              {formatPnl(fold.test.summary.pnl)}
+            </span>
+            <span style={{ color: THEME.muted, fontWeight: 800 }}>
+              {fold.test.summary.totalTrades}x
             </span>
           </div>
         ))}

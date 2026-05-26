@@ -24,6 +24,7 @@ Turn Candle Vision from a pattern detector into a live decision layer that can c
 | TD-014 | Candle Vision bot panel | Codex | Done | Route renders scalp-bot order-flow panel, active position overlay, P&L, countdown, last exit; browser smoke screenshot `/tmp/candle-vision-micro-bot-trading.png` |
 | TD-015 | Strategy calibration layer | Codex | Done | `calibrateMicroBot()` compares built-in scalp presets and ranks them by expectancy, win rate, profit factor, activity, and drawdown |
 | TD-016 | Strategy Lab UI | Codex | Done | Candle Vision bot panel shows best preset, backtest P&L, win rate, expectancy, drawdown, and top preset rows from current candle history |
+| TD-017 | Walk-forward validation | Codex | Done | `walkForwardMicroBot()` rolls train/test windows, reports out-of-sample P&L, fold stability, selected presets, and route-level Strategy Lab validation |
 
 ## Next Slices
 
@@ -35,7 +36,7 @@ Turn Candle Vision from a pattern detector into a live decision layer that can c
 | TD-104 | Wire Volume Profile with confluence boosts | Planned | Boost signals near HVN/LVN/POC |
 | TD-105 | Add decision replay timeline | Planned | Sequence evidence -> verdict -> entry/stop/targets |
 | TD-106 | Bot calibration dashboard | Planned | Tune thresholds against backtest summaries; show expectancy by pattern/setup family |
-| TD-107 | Walk-forward replay mode | Planned | Split history into train/test windows and animate bot decisions without lookahead |
+| TD-107 | Walk-forward replay mode | Planned | Animate existing `walkForwardMicroBot()` folds without lookahead |
 | TD-108 | Indicator-page bot overlays | Planned | Reuse micro-bot + vision overlays on Wick Pressure, Probability Grid, Volume Profile, VARIS, Pine3D pages |
 
 ## Implementation Contract
