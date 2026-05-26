@@ -131,7 +131,10 @@ function humanizeChainError(rawMsg: string): string {
     return "Network busy — tap and hold again.";
   }
   if (/insufficient|gas|balance|InsufficientGas/i.test(rawMsg)) {
-    return "Not enough test SUI — tap Get test SUI.";
+    // v4.31b — generic message; could be SUI (gas) or the market's
+    // collateral coin (TUSD). The Ride.tsx error toast surfaces an
+    // inline faucet button so the user can drip both with one tap.
+    return "Not enough funds — tap the faucet button to top up.";
   }
   if (/unavailable for consumption|current version|already locked/i.test(rawMsg)) {
     return "Network busy — tap and hold again.";

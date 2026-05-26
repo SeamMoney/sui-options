@@ -518,12 +518,31 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
   // sync if the bootstrap params change (no more hardcoded magic numbers).
   const escrowThresholdRaw = useMemo(
     () => {
-      // Defaults match the bootstrap script's `:-10000` / `:-75` fallbacks.
-      const minStake = BigInt(picked.min_stake_per_segment ?? 10_000);
+      // v4.31b — gate uses MAX stake to match the actual ride escrow.
+      // useSegmentRideV4 is wired (v4.30) to use max_stake_per_segment
+      // as the per-second stake, so escrow per ride is
+      // max_stake × round_duration × 1.1. If the gate uses MIN stake
+      // (the old behavior), the wallet looks "ready" at the gate but
+      // the actual open_segment_ride_v4 tx aborts for insufficient
+      // collateral. User report 2026-05-26:
+      // > "I tried to play ... it said I didn't have enough, click
+      // >  here. But then I can't actually click any button."
+      // The gate said ready ($0.825 threshold against $4 TUSD), the
+      // tx demanded $12.375, the error toast told them to drip more —
+      // but the FundCta with the drip button stays hidden when the
+      // gate thinks funds are OK. Bumping the threshold to match the
+      // ride's actual escrow surfaces the FundCta when it should.
+      //
+      // Falls back to min_stake_per_segment when max is unknown.
+      const stakePerSeg = BigInt(
+        picked.max_stake_per_segment
+          ?? picked.min_stake_per_segment
+          ?? 10_000,
+      );
       const roundDuration = BigInt(picked.round_duration_segments ?? 75);
-      return (minStake * roundDuration * 11n) / 10n;
+      return (stakePerSeg * roundDuration * 11n) / 10n;
     },
-    [picked.min_stake_per_segment, picked.round_duration_segments],
+    [picked.max_stake_per_segment, picked.min_stake_per_segment, picked.round_duration_segments],
   );
   const isSuiCollateral = picked.collateral === "0x2::sui::SUI";
   // Format collateral balance. TUSD is 6 decimals; SUI is 9. We don't
@@ -697,12 +716,30 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           className="fixed left-1/2 -translate-x-1/2 z-[1650] pointer-events-auto"
           style={{ bottom: `calc(env(safe-area-inset-bottom) + 18px)` }}
         >
-          <div className="glass-container px-4 py-2 rounded-lg flex items-center gap-3 max-w-[420px]">
+          <div className="glass-container px-4 py-2 rounded-lg flex items-center gap-3 max-w-[460px]">
             <div className="glass-filter" />
             <div className="glass-overlay" />
             <div className="glass-specular" />
-            <div className="relative z-10 font-mono text-[12px] text-rose-300 leading-snug">
-              {ride.lastError}
+            <div className="relative z-10 flex items-center gap-3">
+              <div className="font-mono text-[12px] text-rose-300 leading-snug">
+                {ride.lastError}
+              </div>
+              {/* v4.31b — if the failure looks fund-related, surface an
+                  inline faucet button. Previously the error text said
+                  "tap Get test SUI" but the button only lived inside
+                  the FundCta (full-screen onboard), which is hidden
+                  whenever the funding GATE thinks balances are OK —
+                  and the gate's threshold was lower than the actual
+                  per-ride escrow, so users saw the error without any
+                  clickable funding action. */}
+              {/funds|insufficient|gas|balance/i.test(ride.lastError) ? (
+                <FaucetButton
+                  recipient={session.address}
+                  onFunded={session.refreshBalance}
+                  size="sm"
+                  label="Drip"
+                />
+              ) : null}
             </div>
           </div>
         </div>

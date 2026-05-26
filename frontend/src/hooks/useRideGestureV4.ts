@@ -678,10 +678,24 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
             const drop = candles.length - (maxCandles + CANDLES_PER_SEGMENT);
             candles.splice(0, drop);
             seededCandles.splice(0, drop);
-            for (const t of completedTrades) {
-              t.entryAgeCandles += drop;
-              t.exitAgeCandles += drop;
-            }
+            // v4.31b — DO NOT bump completedTrades ages by drop here.
+            // `entryAgeCandles` is an age-from-tail, which is INVARIANT
+            // under head-truncation: when we splice `drop` from the
+            // head, both `candles.length` and the anchor index decrease
+            // by `drop`, so `(length-1) - index` is unchanged. The push
+            // paths in `drainRevealQueue` + `applySegment(immediate)`
+            // already bump ages by +1 per pushed candle, which is the
+            // correct adjustment. The previous `+= drop` here
+            // double-counted, making the line endpoint drift LEFT by
+            // `drop` candles every time the ring buffer rolled.
+            //
+            // User report after v4.29 / v4.30:
+            // > "the green lines still don't properly stay attached to
+            // >  the candlestick chart after the line is done. and the
+            // >  user lets go and it is now moving to the left."
+            //
+            // `currentPosition.entrySegmentIdx` IS an absolute index
+            // (not an age), so it still has to track the splice.
             if (currentPosition) {
               currentPosition.entrySegmentIdx = Math.max(
                 0,
