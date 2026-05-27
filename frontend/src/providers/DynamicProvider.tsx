@@ -84,11 +84,19 @@ export function DynamicProvider({ children }: { children: ReactNode }) {
         environmentId: DYNAMIC_ENV_ID,
         // Sui-only for now — Wick is single-chain. Add EthereumWalletConnectors
         // here later if/when we list on an EVM chain. SuiWalletConnectors
-        // covers both injected Sui wallets (Slush, Suiet) and Dynamic's
-        // embedded social-login wallets.
+        // covers BOTH injected Sui wallets (Slush, Suiet, every Sui
+        // wallet-standard wallet) AND Dynamic's embedded social-login
+        // wallets — they're surfaced together in the same modal.
         walletConnectors: [SuiWalletConnectors],
-        // Match the shared Dynamic snap's wallet mode.
-        initialAuthenticationMode: "connect-and-sign",
+        // v4.31i — switched from "connect-and-sign" to "connect-only".
+        // User report 2026-05-26: "when I click sign in with gmail it
+        // logs me in and opens the modal again and says choose wallet."
+        // "connect-and-sign" makes Dynamic require BOTH an auth method
+        // AND a wallet (so after Google login the modal re-opens asking
+        // which Sui wallet to attach). "connect-only" treats the social
+        // login itself as the connect step and Dynamic auto-derives a
+        // Sui embedded wallet for the user — no second prompt.
+        initialAuthenticationMode: "connect-only",
         appName: "Wick Markets",
       }}
       theme="light"

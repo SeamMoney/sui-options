@@ -764,6 +764,45 @@ export function useSegmentRideV4(
       // thrown exceptions outside the retry catch.
       let lastErr: Error | null = null;
       try {
+        // v4.31i — fire a record_segment tx BEFORE close as a SEPARATE
+        // transaction. Sui's PTB-Random rule forbids commands after a
+        // record_segment in the same PTB (v4.31e tried that and got
+        // "Commands following a command with Random can only be
+        // TransferObjects or MergeCoins"). Two txes is the workaround:
+        // tx1 = crank (advances next_segment_index by 1, scans for touch
+        // along the way), tx2 = close (sees segments_held >= 1, returns
+        // real stake_paid + payout).
+        //
+        // Why we need this even with the sentinel cranker running: the
+        // sentinel runs every ~4 seconds. If the user releases within
+        // that window, `next_segment_index` may still equal their
+        // `entry_segment_index` → settlement returns the dreaded
+        // stake=$0/payout=$0/kind=CASHOUT (full escrow refund, but no
+        // actual play registered, and any touch the user's chart showed
+        // was undetectable to the chain because no segments existed to
+        // scan).
+        //
+        // Best-effort: if the crank fails (ENoActiveRides if we beat the
+        // open's confirmation, network blip, etc.) we still try the
+        // close. The user pays gas for one extra tx (~0.005 SUI).
+        try {
+          const crankTx = buildRecordSegmentV4Tx({
+            packageId,
+            collateralType: market.collateral || DEFAULT_COLLATERAL,
+            sender,
+            marketId: market.market,
+          });
+          await client.signAndExecuteTransaction({
+            signer: keypair,
+            transaction: crankTx,
+            options: { showEffects: false },
+          });
+        } catch (err) {
+          console.debug(
+            "[useSegmentRideV4] pre-close crank skipped:",
+            (err as Error).message?.slice(0, 100),
+          );
+        }
         const MAX_ATTEMPTS = 6;
         let attempt = 0;
         while (attempt < MAX_ATTEMPTS) {
