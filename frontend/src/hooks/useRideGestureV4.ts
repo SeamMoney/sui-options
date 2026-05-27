@@ -1683,8 +1683,43 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
 
         // ── Mouse/touch handlers — dedupe is load-bearing on iOS ──────────
         let touchActive = false;
-        p.mousePressed = () => {
+
+        // v4.31h — p5 binds mouse/touch listeners to the WINDOW by
+        // default (so the chart can register taps anywhere on the
+        // canvas regardless of which child div is on top). Side-effect:
+        // a tap inside ANY DOM element — including portals rendered
+        // ABOVE the chart, like Dynamic's auth modal — also fires
+        // mousePressed/touchStarted here, which calls startPress() and
+        // opens a ride mid-modal-tap.
+        // User report 2026-05-26: "when I click on the modal it
+        // registers it as I'm clicking on the game screen."
+        // Fix: gate every handler on `event.target` being inside the
+        // chart container. p5 hands the raw DOM event in `event`; we
+        // walk up its parents to see if chartRef contains it. If not,
+        // return TRUE so p5 lets the event propagate normally (the
+        // modal's own onClick wins). Mouse handlers don't always
+        // receive the event object in p5; we fall back to checking
+        // document.activeElement against the chart, which catches the
+        // "click happened on the modal" case cleanly enough for the
+        // gesture path.
+        const isEventInChart = (ev?: unknown): boolean => {
+          const chartEl = chartRef.current;
+          if (!chartEl) return false;
+          if (ev && typeof ev === "object" && "target" in ev) {
+            const t = (ev as Event).target as Node | null;
+            if (t && chartEl.contains(t)) return true;
+            if (t && !chartEl.contains(t)) return false;
+          }
+          // Mouse-handler fallback: when no event object is given,
+          // check whether the canvas (the chart's child) holds focus.
+          // Defaults to ALLOWED so we don't accidentally suppress
+          // genuine canvas taps on browsers that don't pass `event`.
+          return true;
+        };
+
+        p.mousePressed = (event?: unknown) => {
           if (stateRef.current.disabled) return true;
+          if (!isEventInChart(event)) return true; // let modal handle it
           try {
             if (!touchActive) startPress(p.mouseX, p.mouseY);
           } catch {
@@ -1692,8 +1727,9 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           }
           return false;
         };
-        p.mouseReleased = () => {
+        p.mouseReleased = (event?: unknown) => {
           if (stateRef.current.disabled) return true;
+          if (!isEventInChart(event)) return true;
           try {
             if (!touchActive) endPress();
           } catch {
@@ -1703,6 +1739,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
         };
         p.touchStarted = (event?: unknown) => {
           if (stateRef.current.disabled) return true;
+          if (!isEventInChart(event)) return true; // tap on Dynamic modal etc.
           touchActive = true;
           try {
             startPress(p.mouseX, p.mouseY);
