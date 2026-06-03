@@ -28,5 +28,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "//market-terminal": "Verbatim Apache-2.0 vendor lift (Desktop-Market-Terminal). Excluded from typecheck until panes are wired + restyled; attribution pending.",
+  "exclude": ["src/market-terminal"]
 }

@@ -24,12 +24,14 @@ const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
 const IS_PRO_ROUTE = PATHNAME === "/pro";
 const IS_CANDLE_VISION_ROUTE = PATHNAME === "/candle-vision";
+const IS_DEGEN_ROUTE = PATHNAME === "/degen";
 
 export default function App() {
+  if (IS_DEGEN_ROUTE) return <Ride />;             // degen tap-hold app
   if (IS_CANDLE_VISION_ROUTE) return <CandleVision />;
   if (IS_RIDE_TEST_ROUTE) return <RideTest />;
-  if (IS_PRO_ROUTE) return <MainApp />;
-  return <Ride />;
+  if (IS_PRO_ROUTE) return <MainApp />;            // TEMP placeholder — real Legend panes go here next
+  return <Ride />;                                 // default
 }
 
 function MainApp() {

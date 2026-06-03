@@ -10,15 +10,21 @@
     "bots",
     "frontend",
     "packages/candle-vision",
-    "packages/candle-vision-react"
+    "packages/candle-vision-react",
+    "packages/pro-options"
   ],
   "scripts": {
     "build:candle-vision": "npm -w @sui-options/candle-vision run build",
     "typecheck:candle-vision": "npm -w @sui-options/candle-vision run typecheck",
     "test:candle-vision": "npm -w @sui-options/candle-vision run test",
+    "check:candle-vision:browser": "node scripts/candle-vision-browser-check.mjs",
+    "check:candle-vision:lightcone": "BROWSER_BACKEND=lightcone CANDLE_VISION_URL=https://wick-markets.vercel.app/candle-vision node scripts/candle-vision-browser-check.mjs",
     "build:candle-vision-react": "npm -w @sui-options/candle-vision-react run build",
     "typecheck:candle-vision-react": "npm -w @sui-options/candle-vision-react run typecheck",
     "release:candle-vision": "node scripts/candle-vision-release-check.mjs && npm run build:candle-vision-react",
+    "build:pro-options": "npm -w @sui-options/pro-options run build",
+    "typecheck:pro-options": "npm -w @sui-options/pro-options run typecheck",
+    "test:pro-options": "npm -w @sui-options/pro-options run test",
     "build:sdk": "npm -w @wick/sdk run build",
     "build:api": "npm -w @wick/api run build",
     "build:frontend": "npm -w frontend run build",
@@ -37,5 +43,8 @@
   },
   "overrides": {
     "@mysten/sui": "^2.16.0"
+  },
+  "devDependencies": {
+    "@tzafon/lightcone": "^0.14.0"
   }
 }

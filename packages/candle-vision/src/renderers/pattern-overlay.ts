@@ -191,13 +191,15 @@ function selectActiveBoxes(
 
 function activeBoxPriority(item: DrawableEvent, spotlightEventId?: string | null) {
   const spotlightBoost = spotlightEventId && item.event.id === spotlightEventId ? 1000 : 0;
+  const liveEndpointBoost = item.event.scoreBreakdown?.liveEndpoint ? 1.2 : 0;
+  const liveProjectionBoost = item.event.scoreBreakdown?.liveProjection ? 0.42 : 0;
   const familyBoost = item.event.family === 'vision-candle' ? 0.08 : item.event.family === 'chart-setup' ? 0.05 : 0;
   const recencyBoost = item.event.endIndex / 100000;
   const ageSeconds = item.state.ageMs / 1000;
   const stabilityBoost = item.state.ageMs > 450 ? Math.min(0.18, ageSeconds * 0.035) : 0;
   const newbornPenalty = item.state.ageMs < 650 ? 0.12 : 0;
   const activeBoost = item.state.boxAlpha * 0.03;
-  return spotlightBoost + item.event.confidence + familyBoost + recencyBoost + activeBoost + stabilityBoost - newbornPenalty;
+  return spotlightBoost + liveEndpointBoost + liveProjectionBoost + item.event.confidence + familyBoost + recencyBoost + activeBoost + stabilityBoost - newbornPenalty;
 }
 
 function collapseActiveEvent(item: DrawableEvent): DrawableEvent {
@@ -800,7 +802,10 @@ function drawLabel(
     ctx.fillStyle = color;
     ctx.fillRect(labelX + 7, labelY - height / 2 + 5, 3, height - 10);
   }
-  ctx.fillStyle = options.theme.text;
+  // Label pill always uses a dark background (above), so text must stay light
+  // regardless of the chart theme — theme.text is tuned for the light-theme DOM
+  // UI and renders black-on-black here. Match drawBoxTag's hardcoded light text.
+  ctx.fillStyle = '#f8fafc';
   ctx.globalAlpha = 0.96 * progress;
   ctx.textAlign = 'center';
   ctx.fillText(label, labelX + width / 2, labelY);

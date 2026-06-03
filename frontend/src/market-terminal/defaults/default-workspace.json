@@ -1,0 +1,397 @@
+{
+  "version": 1,
+  "lastModified": "2026-03-25T03:09:30.276Z",
+  "global": {
+    "activeTabId": "ac8e7bdc-2a10-4036-968e-22d8706f5e7b"
+  },
+  "tabs": [
+    {
+      "id": "ac8e7bdc-2a10-4036-968e-22d8706f5e7b",
+      "title": "Dashboard",
+      "type": "dashboard",
+      "locked": true,
+      "linkChannel": 1,
+      "layout": {
+        "columns": 12,
+        "rowHeight": 40,
+        "zoom": 0.9,
+        "components": [
+          {
+            "id": "b7be15eb-00e8-4cb1-9ae9-358bcc742078",
+            "type": "quote",
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 8.375,
+            "linkChannel": 1,
+            "config": {
+              "symbol": "MUU"
+            }
+          },
+          {
+            "id": "66e63740-06b5-49f4-9443-07655269a3e6",
+            "type": "watchlist",
+            "x": 0,
+            "y": 16.319140625,
+            "w": 6,
+            "h": 9.125,
+            "linkChannel": 1,
+            "config": {
+              "paneCount": 3,
+              "columnWidths": [
+                56,
+                68,
+                58,
+                58
+              ],
+              "taTimeframes": [
+                "1h",
+                "1d"
+              ],
+              "customColumns": [],
+              "taColumnWidths": {},
+              "headerTints": {
+                "ta": {
+                  "1h": "#7cc7ff",
+                  "1d": "#7cc7ff"
+                }
+              }
+            }
+          },
+          {
+            "id": "29800b32-bb53-4d6c-bbcc-95d851e8047a",
+            "type": "minichart",
+            "x": 6,
+            "y": 0,
+            "w": 6,
+            "h": 14,
+            "linkChannel": 1,
+            "config": {
+              "symbol": "MUU",
+              "timeframe": "1D",
+              "chartType": "candlestick",
+              "indicators": [
+                {
+                  "name": "Technical Score",
+                  "paneId": "pane:ind_1774326687558_2w15",
+                  "params": {},
+                  "colors": {
+                    "score": "#ffffff",
+                    "buy": "#00C853",
+                    "sell": "#FF3D71"
+                  },
+                  "lineWidths": {
+                    "score": 4,
+                    "buy": 1.5,
+                    "sell": 1.5
+                  },
+                  "lineStyles": {
+                    "score": "solid",
+                    "buy": "solid",
+                    "sell": "solid"
+                  },
+                  "visible": true
+                },
+                {
+                  "name": "EMA Ribbon 5/20/200",
+                  "paneId": "main",
+                  "params": {
+                    "fastPeriod": 5,
+                    "midPeriod": 20,
+                    "slowPeriod": 200
+                  },
+                  "colors": {
+                    "fast": "#00C853",
+                    "mid": "#FF3D71",
+                    "slow": "#F97316"
+                  },
+                  "lineWidths": {
+                    "fast": 1.5,
+                    "mid": 1.5,
+                    "slow": 1.5
+                  },
+                  "lineStyles": {
+                    "fast": "solid",
+                    "mid": "solid",
+                    "slow": "solid"
+                  },
+                  "visible": true
+                }
+              ]
+            }
+          },
+          {
+            "id": "e23c33f0-1d7f-4dbf-9d58-a8bfd149fe33",
+            "type": "ibkr-portfolio",
+            "x": 0,
+            "y": 8.4,
+            "w": 6,
+            "h": 7.924999999999999,
+            "linkChannel": 1,
+            "config": {
+              "accountFilter": "all",
+              "visibleColumns": [
+                "unrealizedPnl",
+                "dayPnl",
+                "symbol",
+                "qty",
+                "last",
+                "marketValue",
+                "change",
+                "actions",
+                "avgCost",
+                "costBasis"
+              ],
+              "techScoreColorMode": "heat",
+              "sortKey": "change",
+              "sortDirection": "desc",
+              "symbol": "MUU",
+              "columnOrder": [
+                "b:symbol",
+                "b:unrealizedPnl",
+                "b:dayPnl",
+                "b:qty",
+                "b:last",
+                "b:marketValue",
+                "b:change",
+                "b:avgCost",
+                "b:costBasis",
+                "ta:1h",
+                "b:actions"
+              ],
+              "headerTints": {
+                "ta": {
+                  "1h": "#7ee787"
+                }
+              },
+              "columnWidths": {
+                "actions": 117
+              },
+              "taColumnWidths": {
+                "1h": 80
+              }
+            }
+          },
+          {
+            "id": "d9161072-6bd7-4aae-ad44-7ef584372fb4",
+            "type": "mini-screener",
+            "x": 9,
+            "y": 14,
+            "w": 3,
+            "h": 11.444140625,
+            "linkChannel": 1,
+            "config": {
+              "symbol": "MUU"
+            }
+          },
+          {
+            "id": "75ef62bd-f2ff-4d28-aa77-1178ff0ac90f",
+            "type": "mini-heatmap",
+            "x": 6,
+            "y": 14,
+            "w": 3.0056258790436003,
+            "h": 11.444140625,
+            "linkChannel": 1,
+            "config": {
+              "symbol": "MUU"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "5bdd4774-abfd-4dae-97be-70de4477f40b",
+      "title": "Charting",
+      "type": "chart",
+      "locked": true,
+      "linkChannel": 1,
+      "layout": {
+        "columns": 12,
+        "rowHeight": 40,
+        "components": []
+      },
+      "chartState": {
+        "symbol": "SPY",
+        "timeframe": "1D",
+        "chartType": "candlestick",
+        "linkChannel": 1,
+        "indicators": [
+          {
+            "name": "Volume",
+            "paneId": "main",
+            "params": {},
+            "colors": {
+              "volume": "#06B6D4"
+            },
+            "lineWidths": {
+              "volume": 1.5
+            },
+            "lineStyles": {
+              "volume": "solid"
+            },
+            "visible": true
+          },
+          {
+            "name": "ADL",
+            "paneId": "pane:ind_1774404731556_0buc",
+            "params": {
+              "smoothing": 20,
+              "normPeriod": 100
+            },
+            "colors": {
+              "adl": "#00C853",
+              "sma": "#FF3D71"
+            },
+            "lineWidths": {
+              "adl": 1.5,
+              "sma": 1.5
+            },
+            "lineStyles": {
+              "adl": "solid",
+              "sma": "solid"
+            },
+            "visible": true
+          },
+          {
+            "name": "RSI",
+            "paneId": "pane:ind_1774404735048_6vwk",
+            "params": {
+              "period": 14,
+              "maPeriod": 14,
+              "maType": 1
+            },
+            "colors": {
+              "rsi": "#8B5CF6",
+              "ma": "#FF3D71"
+            },
+            "lineWidths": {
+              "rsi": 1.5,
+              "ma": 1.5
+            },
+            "lineStyles": {
+              "rsi": "solid",
+              "ma": "solid"
+            },
+            "visible": true
+          },
+          {
+            "name": "Technical Score",
+            "paneId": "main",
+            "params": {},
+            "colors": {
+              "score": "#FFFFFF"
+            },
+            "lineWidths": {
+              "score": 1.5
+            },
+            "lineStyles": {
+              "score": "solid"
+            },
+            "visible": true
+          },
+          {
+            "name": "EMA Ribbon 5/20/200",
+            "paneId": "main",
+            "params": {
+              "fastPeriod": 5,
+              "midPeriod": 20,
+              "slowPeriod": 200
+            },
+            "colors": {
+              "fast": "#00C853",
+              "mid": "#FF3D71",
+              "slow": "#F97316"
+            },
+            "lineWidths": {
+              "fast": 1.5,
+              "mid": 1.5,
+              "slow": 1.5
+            },
+            "lineStyles": {
+              "fast": "solid",
+              "mid": "solid",
+              "slow": "solid"
+            },
+            "visible": true
+          }
+        ],
+        "stopperPx": 80,
+        "indicatorColorDefaults": {}
+      }
+    },
+    {
+      "id": "6ea9cd3c-74e3-4556-883c-ec8ee7ce3a11",
+      "title": "Heatmap",
+      "type": "heatmap",
+      "locked": true,
+      "linkChannel": 1,
+      "layout": {
+        "columns": 12,
+        "rowHeight": 40,
+        "zoom": 0.9,
+        "components": []
+      }
+    },
+    {
+      "id": "a976f0dd-526e-4396-9c0e-e9a22034efc0",
+      "title": "Screener",
+      "type": "screener",
+      "locked": true,
+      "linkChannel": 1,
+      "layout": {
+        "columns": 12,
+        "rowHeight": 40,
+        "zoom": 0.9,
+        "components": []
+      }
+    },
+    {
+      "id": "3866d55b-98de-4552-aed3-bd39047382c6",
+      "title": "Options Analysis",
+      "type": "options",
+      "locked": true,
+      "linkChannel": 1,
+      "layout": {
+        "columns": 12,
+        "rowHeight": 40,
+        "components": []
+      }
+    },
+    {
+      "id": "206cb8ae-92ec-454c-9435-551ed9dc320c",
+      "title": "Simulations",
+      "type": "simulations",
+      "locked": true,
+      "linkChannel": 1,
+      "layout": {
+        "columns": 12,
+        "rowHeight": 40,
+        "components": []
+      }
+    },
+    {
+      "id": "ea2b7b6a-2e34-45ab-a8e1-0fd2e42aa3a4",
+      "title": "Model Trainer",
+      "type": "model-trainer",
+      "locked": true,
+      "linkChannel": 1,
+      "layout": {
+        "columns": 12,
+        "rowHeight": 40,
+        "components": []
+      }
+    },
+    {
+      "id": "197ee2b9-c2d4-4a5e-84f4-a43d056a298b",
+      "title": "Market Bias",
+      "type": "bias",
+      "locked": true,
+      "linkChannel": 1,
+      "layout": {
+        "columns": 12,
+        "rowHeight": 40,
+        "components": []
+      }
+    }
+  ]
+}

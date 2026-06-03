@@ -1,0 +1,59 @@
+{
+  "name": "@sui-options/pro-options",
+  "version": "0.1.0",
+  "description": "Framework-agnostic options engine for Pro Mode: Black-Scholes pricing + Greeks + payoff curves, option position lifecycle (open / mark / sell-to-close / settle), and deterministic synthetic price paths for round-based synthetic-market options trading.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./black-scholes": {
+      "types": "./dist/black-scholes.d.ts",
+      "import": "./dist/black-scholes.js"
+    },
+    "./option": {
+      "types": "./dist/option.d.ts",
+      "import": "./dist/option.js"
+    },
+    "./path": {
+      "types": "./dist/path.d.ts",
+      "import": "./dist/path.js"
+    },
+    "./round": {
+      "types": "./dist/round.d.ts",
+      "import": "./dist/round.js"
+    },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "import": "./dist/engine.js"
+    },
+    "./presets": {
+      "types": "./dist/presets.d.ts",
+      "import": "./dist/presets.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && node ../../scripts/patch-esm-imports.mjs dist",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx test/engine.test.ts && tsx test/host.test.ts",
+    "play": "tsx sim/play-round.ts",
+    "prepack": "npm run build && npm run test"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.7.2"
+  },
+  "sideEffects": false
+}

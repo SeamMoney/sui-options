@@ -69,6 +69,11 @@ export type MicroBotOptions = {
   targetRangeMultiple?: number;
   stopRangeMultiple?: number;
   maxTrades?: number;
+  minPressure?: number;
+  maxOppositeScore?: number;
+  minDecisionConfidence?: number;
+  minMomentumScore?: number;
+  requireDecisionConfirmation?: boolean;
 };
 
 type ResolvedMicroBotOptions = Required<MicroBotOptions>;
@@ -78,11 +83,16 @@ const DEFAULT_OPTIONS = {
   minHoldMs: 5000,
   maxHoldMs: 10000,
   cooldownMs: 1400,
-  entryThreshold: 0.66,
-  flipExitThreshold: 0.5,
-  targetRangeMultiple: 0.85,
-  stopRangeMultiple: 0.72,
+  entryThreshold: 0.58,
+  flipExitThreshold: 0.48,
+  targetRangeMultiple: 0.62,
+  stopRangeMultiple: 0.46,
   maxTrades: 24,
+  minPressure: 0.28,
+  maxOppositeScore: 0.84,
+  minDecisionConfidence: 0.58,
+  minMomentumScore: 0.04,
+  requireDecisionConfirmation: false,
 } satisfies ResolvedMicroBotOptions;
 
 const FLAT_SIGNAL: MicroBotSignal = {
@@ -127,7 +137,15 @@ export function updateMicroBot(input: {
 }): MicroBotState {
   const options = resolveOptions(input.options);
   const enabled = input.state.enabled && options.enabled;
-  const signal = buildMicroBotSignal(input.candles, input.events, input.decision);
+  const rawSignal = buildMicroBotSignal(input.candles, input.events, input.decision);
+  const entryGate = evaluateEntryGate(rawSignal, input.decision, options);
+  const signal: MicroBotSignal = entryGate.canEnter || rawSignal.phase !== 'confirmed'
+    ? rawSignal
+    : {
+      ...rawSignal,
+      phase: entryGate.blocked ? 'blocked' as const : 'forming' as const,
+      reasons: prependReason(rawSignal.reasons, entryGate.reason),
+    };
   let state: MicroBotState = { ...input.state, enabled, signal };
 
   if (!enabled || input.candles.length < 7) {
@@ -149,10 +167,11 @@ export function updateMicroBot(input: {
     return { ...state, status: 'cooldown' };
   }
 
-  if (signal.side === 'none' || signal.phase !== 'confirmed' || signal.entryScore < options.entryThreshold) {
+  if (!entryGate.canEnter) {
     return { ...state, status: signal.entryScore > options.entryThreshold * 0.78 ? 'armed' : 'flat' };
   }
 
+  if (signal.side === 'none') return { ...state, status: 'flat' };
   return openPosition(state, signal.side, latest, latestIndex, input.nowMs, signal, options, averageRangeFromLatest(input.candles, 18));
 }
 
@@ -244,10 +263,19 @@ function shouldExitPosition(
   if (position.side === 'short' && position.markPrice >= position.stopPrice) return 'stop';
   const heldMs = nowMs - position.openedAtMs;
   if (
-    heldMs >= options.minHoldMs &&
+    heldMs >= options.minHoldMs * 0.58 &&
     signal.side !== 'none' &&
     signal.side !== position.side &&
     signal.entryScore >= options.flipExitThreshold
+  ) {
+    return 'pressure-flip';
+  }
+  const directionalPressure = position.side === 'long' ? signal.pressure : -signal.pressure;
+  if (
+    heldMs >= Math.min(2800, options.minHoldMs * 0.6) &&
+    position.pnl < 0 &&
+    directionalPressure < -0.24 &&
+    signal.oppositeScore > 0.34
   ) {
     return 'pressure-flip';
   }
@@ -282,7 +310,7 @@ function buildMicroBotSignal(
   const latestIndex = candles.length - 1;
   const recentEvents = events.filter((event) => {
     const age = Math.max(0, latestIndex - event.endIndex);
-    return age <= 36 && event.status !== 'expired' && event.status !== 'invalidated' && event.direction !== 'neutral';
+    return age <= 24 && event.status !== 'expired' && event.status !== 'invalidated' && event.direction !== 'neutral';
   });
 
   let patternPressure = 0;
@@ -293,9 +321,9 @@ function buildMicroBotSignal(
   for (const event of recentEvents) {
     const age = Math.max(0, latestIndex - event.endIndex);
     const direction = event.direction === 'bullish' ? 1 : -1;
-    const recency = clamp01(1 - age / 36);
-    const status = event.status === 'confirmed' ? 1 : 0.72;
-    const familyWeight = event.family === 'chart-setup' ? 1.06 : event.family === 'vision-candle' ? 0.92 : 0.78;
+    const recency = clamp01(1 - age / 24);
+    const status = event.status === 'confirmed' ? 1 : 0.48;
+    const familyWeight = event.family === 'chart-setup' ? 1.08 : event.family === 'vision-candle' ? 0.86 : 0.88;
     const score = event.confidence * (0.58 + event.strength * 0.42) * recency * status * familyWeight;
     if (event.family === 'chart-setup') setupPressure += direction * score;
     else patternPressure += direction * score;
@@ -316,12 +344,12 @@ function buildMicroBotSignal(
     ? patternPressure * 0.36 + setupPressure * 0.24 + momentum * 0.28 + decisionPressure * 0.12
     : momentum * 0.65 + decisionPressure * 0.35;
   const pressure = clamp(rawPressure, -1, 1);
-  const side: MicroBotSide | 'none' = pressure > 0.1 ? 'long' : pressure < -0.1 ? 'short' : 'none';
+  const side: MicroBotSide | 'none' = pressure > 0.14 ? 'long' : pressure < -0.14 ? 'short' : 'none';
 
   for (const event of recentEvents) {
     const direction = event.direction === 'bullish' ? 1 : -1;
     if ((side === 'long' && direction < 0) || (side === 'short' && direction > 0)) {
-      oppositeScore += event.confidence * clamp01(1 - Math.max(0, latestIndex - event.endIndex) / 36);
+      oppositeScore += event.confidence * clamp01(1 - Math.max(0, latestIndex - event.endIndex) / 24);
     }
   }
 
@@ -331,29 +359,35 @@ function buildMicroBotSignal(
   const entryScore = eventMagnitude > 0.05
     ? clamp01(
       Math.abs(pressure) * 0.36 +
-        patternScore * 0.22 +
-        setupScore * 0.14 +
-        momentumScore * 0.18 +
-        volumeScore * 0.1 -
-        clamp01(oppositeScore) * 0.18,
+        patternScore * 0.2 +
+        setupScore * 0.18 +
+        momentumScore * 0.2 +
+        volumeScore * 0.08 -
+        clamp01(oppositeScore) * 0.28,
     )
     : clamp01(Math.abs(pressure) * 0.42 + momentumScore * 0.4 + volumeScore * 0.18);
   const confidence = clamp01(entryScore * 0.72 + Math.abs(pressure) * 0.28);
+  const decisionAligned = decision.side === side && decision.status === 'confirmed' && decision.confidence >= 0.56;
+  const alignedMomentum = side === 'long' ? momentum > 0.04 : side === 'short' ? momentum < -0.04 : false;
+  const cleanTape = oppositeScore < Math.max(0.58, eventMagnitude * 0.72);
+  const tapeMomentum = side === 'long' ? momentum : side === 'short' ? -momentum : 0;
+  const tapeOverride = tapeMomentum > 0.32 && Math.abs(pressure) > 0.36 && entryScore >= 0.54;
   const microBoundaryCrossed =
-    decision.status === 'confirmed' ||
-    (side === 'long' && pressure > 0.52 && momentum > 0.12) ||
-    (side === 'short' && pressure < -0.52 && momentum < -0.12) ||
-    (Math.abs(pressure) > 0.72 && entryScore >= 0.42) ||
-    (eventMagnitude <= 0.05 && Math.abs(pressure) > 0.28 && entryScore > 0.46);
+    tapeOverride ||
+    (decisionAligned && cleanTape && (alignedMomentum || setupScore > 0.72) && entryScore >= 0.46) ||
+    (cleanTape && alignedMomentum && eventMagnitude > 0.42 && Math.abs(pressure) > 0.42 && entryScore >= 0.52) ||
+    (cleanTape && (alignedMomentum || setupScore > 0.78) && Math.abs(pressure) > 0.5 && entryScore >= 0.62) ||
+    (alignedMomentum && Math.abs(pressure) > 0.44 && entryScore >= 0.54 && oppositeScore < 0.88) ||
+    (cleanTape && Math.abs(pressure) > 0.74 && entryScore >= 0.62);
   const hardConflict =
     !microBoundaryCrossed &&
-    entryScore < 0.42 &&
-    oppositeScore > Math.max(1.35, eventMagnitude * 2.4);
-  const actionTakingShape = entryScore >= 0.34 || Math.abs(pressure) > 0.36 || eventMagnitude > 0.7;
+    (entryScore < 0.52 || !cleanTape) &&
+    oppositeScore > Math.max(0.9, eventMagnitude);
+  const actionTakingShape = entryScore >= 0.38 || Math.abs(pressure) > 0.38 || eventMagnitude > 0.72;
   const phase: MicroBotSignalPhase =
     side === 'none'
       ? 'scanning'
-      : microBoundaryCrossed && entryScore >= 0.4
+      : microBoundaryCrossed && entryScore >= 0.46
         ? 'confirmed'
         : hardConflict
           ? 'blocked'
@@ -361,7 +395,7 @@ function buildMicroBotSignal(
             ? 'forming'
             : 'scanning';
   const reasons = [
-    strongestPattern ? `Lead: ${strongestPattern}` : 'Lead: Micro impulse scan',
+    tapeOverride ? 'Lead: Tape momentum override' : strongestPattern ? `Lead: ${strongestPattern}` : 'Lead: Micro impulse scan',
     phase === 'confirmed' ? 'Trigger boundary crossed' : phase === 'forming' ? 'Setup taking shape' : phase === 'blocked' ? 'Mixed pressure, waiting for cleaner edge' : 'Scanning for setup',
     `${side === 'short' ? 'Sell' : side === 'long' ? 'Buy' : 'Flat'} pressure ${(Math.abs(pressure) * 100).toFixed(0)}%`,
     `Momentum ${(Math.abs(momentum) * 100).toFixed(0)}%`,
@@ -381,6 +415,41 @@ function buildMicroBotSignal(
     oppositeScore: clamp01(oppositeScore),
     reasons,
   };
+}
+
+function evaluateEntryGate(
+  signal: MicroBotSignal,
+  decision: TradeDecision,
+  options: ResolvedMicroBotOptions,
+): { canEnter: boolean; blocked: boolean; reason: string } {
+  if (signal.side === 'none') return { canEnter: false, blocked: false, reason: 'No directional edge yet' };
+  if (signal.phase !== 'confirmed') return { canEnter: false, blocked: signal.phase === 'blocked', reason: 'Waiting for confirmation' };
+  if (signal.entryScore < options.entryThreshold) {
+    return { canEnter: false, blocked: false, reason: `Signal below ${Math.round(options.entryThreshold * 100)}% trigger` };
+  }
+  if (Math.abs(signal.pressure) < options.minPressure) {
+    return { canEnter: false, blocked: false, reason: 'Pressure too weak for scalp' };
+  }
+  const momentumAlignment = signal.side === 'long' ? signal.momentum : -signal.momentum;
+  const tapeOverride = momentumAlignment > 0.32 && signal.entryScore >= options.entryThreshold + 0.04;
+  if (signal.oppositeScore > options.maxOppositeScore && !tapeOverride) {
+    return { canEnter: false, blocked: true, reason: 'Opposing evidence too high' };
+  }
+  if (momentumAlignment < options.minMomentumScore && signal.setupScore < 0.56) {
+    return { canEnter: false, blocked: false, reason: 'Momentum not aligned yet' };
+  }
+  const decisionAligned = decision.side === signal.side && decision.status === 'confirmed';
+  if (options.requireDecisionConfirmation && !decisionAligned) {
+    return { canEnter: false, blocked: false, reason: 'Decision engine has not confirmed' };
+  }
+  if (decisionAligned && decision.confidence < options.minDecisionConfidence) {
+    return { canEnter: false, blocked: false, reason: 'Decision confidence too low' };
+  }
+  return { canEnter: true, blocked: false, reason: 'Confirmed entry' };
+}
+
+function prependReason(reasons: readonly string[], reason: string) {
+  return [reason, ...reasons.filter((item) => item !== reason)].slice(0, 5);
 }
 
 function momentumPressure(candles: readonly CandleInput[]) {

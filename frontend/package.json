@@ -31,6 +31,7 @@
     "@wallet-standard/wallet": "^1.1.0",
     "@sui-options/candle-vision": "file:../packages/candle-vision",
     "@sui-options/candle-vision-react": "file:../packages/candle-vision-react",
+    "@sui-options/pro-options": "file:../packages/pro-options",
     "@wick/sdk": "file:../sdk",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

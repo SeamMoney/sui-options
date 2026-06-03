@@ -1,0 +1,344 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-scrollbar-track: transparent;
+  --app-scrollbar-thumb: rgba(255, 255, 255, 0.26);
+  --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.42);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+  min-height: 32px;
+  min-width: 32px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Hide scrollbar but keep scrollable */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-dark {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(255, 255, 255, 0.26) #0d1117;
+}
+
+.scrollbar-dark::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+  background: #0d1117;
+}
+
+.scrollbar-dark::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+.scrollbar-dark::-webkit-scrollbar:horizontal {
+  height: 7px;
+  background: #0d1117;
+}
+
+.scrollbar-dark::-webkit-scrollbar-track:horizontal {
+  background: #0d1117;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);
+  background-clip: padding-box;
+  min-height: 32px;
+  min-width: 32px;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb:horizontal {
+  min-width: 36px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: padding-box;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb:horizontal:hover {
+  background: rgba(255, 255, 255, 0.40);
+  background-clip: padding-box;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.42);
+  background-clip: padding-box;
+}
+
+.scrollbar-dark::-webkit-scrollbar-corner {
+  background: #0d1117;
+}
+
+.liquidity-sweeps-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.24) #0d1117;
+  scrollbar-gutter: stable both-edges;
+  background-color: #0d1117;
+}
+
+.liquidity-sweeps-scrollbar::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+  background: #0d1117;
+}
+
+.liquidity-sweeps-scrollbar::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+.liquidity-sweeps-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid #0d1117;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: padding-box;
+}
+
+.liquidity-sweeps-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.34);
+  background-clip: padding-box;
+}
+
+.liquidity-sweeps-scrollbar::-webkit-scrollbar-corner {
+  background: #0d1117;
+}
+
+/* macOS-style thin overlay scrollbar */
+.scrollbar-mac {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.scrollbar-mac::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.scrollbar-mac::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-mac::-webkit-scrollbar-track:horizontal {
+  background: #0d1117;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.scrollbar-mac::-webkit-scrollbar:horizontal {
+  height: 5px;
+  background: #0d1117;
+}
+
+.scrollbar-mac::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.0);
+  border-radius: 999px;
+  transition: background 0.18s ease;
+  min-height: 28px;
+  min-width: 28px;
+}
+
+.scrollbar-mac:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.scrollbar-mac::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.scrollbar-mac::-webkit-scrollbar-thumb:horizontal {
+  background: rgba(255, 255, 255, 0.0);
+  min-width: 32px;
+}
+
+.scrollbar-mac:hover::-webkit-scrollbar-thumb:horizontal {
+  background: rgba(255, 255, 255, 0.20);
+}
+
+.scrollbar-mac::-webkit-scrollbar-thumb:horizontal:hover {
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.scrollbar-mac::-webkit-scrollbar-corner {
+  background: #0d1117;
+}
+
+.scrollbar-panel {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.scrollbar-panel::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.scrollbar-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-panel::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  background-clip: padding-box;
+  min-height: 32px;
+}
+
+.scrollbar-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+  background-clip: padding-box;
+}
+
+.scrollbar-panel::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.scrollbar-watchlist {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) #161B22;
+}
+
+.scrollbar-watchlist::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-watchlist::-webkit-scrollbar:horizontal {
+  height: 8px;
+  background: #161B22;
+}
+
+.scrollbar-watchlist::-webkit-scrollbar-track {
+  background: #161B22;
+}
+
+.scrollbar-watchlist::-webkit-scrollbar-track:horizontal {
+  background: #161B22;
+}
+
+.scrollbar-watchlist::-webkit-scrollbar-thumb {
+  border: 2px solid #161B22;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  background-clip: padding-box;
+}
+
+.scrollbar-watchlist::-webkit-scrollbar-thumb:horizontal {
+  min-width: 36px;
+  border: 2px solid #161B22;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: padding-box;
+}
+
+.scrollbar-watchlist::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+  background-clip: padding-box;
+}
+
+.scrollbar-watchlist::-webkit-scrollbar-corner {
+  background: #161B22;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: #0D1117;
+  color: #e6edf3;
+  font-family: "Inter", "Geist Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* macOS transparent title bar — drag region */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Auth card input styling */
+.auth-input {
+  @apply w-full rounded-input border border-gray-300 bg-white px-4 py-2.5 pl-10 text-sm text-gray-900 transition-colors duration-100 placeholder:text-gray-400 focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue;
+}
+
+.auth-btn-primary {
+  @apply w-full rounded-btn bg-[#0f172a] px-4 py-2.5 text-sm font-medium text-white transition-all duration-150 hover:bg-[#1e293b] hover:scale-[1.01] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-blue focus:ring-offset-2;
+}
+
+.auth-btn-outline {
+  @apply w-full rounded-btn border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-all duration-150 hover:bg-gray-50 hover:scale-[1.01] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-blue focus:ring-offset-2;
+}
+
+/* Page transition */
+.auth-page-enter {
+  animation: fadeSlideIn 250ms ease-out;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Toast fade in/out */
+.animate-fade-toast {
+  animation: fadeToast 2.5s ease-in-out;
+}
+
+@keyframes fadeToast {
+  0% { opacity: 0; transform: scale(0.95); }
+  10% { opacity: 1; transform: scale(1); }
+  80% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.95); }
+}

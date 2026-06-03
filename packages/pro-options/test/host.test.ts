@@ -1,0 +1,69 @@
+import assert from "node:assert/strict";
+import {
+  MARKET_PRESETS,
+  RoundEngine,
+  RoundHost,
+  presetById,
+  roundConfigFromPreset,
+  type HostEvent,
+} from "../src/index";
+
+let passed = 0;
+function check(name: string, fn: () => void) {
+  fn();
+  passed++;
+  console.log(`  ✓ ${name}`);
+}
+
+console.log("pro-options host + presets");
+
+check("presets exist and build a valid engine", () => {
+  assert.ok(MARKET_PRESETS.length >= 4);
+  const preset = presetById("volatile");
+  assert.ok(preset, "volatile preset");
+  const cfg = roundConfigFromPreset({ preset: preset!, seed: 7, startedAtMs: 0 });
+  const engine = new RoundEngine(cfg);
+  assert.ok(engine.commit.length > 0);
+  assert.equal(engine.spotAt(0), preset!.startPrice); // lobby shows the open
+});
+
+check("host drives a full round and emits the phase/reveal/settle/seed events", () => {
+  const preset = presetById("volatile")!;
+  const engine = new RoundEngine(roundConfigFromPreset({ preset, seed: 7, startedAtMs: 0 }));
+  const host = new RoundHost(engine);
+  const events: HostEvent[] = [];
+  host.on((e) => events.push(e));
+
+  // Open a position in the lobby so we get a settled event later.
+  const liveStart = 60_000;
+  engine.open({ id: "p1", side: "call", strike: 101, expiryMs: liveStart + 40_000, contracts: 5, nowMs: 1_000 });
+
+  for (let t = 0; t <= 160_000; t += 2_000) host.tick(t);
+
+  const phases = events.filter((e) => e.type === "phase").map((e) => (e as { phase: string }).phase);
+  assert.deepEqual([...new Set(phases)], ["lobby", "live", "settle", "results"]);
+
+  const reveals = events.filter((e) => e.type === "reveal-step");
+  assert.ok(reveals.length > 1, "reveal should advance during live");
+
+  const settled = events.filter((e) => e.type === "settled");
+  assert.ok(settled.length >= 1, "the open position should settle");
+
+  const seed = events.find((e) => e.type === "reveal-seed") as { verified: boolean } | undefined;
+  assert.ok(seed?.verified, "seed reveal should verify against the commit");
+});
+
+check("host.on returns a working unsubscribe", () => {
+  const preset = presetById("calm")!;
+  const host = new RoundHost(new RoundEngine(roundConfigFromPreset({ preset, seed: 1, startedAtMs: 0 })));
+  let count = 0;
+  const off = host.on(() => count++);
+  host.tick(1_000);
+  const afterFirst = count;
+  assert.ok(afterFirst >= 1, "should receive at least one event");
+  off();
+  host.tick(70_000);
+  assert.equal(count, afterFirst, "no events after unsubscribe");
+});
+
+console.log(`\n${passed} checks passed`);
