@@ -1,0 +1,50 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Helvetica, Arial, sans-serif;
+  background: #030303;
+  color: #f4f4f5;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #030303; }
+body { min-width: 320px; }
+
+.screen-wrap {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #030303;
+}
+
+.screen-svg {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  background: #030303;
+}
+
+.header-symbol { fill: #f4f4f5; font-size: 21px; font-weight: 900; letter-spacing: .01em; }
+.header-price { fill: #a9a9ae; font-size: 20px; font-weight: 500; }
+.header-down { fill: #ff5000; font-size: 18px; font-weight: 800; }
+.tab-text { fill: #f0f0f2; font-size: 20px; font-weight: 500; }
+.tab-active { fill: #f5f5f6; font-size: 18px; font-weight: 900; }
+.badge-text { fill: #a8a8ad; font-size: 15px; font-weight: 900; }
+
+.title-text { fill: #f4f4f5; font-size: 31px; font-weight: 450; letter-spacing: -0.03em; }
+.info-i { fill: #adadb2; font-size: 13px; font-weight: 900; }
+.orange { fill: #ff5000; }
+.big-pnl { font-size: 33px; font-weight: 450; letter-spacing: -0.035em; }
+.pct-text { font-size: 21px; font-weight: 750; }
+.greek-label { fill: #aaaab0; font-size: 19px; font-weight: 500; }
+.greek-value { fill: #f4f4f5; font-size: 20px; font-weight: 450; }
+.marker-label { fill: #aaaab0; font-size: 18px; font-weight: 700; }
+.axis-label { fill: #818188; font-size: 18px; font-weight: 700; }
+.x-label { fill: #85858b; font-size: 18px; font-weight: 700; }
+.control-label { fill: #f2f2f3; font-size: 20px; font-weight: 500; }
+.control-value { fill: #f3f3f4; font-size: 20px; font-weight: 900; }
+.foot-label { fill: #aaaab0; font-size: 20px; font-weight: 500; }

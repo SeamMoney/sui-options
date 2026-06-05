@@ -55,7 +55,11 @@ deployments/archive/
 .scratch/
 *.local
 
-# Sibling scaffolding experiments (kept locally, never committed)
-frontend/robinhood-legend/
+# robinhood-legend: track source, ignore the heavy build output + captures (~2.9GB)
+frontend/robinhood-legend/node_modules/
+frontend/robinhood-legend/.next/
+frontend/robinhood-legend/public/captures/
+frontend/robinhood-legend/public/cdn.robinhood.com/
+frontend/robinhood-legend/reference/
 .secrets/
 .vercel
