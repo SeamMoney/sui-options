@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
-import { CandlestickChart } from './CandlestickChart';
+import { LegendChart } from './LegendChart';
+import { OrderBook } from './widgets/OrderBook';
 import { OrderEntryFlyout } from './widgets/OrderEntryFlyout';
 import { ChainRowDetails, type ChainRowDetailsProps } from './widgets/ChainRowDetails';
 import { SimulatedReturns } from './widgets/SimulatedReturns';
@@ -107,6 +108,120 @@ function findClickSequence(currentSeq: number, target: HTMLElement): StateRec[] 
   return sequence;
 }
 
+// ── Resizable panes ────────────────────────────────────────────────────────
+// Each Legend widget is a CSS-grid item placed by `grid-area: rS / cS / span r
+// / span c` in a 24-column grid. We make every shared edge a splitter: dragging
+// it grows the widget and shrinks the neighbor(s) that share that exact line,
+// so the grid always stays gap-free and overlap-free.
+type GArea = { rS: number; cS: number; rSpan: number; cSpan: number };
+function parseArea(s: string): GArea | null {
+  const p = s.split('/').map((x) => x.trim());
+  if (p.length !== 4) return null;
+  const rS = parseInt(p[0], 10);
+  const cS = parseInt(p[1], 10);
+  const rSpan = parseInt(p[2].replace(/span/i, '').trim(), 10);
+  const cSpan = parseInt(p[3].replace(/span/i, '').trim(), 10);
+  return [rS, cS, rSpan, cSpan].some(Number.isNaN) ? null : { rS, cS, rSpan, cSpan };
+}
+function writeArea(el: HTMLElement, a: GArea) {
+  el.style.gridArea = `${a.rS} / ${a.cS} / span ${a.rSpan} / span ${a.cSpan}`;
+}
+
+function installResizeHandles(host: HTMLElement) {
+  const grids = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="widget-system-grid"]'));
+  for (const grid of grids) {
+    if (grid.dataset.rhResizable) continue;
+    const widgets = (Array.from(grid.children) as HTMLElement[]).filter(
+      (c) => (c.getAttribute('data-testid') || '').startsWith('widget-') && parseArea(c.style.gridArea),
+    );
+    if (widgets.length < 2) continue;
+    grid.dataset.rhResizable = '1';
+
+    const cs = getComputedStyle(grid);
+    const maxLine = (axis: 'col' | 'row') =>
+      Math.max(...widgets.map((w) => { const a = parseArea(w.style.gridArea)!; return axis === 'col' ? a.cS + a.cSpan : a.rS + a.rSpan; })) - 1;
+    let colTracks = cs.gridTemplateColumns.split(' ').filter(Boolean).length;
+    let rowTracks = cs.gridTemplateRows.split(' ').filter(Boolean).length;
+    if (colTracks <= 1) colTracks = maxLine('col');
+    if (rowTracks <= 1) rowTracks = maxLine('row');
+
+    const overlaps = (a: GArea, b: GArea, axis: 'col' | 'row') =>
+      axis === 'col'
+        ? b.rS < a.rS + a.rSpan && b.rS + b.rSpan > a.rS
+        : b.cS < a.cS + a.cSpan && b.cS + b.cSpan > a.cS;
+    const neighborsOf = (w: HTMLElement, axis: 'col' | 'row') => {
+      const a = parseArea(w.style.gridArea)!;
+      const edge = axis === 'col' ? a.cS + a.cSpan : a.rS + a.rSpan;
+      return widgets.filter((n) => {
+        if (n === w) return false;
+        const na = parseArea(n.style.gridArea)!;
+        return (axis === 'col' ? na.cS : na.rS) === edge && overlaps(a, na, axis);
+      });
+    };
+
+    const startResize = (e: PointerEvent, w: HTMLElement, axis: 'col' | 'row') => {
+      e.preventDefault();
+      e.stopPropagation();
+      const a0 = parseArea(w.style.gridArea)!;
+      const neigh = neighborsOf(w, axis).map((el) => ({ el, a: parseArea(el.style.gridArea)! }));
+      if (!neigh.length) return;
+      const rect = grid.getBoundingClientRect();
+      const cellPx = (axis === 'col' ? rect.width / colTracks : rect.height / rowTracks) || 1;
+      const startPos = axis === 'col' ? e.clientX : e.clientY;
+      const edge = axis === 'col' ? a0.cS + a0.cSpan : a0.rS + a0.rSpan;
+      const wSpan0 = axis === 'col' ? a0.cSpan : a0.rSpan;
+      const MIN = 2;
+      const minDelta = MIN - wSpan0;
+      const maxDelta = Math.min(...neigh.map((n) => (axis === 'col' ? n.a.cSpan : n.a.rSpan) - MIN));
+      const move = (ev: PointerEvent) => {
+        let d = Math.round(((axis === 'col' ? ev.clientX : ev.clientY) - startPos) / cellPx);
+        d = Math.max(minDelta, Math.min(maxDelta, d));
+        writeArea(w, axis === 'col' ? { ...a0, cSpan: wSpan0 + d } : { ...a0, rSpan: wSpan0 + d });
+        for (const n of neigh) {
+          writeArea(n.el, axis === 'col'
+            ? { ...n.a, cS: edge + d, cSpan: n.a.cSpan - d }
+            : { ...n.a, rS: edge + d, rSpan: n.a.rSpan - d });
+        }
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      document.body.style.cursor = axis === 'col' ? 'col-resize' : 'row-resize';
+      document.body.style.userSelect = 'none';
+    };
+
+    for (const w of widgets) {
+      if (getComputedStyle(w).position === 'static') w.style.position = 'relative';
+      const mk = (axis: 'col' | 'row') => {
+        if (!neighborsOf(w, axis).length) return;
+        const isCol = axis === 'col';
+        const h = document.createElement('div');
+        h.dataset.rhHandle = axis;
+        Object.assign(h.style, {
+          position: 'absolute',
+          zIndex: '40',
+          background: 'transparent',
+          transition: 'background 120ms',
+          ...(isCol
+            ? { top: '0px', right: '-3px', width: '7px', height: '100%', cursor: 'col-resize' }
+            : { left: '0px', bottom: '-3px', height: '7px', width: '100%', cursor: 'row-resize' }),
+        });
+        h.addEventListener('pointerdown', (ev) => startResize(ev as PointerEvent, w, axis));
+        h.addEventListener('mouseenter', () => { h.style.background = 'rgba(96,150,255,.45)'; });
+        h.addEventListener('mouseleave', () => { h.style.background = 'transparent'; });
+        w.appendChild(h);
+      };
+      mk('col');
+      mk('row');
+    }
+  }
+}
+
 function mountCharts(host: HTMLElement, roots: Root[]) {
   host.querySelectorAll<HTMLElement>('[data-element="canvasArea"]').forEach((slot) => {
     const rect = slot.getBoundingClientRect();
@@ -115,21 +230,66 @@ function mountCharts(host: HTMLElement, roots: Root[]) {
       (rect.height > 0 && rect.height / Math.max(1, rect.width) > 1.2);
     slot.replaceChildren();
     if (isLadder) {
-      // Price ladders aren't candlestick charts. Show the captured PNG so the
-      // axis labels and grid render correctly. Bid/ask size bars and the
-      // hover "Buy limit"/"Sell limit" pill aren't in captures; hand-build later.
-      const img = document.createElement('img');
-      img.src = '/chart-fixtures/composite-01.png';
-      img.alt = '';
-      img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:fill;pointer-events:none;z-index:0;';
-      img.onerror = () => { img.style.display = 'none'; };
-      slot.appendChild(img);
+      // Price ladder / order-book depth — render the live OrderBook widget
+      // instead of the captured PNG.
+      const root = createRoot(slot);
+      root.render(
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+          <OrderBook symbol="STRC" lastPrice={100} priceStep={0.25} rowCount={21} />
+        </div>,
+      );
+      roots.push(root);
       return;
     }
     const root = createRoot(slot);
-    root.render(<CandlestickChart />);
+    root.render(<LegendChart />);
     roots.push(root);
   });
+
+  // Remove the captured order-book disclosure banners ("Order book unavailable
+  // for options", "The options market opens at 6:30 AM"). Find the banner box by
+  // its text, but GUARD: never remove an element that contains the live
+  // OrderBook slot ([data-element="canvasArea"]) — that was what blanked the
+  // pane before (the slot is empty at this point because OrderBook mounts async).
+  host.querySelectorAll('[data-testid*="disclosure-overlay"]').forEach((el) => el.remove());
+  for (const needle of ['Order book unavailable for options', 'options market opens at']) {
+    const cands = Array.from(host.querySelectorAll<HTMLElement>('div, section, aside')).filter(
+      (n) => (n.textContent || '').includes(needle) && !n.querySelector('[data-element="canvasArea"]'),
+    );
+    if (!cands.length) continue;
+    let banner = cands.reduce((a, b) => ((a.textContent || '').length <= (b.textContent || '').length ? a : b));
+    const baseLen = (banner.textContent || '').length;
+    while (
+      banner.parentElement &&
+      banner.parentElement !== host &&
+      !banner.parentElement.querySelector('[data-element="canvasArea"]') &&
+      (banner.parentElement.textContent || '').length <= baseLen + 70
+    ) {
+      banner = banner.parentElement;
+    }
+    banner.remove();
+  }
+
+  // Remove the captured order-entry header ("Buy MKT/Sell MKT" + P&L) — it
+  // duplicates the live OrderBook's own header ("Buy market/Short market").
+  // Climb from the captured "Buy MKT" leaf, stopping before the title bar
+  // (STRC), the OrderBook ("Buy market"), or the ladder slot.
+  const mktNode = Array.from(host.querySelectorAll<HTMLElement>('*')).find(
+    (n) => n.children.length === 0 && (n.textContent || '').includes('Buy MKT'),
+  );
+  if (mktNode) {
+    let block: HTMLElement = mktNode;
+    while (
+      block.parentElement &&
+      block.parentElement !== host &&
+      !block.parentElement.querySelector('[data-element="canvasArea"]') &&
+      !(block.parentElement.textContent || '').includes('STRC') &&
+      !(block.parentElement.textContent || '').includes('Buy market')
+    ) {
+      block = block.parentElement;
+    }
+    block.remove();
+  }
 }
 
 function markHandled(ev: Event) { (ev as Event & { __rhHandled?: boolean }).__rhHandled = true; }
@@ -818,6 +978,7 @@ export function LegendApp({ layoutId }: { layoutId: string }) {
     rootsRef.current = [];
     mountCharts(host, rootsRef.current);
     wireInteractivity(host);
+    installResizeHandles(host);
     return () => { rootsRef.current.forEach((r) => queueMicrotask(() => r.unmount())); };
   }, []);
 

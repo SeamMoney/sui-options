@@ -29,11 +29,11 @@ export type OrderBookProps = {
 
 const COLORS = {
   positive: '#00d20c',
-  positiveAlpha: 'rgba(0, 210, 12, 0.18)',
-  positiveFlash: 'rgba(0, 210, 12, 0.50)',
+  positiveAlpha: 'rgba(0, 200, 12, 0.16)',
+  positiveFlash: 'rgba(0, 200, 12, 0.28)',
   negative: '#ff5000',
-  negativeAlpha: 'rgba(255, 80, 0, 0.20)',
-  negativeFlash: 'rgba(255, 80, 0, 0.55)',
+  negativeAlpha: 'rgba(255, 80, 0, 0.17)',
+  negativeFlash: 'rgba(255, 80, 0, 0.30)',
   textPrice: '#85858b',
   textSize: '#f4f4f5',
   centerBg: '#1f1f22',
@@ -57,46 +57,67 @@ const fmtSize = (n: number) => {
 // mutate ~15% of rows so the ladder breathes like the live one.
 function useMockLadder(lastPrice: number, rowCount: number, priceStep: number): LadderRow[] {
   const baseSeed = useRef<Map<number, { bid: number; ask: number }> | null>(null);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   if (baseSeed.current === null) {
     const map = new Map<number, { bid: number; ask: number }>();
     const half = Math.floor(rowCount / 2);
     const center = Math.round(lastPrice / priceStep) * priceStep;
+    // Realistic depth: lumpy, not a smooth ramp. Empty levels (gaps), occasional
+    // big walls, some medium clips, and lots of small odd lots — slightly heavier
+    // near the touch but very noisy. fmtSize then renders walls as "2K–10K" and
+    // odd lots as exact numbers (47, 8, 273), like a real ladder.
+    const depthAt = (dist: number) => {
+      const r = Math.random();
+      const prox = Math.max(0, 1 - dist / (half + 2)); // 1 near touch → 0 far out
+      let size: number;
+      if (r < 0.08) size = 0;                                            // gap
+      else if (r < 0.18) size = Math.round(1800 + Math.random() * 8500); // wall
+      else if (r < 0.52) size = Math.round(110 + Math.random() * 760);   // medium
+      else size = Math.round(1 + Math.random() * 140);                   // odd lot
+      return size === 0 ? 0 : Math.max(1, Math.round(size * (0.6 + 0.7 * prox)));
+    };
     for (let i = -half; i <= half; i++) {
       const price = +(center + i * priceStep).toFixed(2);
       const dist = Math.abs(i);
-      const base = Math.max(50, 3000 - dist * 250);
-      const spike = Math.random() < 0.15 ? Math.round(Math.random() * 10_000) : 0;
-      const noise = Math.round(Math.random() * base * 0.6);
-      map.set(price, {
-        bid: i < 0 ? base + noise + spike : 0,
-        ask: i > 0 ? base + noise + spike : 0,
-      });
+      map.set(price, { bid: i < 0 ? depthAt(dist) : 0, ask: i > 0 ? depthAt(dist) : 0 });
     }
     baseSeed.current = map;
   }
 
   useEffect(() => {
+    const center = Math.round(lastPrice / priceStep) * priceStep;
     const id = setInterval(() => {
       const map = baseSeed.current!;
-      for (const [, row] of map) {
-        if (Math.random() > 0.15) continue;
-        const drift = (Math.random() - 0.5) * 0.25;
-        if (row.bid) row.bid = Math.max(0, Math.round(row.bid * (1 + drift)));
-        if (row.ask) row.ask = Math.max(0, Math.round(row.ask * (1 + drift)));
+      for (const [price, row] of map) {
+        const isBid = price < center - priceStep / 2;
+        const isAsk = price > center + priceStep / 2;
+        if (!isBid && !isAsk) continue;
+        // ~35% of resting levels change every tick — orders constantly arriving
+        // and getting pulled, so the bars grow/shrink continuously.
+        if (Math.random() > 0.35) continue;
+        const cur = isBid ? row.bid : row.ask;
+        const roll = Math.random();
+        let next: number;
+        if (roll < 0.1) next = 0;                                              // order pulled
+        else if (roll < 0.18) next = Math.round(1500 + Math.random() * 8000);  // big order / wall lands
+        else if (roll < 0.42) next = Math.max(1, Math.round((cur || 120) + (Math.random() - 0.35) * 500)); // chunk in/out
+        else next = Math.max(1, Math.round((cur || 90) * (1 + (Math.random() - 0.5) * 0.55)));             // drift
+        if (isBid) row.bid = next;
+        else row.ask = next;
       }
       setTick((t) => t + 1);
-    }, 1200);
+    }, 550);
     return () => clearInterval(id);
-  }, []);
+  }, [lastPrice, priceStep]);
 
   return useMemo(() => {
     const map = baseSeed.current!;
     return [...map.entries()]
       .map(([price, v]) => ({ price, bidSize: v.bid, askSize: v.ask }))
       .sort((a, b) => b.price - a.price);
-  }, [baseSeed.current ? baseSeed.current.size : 0]);
+    // Recompute each tick so the streamed mutations actually surface.
+  }, [tick]);
 }
 
 // Track per-row size changes so we can flash the bar when a value updates.
@@ -177,6 +198,10 @@ export function OrderBook(props: OrderBookProps) {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
+        width: '100%',
+        maxWidth: '100%',
+        overflowX: 'hidden',
+        boxSizing: 'border-box',
         background: 'transparent',
         color: COLORS.textPrice,
         fontFamily: 'var(--bw-ds--font-family, ui-sans-serif, system-ui)',
@@ -184,9 +209,10 @@ export function OrderBook(props: OrderBookProps) {
         userSelect: 'none',
       }}
     >
+      <style>{`[data-testid="order-book-ladder"] ::-webkit-scrollbar{width:0;height:0;display:none}`}</style>
       <OrderStrip lastPrice={snappedLast} changePct={changePct} />
 
-      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', position: 'relative', paddingBlock: 4, scrollBehavior: 'smooth' }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', position: 'relative', paddingBlock: 4, scrollBehavior: 'smooth', scrollbarWidth: 'none' }}>
         {rows.map((r) => {
           const isCurrent = Math.abs(r.price - snappedLast) < priceStep / 2;
           const isAsk = r.price > snappedLast;
