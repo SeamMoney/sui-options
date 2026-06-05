@@ -11,6 +11,7 @@ import { usePortfolio } from "@/hooks/usePortfolio";
 import { RideTest } from "@/routes/RideTest";
 import { Ride } from "@/routes/Ride";
 import { CandleVision } from "@/routes/CandleVision";
+import { Docs } from "@/routes/Docs";
 
 // Minimal pathname-based routing. Computed once at module load (no hash
 // routing / SPA nav within these pages — the Vercel SPA rewrite in
@@ -25,8 +26,10 @@ const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
 const IS_PRO_ROUTE = PATHNAME === "/pro";
 const IS_CANDLE_VISION_ROUTE = PATHNAME === "/candle-vision";
 const IS_DEGEN_ROUTE = PATHNAME === "/degen";
+const IS_DOCS_ROUTE = PATHNAME === "/docs" || PATHNAME.startsWith("/docs/");
 
 export default function App() {
+  if (IS_DOCS_ROUTE) return <Docs path={PATHNAME} />;  // docs grid + topic pages (chaos-feed)
   if (IS_DEGEN_ROUTE) return <Ride />;             // degen tap-hold app
   if (IS_CANDLE_VISION_ROUTE) return <CandleVision />;
   if (IS_RIDE_TEST_ROUTE) return <RideTest />;
