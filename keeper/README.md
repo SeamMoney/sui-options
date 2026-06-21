@@ -156,6 +156,7 @@ export WICK_KEEPER_SEGMENT_MARKETS_V4=0x54e9…@0x1fdf…:0x204d…::tusd::TUSD
 |----------------------------------|---------|-------|
 | `WICK_KEEPER_SEGMENT_MARKETS`    | (empty — cranker off) | **v3** markets to crank (`record_segment`) |
 | `WICK_KEEPER_SEGMENT_MARKETS_V4` | (empty) | **v4** markets to crank (`record_segment_v4`) — the live module |
+| `WICK_KEEPER_SEGMENT_V4_AUTO`     | (off)   | `1` → auto-crank every `segment_markets_v4[]` in the deployment manifest (each market's own collateral); no need to list ids |
 | `WICK_KEEPER_SEGMENT_INTERVAL_MS`| `400`   | per-market crank cadence (the chain hard-codes 400 ms / segment) |
 | `WICK_KEEPER_GAS_RECORD_SEGMENT` | —       | optional per-tx gas budget override |
 
