@@ -1,73 +1,132 @@
 # @wick/sdk
 
-TypeScript SDK for [Wick Markets](../README.md) — touch / no-touch options on Sui.
+TypeScript SDK for [Wick Markets](../README.md) — short-dated touch / no-touch
+options and the on-chain **streaming ride** primitive on Sui.
 
 ```bash
 npm install @wick/sdk @mysten/sui
 ```
 
-## Quick start
+The SDK is **read methods + transaction builders only — no signer**. Every
+builder returns a `@mysten/sui` `Transaction` with the sender set and nothing
+signed, so the same code runs behind a browser wallet, an `Ed25519Keypair`
+service key (the keeper), the API, or the CLI. You pick the signer.
+
+## Read client
 
 ```ts
-import { WickClient, buildBuyTx } from "@wick/sdk";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
-import deployment from "./deployments/testnet.json";
+import { WickClient } from "@wick/sdk";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import deployment from "../deployments/testnet.json";
 
-const sui = new SuiJsonRpcClient({
-  network: "testnet",
-  url: getJsonRpcFullnodeUrl("testnet"),
-});
+const sui = new SuiJsonRpcClient({ network: "testnet", url: "https://sui-testnet-rpc.publicnode.com" });
 const wick = new WickClient({ sui, deployment });
 
-// list every live market for the SUI collateral type
 const markets = await wick.listMarkets({ collateralType: "0x2::sui::SUI" });
+const positions = await wick.listPositions("0x…address");
+```
 
-// build a TX to bet 100k MIST on TOUCH (caller signs and executes)
-const tx = buildBuyTx({
+`WickClient` read methods: `listMarkets({ collateralType? })`, `getMarket(id)`,
+`listPositions(address)`, `listLpPositions(address)`, `listOracles()`,
+`findOracleForAsset(asset)`, plus type-tag helpers (`marketTypeTag`,
+`positionTypeTag`, …).
+
+## The live path — v4 streaming ride (`segmentMarketV4`)
+
+The shipped demo (`/ride`) is a **direction-neutral ride**: you escrow a stake,
+hold the screen, and touch on *either* barrier wins the jackpot. Settlement is
+permissionless. Builders mirror the `wick::segment_market_v4` Move ABI:
+
+```ts
+import { buildOpenSegmentRideV4Tx, SETTLEMENT_NAME_V4 } from "@wick/sdk";
+
+// Open a ride against the current round (caller signs + executes).
+const m = deployment.segment_markets_v4[0]; // { market, vault, collateral, … }
+const tx = buildOpenSegmentRideV4Tx({
   packageId: deployment.package_id,
-  collateralType: "0x2::sui::SUI",
-  sender: "0x...your-address",
-  marketId: markets[0].id,
-  side: "TOUCH",
-  riskMist: 100_000n,
+  collateralType: m.collateral,         // "0x2::sui::SUI"
+  sender: "0x…address",
+  marketId: m.market,
+  vaultId: m.vault,
+  botRegistryId: deployment.bot_registry,
+  stakePerSegment: 1_000_000n,   // MIST per ~400ms segment
+  escrowMist: 50_000_000n,       // total locked; ≥ stakePerSegment × segments
+  // Non-SUI collateral (e.g. TUSD): pass escrowSourceCoinId (+ additionalCoinIds
+  // to auto-merge dust coins). SUI splits straight from gas.
 });
 ```
 
-## What's in the box
+Builders: `buildBootstrapSegmentMarketV4Tx` (admin), `buildRecordSegmentV4Tx`
+(keeper crank), `buildOpenSegmentRideV4Tx`, `buildCloseSegmentRideV4Tx` (cash
+out — touch wins ties at the boundary), `buildCrankExpiredSegmentRideV4Tx`,
+`buildAbortSegmentRideV4Tx` (1:1 refund). Settlement enum:
+`SETTLEMENT_OPEN_V4 / TOUCH_WIN_V4 / CASHOUT_V4 / EXPIRED_LOSS_V4 /
+ABORTED_REFUND_V4` with `SETTLEMENT_NAME_V4[…]`. Touched-side constants:
+`TOUCHED_UPPER / TOUCHED_LOWER / TOUCHED_NONE`.
 
-### `WickClient` — read methods
+### Gas-sponsored variants (`sponsored`)
 
-- `listMarkets({ collateralType? })` — every market emitted via `MarketCreated`
-- `getMarket(id)` — single market state
-- `listPositions(address)` — all open `Position` objects owned by `address`
-- `listLpPositions(address)` — all `LpPosition` shares owned by `address`
-- `findOracleForAsset(asset)` — find a `MockOracle` whose feed key matches
-- `listOracles()` — every `MockOracle` known to the deployment
+`configureSponsoredTransactions(config)` then `openSegmentRideSponsored(…)`,
+`closeSegmentRideSponsored(…)`, `recordSegmentSponsored(…)` co-sign cranking
+from a protocol sponsor wallet so the player needs no gas of their own.
 
-### Transaction builders — write methods
+## Provably-fair candles — `seededPath`
 
-Every builder takes the package id + collateral type + sender, returns a
-`Transaction` with no signer attached. Use `useSignAndExecuteTransaction`
-(dApp Kit), an `Ed25519Keypair`, or the CLI to sign.
+The exact TypeScript mirror of the Move `expand_segment` walk. Same 32-byte
+segment key in ⇒ byte-identical candles out — this is what makes
+[`/verify`](../README.md) able to re-derive any on-chain ride off a public RPC,
+and it's pinned at **10,000 vectors** against the Move tests in CI
+(`npm run conformance:check`).
 
-- `buildCreateMarketTx` — open a new market
-- `buildBuyTx` — `buy_touch` / `buy_no_touch` (parameterized by `side`)
-- `buildSwapTx` — swap an existing position to the other side
-- `buildRedeemCompleteSetTx` — pre-settlement exit
-- `buildRedeemWinnerTx` — post-settlement winning-side claim
-- `buildRedeemLpTx` — post-settlement LP claim
-- `buildMarkHitTx` / `buildSettleExpiredTx` — keeper paths
+```ts
+import { expandSegment, PATTERN_NAME, SETTLEMENT_NAME_V4 } from "@wick/sdk";
 
-### Helpers
+const { candles, state: next } = expandSegment(walkState, segmentKey32);
+// candles: 6 per segment, integer fixed-point; carry `next` into the following key.
+```
 
-- `mistToSui` / `suiToMist` — display ↔ on-chain unit conversion
-- `cpmmOut` — exact mirror of `wick::cpmm_out` (preview swap output before sending)
+Also exported: `CANDLES_PER_SEGMENT`, `TICKS_PER_CANDLE`, regime helpers
+(`regimeDriftForRound`, `applyCumulativeDrift`, `REGIME_LABEL`), the armed-pattern
+shaper FSM (`detectArmedPattern`), and the `PATTERN_*` / `PATTERN_NAME` catalog
+(doji, hammer, shooting star, bullish/bearish engulfing, three white soldiers).
+
+## Candle pattern detection — `patterns`
+
+A pure post-hoc detector catalog over a window of `Candle`s — the same shapes
+the in-app coach surfaces:
+
+```ts
+import { detectPatterns } from "@wick/sdk";
+const matches = detectPatterns(candleWindow); // PatternMatch[]
+```
+
+`detectPatterns(window)`, `detectPatternsAt(window, i)`,
+`detectPostHocPattern(window)`, plus ~50 single/two/multi-candle predicates
+(`isDoji`, `isHammer`, `isMarubozu`, `isEngulfing`, `isHarami`, `isPiercing`,
+`isDarkCloudCover`, …).
+
+## Touch / No-Touch market builders (`transactions`)
+
+The single-barrier touch/no-touch surface against `wick::Market<C>`:
+
+`buildCreateMarketTx`, `buildBuyTx` (`buy_touch` / `buy_no_touch`, by `side`),
+`buildSwapTx`, `buildRedeemCompleteSetTx`, `buildRedeemWinnerTx`,
+`buildRedeemLpTx`, and the keeper paths `buildMarkHitTx` / `buildSettleExpiredTx`.
+Each takes `{ packageId, collateralType, sender, … }` and returns an unsigned
+`Transaction`.
+
+## Helpers
+
+- `mistToSui` / `suiToMist` / `MIST_PER_SUI` — display ↔ on-chain units
+- `shortAddr(addr)` — `0x1234…abcd`
+- `cpmmOut` — exact mirror of `wick::cpmm_out` (preview a swap before sending)
 - `impliedTouchPrice` — implied probability from CPMM reserves
-- `STATUS_NAME`, `SIDE_NAME`, `DIRECTION_NAME`, `ERROR_CODES` — enum + abort code lookups
+- `STATUS_NAME`, `SIDE_NAME`, `DIRECTION_NAME`, `SIDE_CODE`, `DIRECTION_CODE`,
+  `ERROR_CODES` — enum + abort-code lookups
 
 ## Why no signer in the SDK
 
-By design. The SDK is the same shape on the keeper (Ed25519 service key),
+By design. The builder shape is identical on the keeper (Ed25519 service key),
 the frontend (browser wallet), the API (read-only), and external integrations.
 Signing is environment-specific — keeping it out of the SDK avoids leaky
-abstractions and lets each consumer pick the right signer for their context.
+abstractions and lets each consumer pick the right signer for its context.
