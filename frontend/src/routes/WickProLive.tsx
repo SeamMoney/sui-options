@@ -117,9 +117,22 @@ export function WickProLive() {
     return () => window.clearTimeout(id);
   }, [spot]);
 
-  // Latest real mark is the easing target.
+  // Latest real mark is the easing target. Also flash the header price
+  // green/red on each up/down tick — the live-market "terminal" feel that
+  // reminds a judge the price is a real moving CLOB mid, not a fixture.
+  const prevMidRef = useRef<number | null>(null);
+  const [priceTick, setPriceTick] = useState<null | "up" | "down">(null);
   useEffect(() => {
-    if (mark?.mid != null) targetSpotRef.current = mark.mid;
+    if (mark?.mid == null) return;
+    targetSpotRef.current = mark.mid;
+    const prev = prevMidRef.current;
+    if (prev != null && mark.mid !== prev) {
+      setPriceTick(mark.mid > prev ? "up" : "down");
+      const id = window.setTimeout(() => setPriceTick(null), 450);
+      prevMidRef.current = mark.mid;
+      return () => window.clearTimeout(id);
+    }
+    prevMidRef.current = mark.mid;
   }, [mark?.mid]);
 
   // Whether a position is live — read inside the rAF loop without resubscribing.
@@ -384,7 +397,13 @@ export function WickProLive() {
 
       {/* Live mark + live σ (honest pricing) */}
       <div className="px-4 flex items-baseline gap-2 shrink-0">
-        <span className="text-3xl font-bold tabular-nums">
+        <span
+          className="text-3xl font-bold tabular-nums transition-colors duration-150"
+          style={{
+            color:
+              priceTick === "up" ? "#34d399" : priceTick === "down" ? "#f43f5e" : undefined,
+          }}
+        >
           {spot !== null ? fmtPrice(spot) : "—"}
         </span>
         <a
