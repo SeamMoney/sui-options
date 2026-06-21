@@ -96,6 +96,33 @@ print(f"package exposes {len(mods)} Move modules; demo-critical "
 for m in absent:
     print(f"  ❌ MISSING MODULE  {m}")
 
+# ── event type-origin packages (the footgun that caused 4 bugs) ─────────────
+# Move event/struct tags keep the package that DEFINED them across upgrades, so
+# queryEvents / getOwnedObjects must key on the type-ORIGIN package, not the
+# latest package_id. Prove which package defines what by walking the upgrade
+# chain oldest→newest and finding the FIRST that exposes the module / struct.
+# (segment_market_v4 was introduced mid-history; RugFiredV4 was added later.)
+print("\nevent type-origin packages (key queries on THESE, not the latest id):")
+chain = [u["to_package_id"] for u in d.get("upgrade_history", [])]
+if d.get("upgrade_history"):
+    chain = [d["upgrade_history"][0]["from_package_id"], *chain]
+seg_origin = rug_origin = None
+for pid in chain:
+    pm = rpc("sui_getNormalizedMoveModulesByPackage", [pid]) or {}
+    sm4 = pm.get("segment_market_v4")
+    if sm4 and seg_origin is None:
+        seg_origin = pid
+    if sm4 and rug_origin is None and "RugFiredV4" in (sm4.get("structs") or {}):
+        rug_origin = pid
+seg_bad = seg_origin in (None,) or seg_origin == d["package_id"]
+print(f"  {'·' if seg_origin else '❌'} segment_market_v4 (RideOpened/Closed/SegmentRecorded/RoundStarted + "
+      f"SegmentRidePositionV4): {seg_origin or 'NOT FOUND'}")
+print(f"  {'·' if rug_origin else '❌'} RugFiredV4 (added in the v4.26 upgrade): {rug_origin or 'NOT FOUND'}")
+if seg_origin and seg_origin != d["package_id"]:
+    print(f"  → NOTE: the v4 type-origin ({seg_origin[:10]}…) is NOT the latest package_id "
+          f"({d['package_id'][:10]}…) — keying v4 event/struct queries on the latest id returns ZERO rows.")
+origins_ok = bool(seg_origin and rug_origin)
+
 # ── demo-critical funded state ──────────────────────────────────────────────
 def sui_bal(addr):
     r = rpc("suix_getBalance", [addr, "0x2::sui::SUI"])
@@ -136,4 +163,4 @@ if wallets:
         print(f"  {'✓' if active else '·'} {lbl:22s} {sui_bal(addr):>10,.2f} SUI  {addr[:12]}…")
 
 print()
-sys.exit(1 if (missing or absent) else 0)
+sys.exit(1 if (missing or absent or not origins_ok) else 0)
