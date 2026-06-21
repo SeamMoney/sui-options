@@ -20,6 +20,17 @@ const WalletProviders = lazy(() =>
 const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 const NEEDS_WALLET = PATHNAME !== "/pro";
 
+// On wallet routes, kick off the wallet-stack + Ride downloads immediately
+// (in parallel with React init) instead of waiting for the Suspense boundary
+// to request them — this hides the extra round-trip the lazy split would
+// otherwise add to the landing page's time-to-interactive.
+if (NEEDS_WALLET && typeof window !== "undefined") {
+  void import("@/providers/WalletProviders");
+  if (PATHNAME === "/" || PATHNAME === "/ride" || PATHNAME === "/degen") {
+    void import("@/routes/Ride");
+  }
+}
+
 // Dark, full-screen hold while the wallet chunk streams in on wallet routes —
 // never a white flash.
 function BootFallback() {
