@@ -47,9 +47,10 @@ jobs:
           npm -w wick-keeper run typecheck
           npm -w wick-bots run typecheck
 
-      - name: Unit tests (keeper · candle-vision · pro-options)
+      - name: Unit tests (keeper · api · candle-vision · pro-options)
         run: |
           npm -w wick-keeper test
+          npm -w @wick/api test
           npm run test:candle-vision
           npm run test:pro-options
 

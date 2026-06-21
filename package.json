@@ -42,7 +42,7 @@
     "bots:balances": "npm -w wick-bots run balances",
     "bots:run": "npm -w wick-bots run run",
     "bots:tick": "npm -w wick-bots run tick",
-    "test": "npm -w wick-keeper test && npm run test:candle-vision && npm run test:pro-options",
+    "test": "npm -w wick-keeper test && npm -w @wick/api test && npm run test:candle-vision && npm run test:pro-options",
     "test:move": "cd move && sui move test",
     "typecheck": "npm -w frontend run typecheck && npm -w @wick/api run typecheck && npm -w wick-keeper run typecheck && npm -w wick-bots run typecheck",
     "ci": "npm run build:packages && npm run build:sdk && npm run typecheck && npm test && npm run build:frontend"
