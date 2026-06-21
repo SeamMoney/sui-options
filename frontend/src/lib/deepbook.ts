@@ -185,6 +185,42 @@ export async function fetchDeepBookTrades(
  * clients aggregating the same trades produce identical candles. Empty input →
  * empty output.
  */
+/** Seconds in a year (365.25d) — matches @sui-options/pro-options BS convention. */
+export const SECONDS_PER_YEAR = 31_557_600;
+
+/**
+ * Annualised realised volatility (σ) from a candle series — the missing input
+ * that makes Wick Pro's Black-Scholes premiums *real* rather than a guessed
+ * constant. σ = stdev(log close-to-close returns) × √(periods per year), where
+ * the period length is inferred from the candle spacing (`bucketMs`).
+ *
+ * Pure + unit-tested. Returns `fallback` (default 0.6 ≈ a plausible crypto vol)
+ * when there are too few candles to estimate, so callers always have a usable
+ * σ to price with. Clamped to a sane [0.01, 5] band against degenerate inputs.
+ */
+export function realizedVolatility(
+  candles: readonly Candle[],
+  bucketMs: number,
+  fallback = 0.6,
+): number {
+  if (bucketMs <= 0) throw new Error("bucketMs must be positive");
+  const closes = candles.map((c) => c.close).filter((p) => p > 0);
+  if (closes.length < 3) return fallback;
+  const rets: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    rets.push(Math.log(closes[i]! / closes[i - 1]!));
+  }
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const variance =
+    rets.reduce((a, r) => a + (r - mean) * (r - mean), 0) /
+    Math.max(1, rets.length - 1);
+  const sigmaPerPeriod = Math.sqrt(variance);
+  const periodsPerYear = SECONDS_PER_YEAR / (bucketMs / 1000);
+  const annual = sigmaPerPeriod * Math.sqrt(periodsPerYear);
+  if (!Number.isFinite(annual) || annual <= 0) return fallback;
+  return Math.min(5, Math.max(0.01, annual));
+}
+
 export function tradesToCandles(
   trades: readonly DeepBookTrade[],
   bucketMs: number,
