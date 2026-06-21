@@ -39,6 +39,9 @@ const TUSD_TREASURY_CAP =
 
 const DRIP_RAW = 10_000_000n; // 10 TUSD (6 decimals)
 const COOLDOWN_MS = 90 * 1000;
+// The mint tx is paid for in SUI (the TreasuryCap mints TUSD but gas is SUI),
+// so the faucet wallet must still hold enough SUI gas. Headroom for one mint.
+const GAS_BUFFER_MIST = 20_000_000n; // ~0.02 SUI
 
 const lastDrip = new Map<string, number>();
 
@@ -109,6 +112,36 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
   }
 
   const client = getClient();
+
+  // ---- Source SUI-gas precheck --------------------------------------------
+  // Minting TUSD still costs SUI gas. If the faucet wallet is out of SUI, fail
+  // fast with a clear 503 (mirrors /api/faucet's "drained" path) instead of
+  // burning the retry loop and returning an opaque 500 — so the operator knows
+  // to top up SUI, not debug a phantom mint failure.
+  let gasMist: bigint;
+  try {
+    const balance = await client.getBalance({
+      owner: signer.sender,
+      coinType: "0x2::sui::SUI",
+    });
+    gasMist = BigInt(balance.totalBalance);
+  } catch (err) {
+    console.error("[api/faucet-tusd] getBalance failed", { error: String(err) });
+    return { status: 503, body: { error: "RPC unreachable, try again" } };
+  }
+  if (gasMist < GAS_BUFFER_MIST) {
+    console.error("[api/faucet-tusd] faucet wallet out of SUI gas", {
+      sender: signer.sender,
+      gasMist: gasMist.toString(),
+    });
+    return {
+      status: 503,
+      body: {
+        error: "faucet wallet is out of SUI gas — ping the maintainer",
+        sender: signer.sender,
+      },
+    };
+  }
 
   // The mint tx consumes the faucet wallet's gas coin, so two requests landing
   // close together collide on the same coin version and the second throws an
