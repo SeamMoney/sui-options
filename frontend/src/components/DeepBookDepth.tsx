@@ -9,8 +9,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   fetchDeepBookDepth,
   fetchDeepBookTicker,
+  fetchDeepBookTrades,
   deepBookPoolExplorerUrl,
   type DeepBookDepth as Depth,
+  type DeepBookTrade,
   type DeepBookPoolName,
   DEEPBOOK_POOLS,
 } from "@/lib/deepbook";
@@ -19,6 +21,13 @@ function fmtUsd(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}k`;
   return `$${n.toFixed(0)}`;
+}
+
+function fmtAge(nowMs: number, tsMs: number): string {
+  const s = Math.max(0, Math.round((nowMs - tsMs) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`;
 }
 
 export interface DeepBookDepthProps {
@@ -43,6 +52,7 @@ export function DeepBookDepth({
   const [depth, setDepth] = useState<Depth | null>(null);
   const [live, setLive] = useState(false);
   const [vol24h, setVol24h] = useState<number | null>(null);
+  const [fills, setFills] = useState<DeepBookTrade[]>([]);
   const last = useRef<Depth | null>(null);
 
   // 24h quote volume — proves the pool is a real, active market (fetched once
@@ -54,6 +64,29 @@ export function DeepBookDepth({
       .then((t) => setVol24h(t.quoteVolume))
       .catch(() => {});
     return () => controller.abort();
+  }, [pool]);
+
+  // Recent fills — live on-chain executions (the tape). Together with the
+  // resting book above, this is the full "real DeepBook market" picture. Polled
+  // slower than the book since individual trades are sparser.
+  useEffect(() => {
+    const poolName = DEEPBOOK_POOLS[pool].name;
+    let cancelled = false;
+    const controller = new AbortController();
+    setFills([]);
+    const tick = () =>
+      fetchDeepBookTrades(poolName, 3, controller.signal)
+        .then((t) => {
+          if (!cancelled) setFills(t.slice(-3).reverse());
+        })
+        .catch(() => {});
+    void tick();
+    const id = window.setInterval(tick, 3_000);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearInterval(id);
+    };
   }, [pool]);
 
   useEffect(() => {
@@ -175,6 +208,27 @@ export function DeepBookDepth({
           <Row key={`b${i}`} price={l.price} size={l.size} side="bid" />
         ))}
       </div>
+
+      {/* Recent fills — live on-chain executions (the tape). */}
+      {fills.length > 0 && (
+        <div className="mt-1.5 border-t border-white/5 pt-1">
+          <div className="px-2 pb-0.5 text-[8px] uppercase tracking-[0.16em] text-white/25">
+            recent fills
+          </div>
+          {fills.map((f, i) => (
+            <div
+              key={`f${i}`}
+              className="flex items-center justify-between px-2 py-[2px] font-mono text-[10px] tabular-nums"
+            >
+              <span style={{ color: f.side === "buy" ? "rgb(16,185,129)" : "rgb(244,63,94)" }}>
+                {f.side === "buy" ? "▲" : "▼"} {fmtPrice(f.price)}
+              </span>
+              <span className="text-white/40">{fmtSize(f.size)}</span>
+              <span className="text-white/25">{fmtAge(Date.now(), f.tsMs)} ago</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
