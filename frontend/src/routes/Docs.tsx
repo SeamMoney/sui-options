@@ -193,8 +193,8 @@ const DOCS: Doc[] = [
       <p>Prices come from a <b>geometric Brownian motion</b> (the standard model for asset prices) driven by a market's vol and drift, plus a low-probability <b>rug</b> down-jump.</p>
       <H>Deterministic</H>
       <p>The whole path is generated from a single <b>seed</b>. Same seed + params ⇒ identical path, every time. That determinism is what makes commit-reveal fairness possible — and it means a round can be replayed and verified exactly.</p>
-      <H>Not a real asset</H>
-      <p>These prices are honest about being synthetic. There's no real BTC or NVDA behind them — just a fair, fast, reproducible market to trade on.</p>
+      <H>Not a real asset (in this mode)</H>
+      <p>In the <b>synthetic mode</b>, prices are honest about being synthetic — no real BTC or NVDA behind them, just a fair, fast, reproducible market for endless reps. (The live mode at <code>/pro</code> is the opposite: it prices off the <b>real</b> DeepBook mark for SUI, BTC and DEEP.)</p>
     </>,
   },
   {
