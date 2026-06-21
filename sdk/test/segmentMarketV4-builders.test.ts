@@ -13,6 +13,9 @@ import { test } from "node:test";
 import {
   buildOpenSegmentRideV4Tx,
   buildRecordSegmentV4Tx,
+  buildCloseSegmentRideV4Tx,
+  buildCrankExpiredSegmentRideV4Tx,
+  buildAbortSegmentRideV4Tx,
 } from "../src/segmentMarketV4.js";
 
 const A = (n: string | number) => "0x" + String(n).padStart(64, "0");
@@ -71,6 +74,42 @@ test("open-ride validation rejects non-positive stake/escrow", () => {
   };
   assert.throws(() => buildOpenSegmentRideV4Tx({ ...base, stakePerSegment: 1_000_000n, escrowMist: 0n }), /escrowMist/);
   assert.throws(() => buildOpenSegmentRideV4Tx({ ...base, stakePerSegment: 0n, escrowMist: 50_000_000n }), /stakePerSegment/);
+});
+
+test("the rest of the ride lifecycle targets the right Move entrypoints", () => {
+  const settleArgs = {
+    packageId: PKG,
+    collateralType: SUI,
+    sender: SENDER,
+    rideId: A(5),
+    marketId: A(2),
+    vaultId: A(3),
+    priceOracleId: A(6),
+    tokenStateId: A(7),
+    stakingPoolId: A(8),
+  };
+  const close = moveCallOf(buildCloseSegmentRideV4Tx(settleArgs)).mc;
+  assert.equal(close.module, "wick");
+  assert.equal(close.function, "close_segment_ride_v4");
+  assert.deepEqual(close.typeArguments, [SUI]);
+
+  const crank = moveCallOf(buildCrankExpiredSegmentRideV4Tx(settleArgs)).mc;
+  assert.equal(crank.function, "crank_expired_segment_ride_v4");
+  assert.deepEqual(crank.typeArguments, [SUI]);
+
+  const abort = moveCallOf(
+    buildAbortSegmentRideV4Tx({
+      packageId: PKG,
+      collateralType: SUI,
+      sender: SENDER,
+      rideId: A(5),
+      marketId: A(2),
+      vaultId: A(3),
+      refundRecipient: SENDER,
+    }),
+  ).mc;
+  assert.equal(abort.function, "abort_segment_ride_v4");
+  assert.deepEqual(abort.typeArguments, [SUI]);
 });
 
 test("non-SUI collateral requires an explicit escrow source coin", () => {
