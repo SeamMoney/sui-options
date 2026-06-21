@@ -1,0 +1,85 @@
+name: CI
+
+# Backs the README claims — "Move tests 553/553" and "10k conformance vectors
+# checked in CI on every PR" — and guards the demo against regressions. The node
+# job also runs `build:frontend`, which would have caught the Vercel deploy
+# breakage where the frontend's workspace libs were never built.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: build · typecheck · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # Builds @wick/sdk + candle-vision(+react) + pro-options, then the
+      # frontend. A clean Vercel deploy runs exactly this; if a workspace lib
+      # is unbuilt, vite fails here instead of in production.
+      - name: Build frontend (+ all workspace libs)
+        run: npm run build:frontend
+
+      - name: Typecheck frontend
+        run: npm -w frontend run typecheck
+      - name: Typecheck keeper
+        run: npm -w wick-keeper run typecheck
+      - name: Typecheck bots
+        run: npm -w wick-bots run typecheck
+
+      # Provable-fairness: the in-app verifier replays the byte-identical
+      # seeded-path port and must reproduce the documented CLI numbers; a
+      # tampered extremum must FAIL.
+      - name: Provable-fairness replay (seeded-path port)
+        run: npx tsx --test frontend/test/verifyReplay.test.ts
+
+      - name: Unit tests — keeper
+        run: npm -w wick-keeper test
+      - name: Unit tests — pro-options
+        run: npm -w @sui-options/pro-options test
+      - name: Unit tests — api (sponsor)
+        run: npx tsx --test api/sponsor.test.ts
+
+  move:
+    name: sui move test (553)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Sui CLI (testnet)
+        env:
+          SUI_RELEASE: testnet-v1.73.1
+        run: |
+          set -euo pipefail
+          url="https://github.com/MystenLabs/sui/releases/download/${SUI_RELEASE}/sui-${SUI_RELEASE}-ubuntu-x86_64.tgz"
+          echo "Downloading $url"
+          curl -fsSL -o /tmp/sui.tgz "$url"
+          mkdir -p "$HOME/.sui-bin"
+          tar -xzf /tmp/sui.tgz -C "$HOME/.sui-bin"
+          sui_bin="$(find "$HOME/.sui-bin" -type f -name sui | head -1)"
+          test -n "$sui_bin" || { echo "sui binary not found in release tarball"; exit 1; }
+          chmod +x "$sui_bin"
+          echo "$(dirname "$sui_bin")" >> "$GITHUB_PATH"
+
+      - name: Verify Sui CLI
+        run: sui --version
+
+      # Includes the 200 seeded_path_conformance vectors that pin the
+      # Move↔TypeScript port to a byte-identical result.
+      - name: Run Move test suite
+        working-directory: move
+        run: sui move test
