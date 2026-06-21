@@ -70,7 +70,16 @@ test("CASHOUT: payout in (0, stake_paid], stake conserved", () => {
 
 test("CASHOUT rejects a payout that breaks conservation or exceeds stake", () => {
   assert.ok(checkPayoutIdentity(2, 150_000n, 6_970n, 143_031n, MULT).length > 0); // sum != stake
-  assert.ok(checkPayoutIdentity(2, 150_000n, 0n, 150_000n, MULT).length > 0); // payout must be > 0
+  assert.ok(checkPayoutIdentity(2, 150_000n, 0n, 150_000n, MULT).length > 0); // stake paid but payout 0
+});
+
+test("CASHOUT 0-segment (held nothing): payout 0 is valid, not a chain lie", () => {
+  // The user closed before any segment was recorded: stake_paid = 0, so the
+  // Bachelier payout on zero stake is 0 and the full escrow returns via
+  // (escrowed − stake_paid). Requiring payout > 0 unconditionally falsely FAILs
+  // an honest quick cashout — regression for the real ride 0x0f2e8412… on the
+  // rugged market 0x54e91530…, which reported "the chain paid the wrong amount".
+  assert.deepEqual(checkPayoutIdentity(2, 0n, 0n, 0n, MULT), []);
 });
 
 test("EXPIRED_LOSS / MARKET HALT: payout 0, forfeit = stake_paid (not a satoshi more)", () => {
