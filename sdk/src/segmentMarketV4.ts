@@ -644,6 +644,15 @@ export function parseRugFiredV4EventJson(
 export interface SegmentMarketV4Snapshot {
   id: string;
   collateralType: string;
+  /**
+   * Type-origin package of `segment_market_v4` for THIS market — use it to key
+   * RideOpenedV4 / RideClosedV4 / SegmentRecordedV4 / RoundStartedV4 event
+   * queries and the SegmentRidePositionV4 `getOwnedObjects` filter. NOT the
+   * latest `package_id` (Move types keep their origin across upgrades), so
+   * passing the deployment's `package_id` to those queries returns zero rows.
+   * (RugFiredV4 is the exception — keyed on the latest pkg, see rugFiredV4EventType.)
+   */
+  typeOriginPackage: string;
   vaultId: string;
   walkPrice: bigint;
   nextSegmentIndex: bigint;
@@ -698,6 +707,23 @@ function extractCollateralFromMarketV4Type(type: string): string | null {
 }
 
 /**
+ * Extract the **type-origin package** from a `SegmentMarketV4<C>` object type —
+ * the address that DEFINED the `segment_market_v4` module. This is the package
+ * that `RideOpenedV4` / `RideClosedV4` / `SegmentRecordedV4` / `RoundStartedV4`
+ * events and the `SegmentRidePositionV4` struct are keyed on, and it is NOT
+ * generally the latest upgraded `package_id` (Move type tags keep their origin
+ * across upgrades). Pass THIS to the `*EventType` builders / `getOwnedObjects`
+ * StructType filters, or queries silently return zero rows after an upgrade.
+ *
+ * Exception: `RugFiredV4` was introduced in a LATER upgrade (v4.26), so its
+ * events are keyed on the latest `package_id`, not this — see `rugFiredV4EventType`.
+ */
+export function segmentMarketV4TypeOriginPackage(type: string): string | null {
+  const idx = type.indexOf("::segment_market_v4::");
+  return idx > 0 ? type.slice(0, idx) : null;
+}
+
+/**
  * Read a SegmentMarketV4<C>'s on-chain state. Returns null if the object id
  * is missing or doesn't match the expected struct.
  */
@@ -720,6 +746,8 @@ export async function fetchSegmentMarketV4(
   return {
     id: o.data.objectId,
     collateralType,
+    typeOriginPackage:
+      segmentMarketV4TypeOriginPackage(content.type) ?? content.type.split("::")[0]!,
     vaultId: asString(f.vault_id),
     walkPrice,
     nextSegmentIndex: asBigInt(f.next_segment_index),

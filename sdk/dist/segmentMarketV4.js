@@ -395,6 +395,22 @@ function extractCollateralFromMarketV4Type(type) {
     return m && m[1] ? m[1] : null;
 }
 /**
+ * Extract the **type-origin package** from a `SegmentMarketV4<C>` object type —
+ * the address that DEFINED the `segment_market_v4` module. This is the package
+ * that `RideOpenedV4` / `RideClosedV4` / `SegmentRecordedV4` / `RoundStartedV4`
+ * events and the `SegmentRidePositionV4` struct are keyed on, and it is NOT
+ * generally the latest upgraded `package_id` (Move type tags keep their origin
+ * across upgrades). Pass THIS to the `*EventType` builders / `getOwnedObjects`
+ * StructType filters, or queries silently return zero rows after an upgrade.
+ *
+ * Exception: `RugFiredV4` was introduced in a LATER upgrade (v4.26), so its
+ * events are keyed on the latest `package_id`, not this — see `rugFiredV4EventType`.
+ */
+export function segmentMarketV4TypeOriginPackage(type) {
+    const idx = type.indexOf("::segment_market_v4::");
+    return idx > 0 ? type.slice(0, idx) : null;
+}
+/**
  * Read a SegmentMarketV4<C>'s on-chain state. Returns null if the object id
  * is missing or doesn't match the expected struct.
  */
@@ -416,6 +432,7 @@ export async function fetchSegmentMarketV4(client, marketId) {
     return {
         id: o.data.objectId,
         collateralType,
+        typeOriginPackage: segmentMarketV4TypeOriginPackage(content.type) ?? content.type.split("::")[0],
         vaultId: asString(f.vault_id),
         walkPrice,
         nextSegmentIndex: asBigInt(f.next_segment_index),
