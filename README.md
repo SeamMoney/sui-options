@@ -18,6 +18,7 @@ Wick asks whether BTC WICKS into a level —
 
 → **Live frontend**: [wick-markets.vercel.app/ride](https://wick-markets.vercel.app/ride)
 → **Verify any closed ride** (one command): `npx tsx scripts/verify.ts --market <id> --ride <id>`
+→ **Verify in your browser** (no wallet, no CLI): [wick-markets.vercel.app/verify](https://wick-markets.vercel.app/verify) — replays a sample ride live from its on-chain keys; toggle "dishonest house" to watch the verifier catch a tampered candle
 → **Explorer**: [package `0x1fdf78474…815924` v4.26 on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924)
 
 ---
