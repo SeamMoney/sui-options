@@ -4,6 +4,8 @@
 Everything below is live on testnet — no install, no wallet needed to play.
 
 > Quick health check: `npm run smoke:demo` (curl-only, ~5s) confirms the live demo is green.
+> Deeper: `npm run check:routes` drives a real headless browser over **every** route below
+> (`/pro` · `/coach` · `/ride` · `/verify`) and asserts each loads, renders, and throws no errors.
 
 ---
 
