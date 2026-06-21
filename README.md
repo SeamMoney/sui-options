@@ -103,6 +103,13 @@ npm run verify:fairness:live     # audit a LIVE market (auto-picked from deploym
 #    …or audit a specific LIVE v4 market (reads the segment Table directly — prune-proof):
 npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>            # audit recent segments
 npx tsx scripts/verify-v4.ts --market <id> --ride <SegmentRidePositionV4 id>  # verify one closed ride
+#
+#    …or verify a real MARKET HALT (rug) ride — re-derives the keccak halt-roll:
+npx tsx scripts/verify-v4.ts \
+  --market 0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282 \
+  --ride   0x7b3df97e608bda202efd096bca652be8a846dc2a286abfd5d94a1ca3b9c4a5ea
+#  → MARKET HALT: rug fired @ segment 458 — keccak roll=78 < rug_chance_bps=150 (HONEST)
+#  → off-chain EXPIRED_LOSS == on-chain EXPIRED_LOSS → PASS — the chain was honest.
 
 # 5. open the live frontend
 open https://wick-markets.vercel.app/ride
@@ -172,7 +179,7 @@ Every 400 ms segment carries a **1.5% chance the market HALTS** — wiping any o
 
 Why it exists: without it, the touch-either market is too generous to the player. The ±10% / 1.75× barrier configuration touches ~55% of the time on the seeded walk — without a counter-mechanism that's a negative-edge market and the vault drains. The rug calibrates the protocol to a **+3.93% house edge** so it survives, lining up with mainstream crypto crash games (Stake/Roobet land in the +1.0% to +4.0% band).
 
-Why it's provably-fair: the rug roll is **deterministic from `(segment_key, market_id, round_index)`**, the segment_key comes from `sui::random::generate_bytes(32)` gated by Sui's PTB-Random structural rule (attackers can't grind it), and `npx tsx scripts/verify.ts` re-runs the roll for every segment of any closed ride. If a `kind=3 / rugged` settlement ever fires without a passing roll, the verifier errors out. Same standard as the candle math itself.
+Why it's provably-fair: the rug roll is **deterministic from `(segment_key, market_id, round_index)`** — `roll = keccak256(segment_key ‖ market_id ‖ round)[0..8] mod 10_000`, fires iff `roll < rug_chance_bps`. The segment_key comes from `sui::random::generate_bytes(32)` gated by Sui's PTB-Random structural rule (attackers can't grind it), and `npx tsx scripts/verify-v4.ts --market <id> --ride <id>` **re-derives the keccak roll for every segment in the ride's round** straight from the on-chain keys. It reports the firing segment and its roll, cross-checks against the chain's `rugged_at_segment`, and confirms the rugged ride settled `EXPIRED_LOSS`. If a `kind=3 / rugged` settlement ever fired without a passing roll — or a passing roll were ignored — the verdict diverges and the verifier exits non-zero. Same standard as the candle math itself; the TS↔Move roll is pinned by golden vectors in `npm run test:verify-v4`.
 
 Why the player can't avoid it: six adversarial heuristics tested at 50k rounds each (`scripts/simulate_v4.27_strategies.py`) — `hold_full`, `cashout_on_drawdown`, `chase_touch`, `cashout_on_profit`, `early_exit_5`, `mid_hold`. Every one lands in the **+3.93% to +11.71% house-edge band** with 95% confidence. No strategy in the tested family achieves negative house edge. Reactive cashouts make things WORSE because the 2% cashout spread bleeds segments the player didn't need to abandon.
 
