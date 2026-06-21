@@ -50,10 +50,19 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
     `npm run verify:fairness:live`
   - audit a specific market's recorded segments: `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>`
   - verify one closed ride's settlement: `npx tsx scripts/verify-v4.ts --market <id> --ride <id>`
+  - **verify a real `MARKET HALT` (rug) — the house edge is provably fair too:**
+    ```
+    npx tsx scripts/verify-v4.ts \
+      --market 0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282 \
+      --ride   0x7b3df97e608bda202efd096bca652be8a846dc2a286abfd5d94a1ca3b9c4a5ea
+    ```
+    → `MARKET HALT: rug fired @ segment 458 — keccak roll=78 < rug_chance_bps=150 (HONEST)` → **PASS**
 
   It re-runs the byte-identical seeded walk from each segment's on-chain key + carried state and
   confirms the chain's published high/low/verdict — prune-proof (reads the segment Table directly, no
-  event replay). Tamper any key or extremum and it exits non-zero.
+  event replay). For a rugged ride it also **re-derives the keccak halt-roll**
+  (`keccak256(segment_key ‖ market_id ‖ round) mod 10_000 < rug_chance_bps`) and proves the freeze only
+  fired on an honest roll. Tamper any key, extremum, or halt and it exits non-zero.
 - **The whole loop in one command** — `npm run smoke:ride` mints a throwaway wallet, funds it from the
   **production faucet** (the same 0.2 SUI + 10 TUSD a fresh player gets), opens a real touch-either ride,
   cranks segments, settles on-chain, then hands the closed ride to `verify-v4.ts` and asserts **PASS** —
