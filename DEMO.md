@@ -30,9 +30,11 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 
 ## Also worth a look
 
-- **[/coach](https://wick-markets.vercel.app/coach)** — the CandleVision pattern coach standalone, on
-  the live DeepBook mark (toggle SUI / BTC / DEEP), beside a live Black-Scholes quote (CALL/PUT
-  premium + Δ).
+- **[/coach](https://wick-markets.vercel.app/coach)** — the live DeepBook **options desk**: the
+  CandleVision pattern coach · a live Black-Scholes quote (CALL/PUT premium, Δ, break-even, and the
+  **payoff hockey-stick**) · the real on-chain **order book** (resting bids/asks with depth bars, 24h
+  volume, and streaming recent fills) · Suiscan pool links — all on the live mark, toggle SUI / BTC /
+  DEEP. The whole DeepBook integration laid bare in one screen.
 - **[/ride](https://wick-markets.vercel.app/ride)** — the original tap-hold touch/no-touch game.
   Real **on-chain** rides: one-tap faucet (free testnet SUI + TUSD, no wallet) → hold the chart →
   segments recorded on-chain from `sui::random`.
@@ -44,6 +46,9 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 
 - **The mark is a real on-chain CLOB** — on `/pro` (and `/coach`) click the pair (e.g. **`SUI/USDC ↗`**)
   to open the actual DeepBook v3 pool object on Suiscan and see its live order book. Not a faked feed.
+- **Live book + tape, in-app** — `/coach` renders that pool's actual resting bids/asks (with depth),
+  24h volume, and streaming recent fills, right next to the option quote it prices. The CLOB Wick Pro
+  marks against, visible and moving.
 - **DeepBook v3 mark** the options price against: `npm run check:deepbook` (live mid + σ → BS premium).
 - **Move package** (v4.26, testnet): [`0x1fdf78474…815924` on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924).
 - **553/553 Move tests** (incl. 10k seeded-path conformance vectors, TS↔Move byte-identical, enforced in CI).
