@@ -277,6 +277,66 @@ interface RoundAudit {
   honest: boolean;
 }
 
+export type RugVerdict =
+  | "honest-halt"   // chain halted at exactly the first qualifying segment
+  | "faked"         // chain halted but no segment in the round qualified
+  | "suppressed-late" // an earlier segment qualified; the chain halted late
+  | "suppressed-full" // a segment qualified but the chain fired no halt at all
+  | "clean";        // no segment qualified and the chain correctly didn't halt
+
+export interface RoundClassification {
+  honest: boolean;
+  kind: RugVerdict;
+  status: string;
+}
+
+/**
+ * Classify one round from (what the chain says, what the dice say) — the pure
+ * core of the audit, mirroring Move `roll_rug` semantics (fire on the FIRST
+ * qualifying segment, once per round).
+ *
+ *   chainRug — the segment the chain's RugFiredV4 says it halted at (null = the
+ *              chain claims no halt this round).
+ *   firstQ   — the first segment whose deterministic roll fires (null = none
+ *              qualified in the scanned range).
+ */
+export function classifyRound(
+  chainRug: bigint | null,
+  firstQ: bigint | null,
+  rollAtRug: bigint,
+  rugChanceBps: bigint,
+): RoundClassification {
+  if (chainRug !== null) {
+    if (firstQ === null) {
+      return {
+        honest: false,
+        kind: "faked",
+        status: `✗ FAKED — halt @ ${chainRug} rolled ${rollAtRug} ≥ ${rugChanceBps}; no segment qualified`,
+      };
+    }
+    if (firstQ < chainRug) {
+      return {
+        honest: false,
+        kind: "suppressed-late",
+        status: `✗ SUPPRESSED — segment ${firstQ} qualified earlier; chain halted late @ ${chainRug}`,
+      };
+    }
+    return {
+      honest: true,
+      kind: "honest-halt",
+      status: `✓ HONEST · halt @ ${chainRug.toString().padStart(5)} · roll ${rollAtRug.toString().padStart(5)} < ${rugChanceBps}`,
+    };
+  }
+  if (firstQ !== null) {
+    return {
+      honest: false,
+      kind: "suppressed-full",
+      status: `✗ SUPPRESSED — segment ${firstQ} qualified but the chain fired NO halt this round`,
+    };
+  }
+  return { honest: true, kind: "clean", status: "" };
+}
+
 async function audit(args: Args): Promise<boolean> {
   const marketId = args.market ?? ruggedMarketFromDeployment();
   if (!marketId) throw new Error("no --market given and no rugged market in deployments/testnet.json");
@@ -339,34 +399,24 @@ async function audit(args: Args): Promise<boolean> {
       : roundEnd;
     const firstQ = await firstQualifyingSegment(client, market, R, roundStart, scanEnd);
 
-    let honest: boolean;
-    let status: string;
     let rollAtRug = -1n;
     if (chainRug !== null) {
       const rugKey = await readSegmentKey(client, market.segmentsTableId, chainRug);
       rollAtRug = rugKey ? rollRugFired(rugKey, marketId, R, market.rugChanceBps).roll : -1n;
-      if (firstQ === null) {
-        honest = false;
-        status = `✗ FAKED — halt @ ${chainRug} rolled ${rollAtRug} ≥ ${market.rugChanceBps}; no segment qualified`;
-      } else if (firstQ < chainRug) {
-        honest = false;
-        status = `✗ SUPPRESSED — segment ${firstQ} qualified earlier; chain halted late @ ${chainRug}`;
-      } else {
-        honest = true;
-        status = `✓ HONEST · halt @ ${chainRug.toString().padStart(5)} · roll ${rollAtRug.toString().padStart(5)} < ${market.rugChanceBps}`;
-      }
-      audits.push({ round: R, chainRugSeg: chainRug, rollAtRug, fired: firstQ !== null, earlierFire: firstQ !== null && firstQ < chainRug ? firstQ : null, honest });
-      console.log(`round ${R.toString().padStart(3)} · ${status}`);
+    }
+    const verdict = classifyRound(chainRug, firstQ, rollAtRug, market.rugChanceBps);
+    if (verdict.kind === "clean") {
+      cleanRounds++;
     } else {
-      // Clean round — the chain claims NO halt. Prove no segment qualified.
-      if (firstQ !== null) {
-        honest = false;
-        status = `✗ SUPPRESSED — segment ${firstQ} qualified but the chain fired NO halt this round`;
-        audits.push({ round: R, chainRugSeg: -1n, rollAtRug, fired: true, earlierFire: firstQ, honest });
-        console.log(`round ${R.toString().padStart(3)} · ${status}`);
-      } else {
-        cleanRounds++;
-      }
+      audits.push({
+        round: R,
+        chainRugSeg: chainRug ?? -1n,
+        rollAtRug,
+        fired: firstQ !== null,
+        earlierFire: chainRug !== null && firstQ !== null && firstQ < chainRug ? firstQ : (chainRug === null ? firstQ : null),
+        honest: verdict.honest,
+      });
+      console.log(`round ${R.toString().padStart(3)} · ${verdict.status}`);
     }
   }
 
