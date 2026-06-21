@@ -54,6 +54,19 @@ jobs:
           npm run test:candle-vision
           npm run test:pro-options
 
+      # The Move conformance test (move/tests/seeded_path_conformance.move) is
+      # AUTO-GENERATED from the TS port (sdk/src/seededPath.ts): it embeds the
+      # TS-computed rolling digests. `sui move test` only proves Move matches
+      # those committed digests — it can't notice if seededPath.ts changed
+      # without a regen. Regenerate here and fail on any diff, so the Move job
+      # proving "Move == committed digests" composes into "Move == current TS"
+      # — the byte-identical guarantee the README leans on.
+      - name: Conformance vectors in sync with the TS port
+        run: |
+          npm run conformance
+          git diff --exit-code move/tests/seeded_path_conformance.move \
+            || { echo "::error::seeded_path_conformance.move is stale — run 'npm run conformance' after editing sdk/src/seededPath.ts and commit the result"; exit 1; }
+
       - name: Build frontend (Vite)
         run: npm run build:frontend
 
