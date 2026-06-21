@@ -74,15 +74,30 @@ try {
   {
     const { page, ctx, errors } = await newPage();
     await page.goto(`${BASE}/coach`, { waitUntil: "domcontentloaded", timeout: 40000 });
-    await page.waitForTimeout(7000);
-    const segs = await page.evaluate(() => {
-      const path = document.querySelector("svg path, svg rect");
-      return document.querySelectorAll("svg").length > 0 ? 1 : 0;
-    });
+    await page.waitForTimeout(8000);
+    const chart = await page.evaluate(() => document.querySelectorAll("svg").length > 0);
     const txt = await page.evaluate(() => document.body.innerText);
-    const hasCoach = /PATTERN COACH/i.test(txt);
-    const hasDeepBook = /DEEPBOOK|CALL|PUT|order book|book/i.test(txt);
-    check("/coach loads the DeepBook desk (chart + coach + DeepBook)", segs > 0 && hasCoach && hasDeepBook && errors.length === 0, `coach=${hasCoach} deepbook=${hasDeepBook} errors=${errors.length}`);
+    // The provenance link is the one DEMO.md tells judges to click ("the pair")
+    // to verify the real on-chain pool — gate it so it can't silently vanish.
+    const provLink = await page.evaluate(() =>
+      [...document.querySelectorAll("a")].some(
+        (a) => /DeepBook ↗/i.test(a.textContent || "") && /suiscan\.xyz\/mainnet\/object\//.test(a.href),
+      ),
+    );
+    // Each distinct desk panel DEMO.md promises, gated separately so a
+    // regression in any one is caught (not masked by a loose "book" match).
+    const parts = {
+      coach: /PATTERN COACH/i.test(txt),
+      quote: /CALL/i.test(txt) && /PUT/i.test(txt),
+      book: /DEEPBOOK BOOK|spread|24h/i.test(txt),
+      fills: /RECENT FILLS|ago/i.test(txt),
+    };
+    const ok = chart && provLink && Object.values(parts).every(Boolean) && errors.length === 0;
+    check(
+      "/coach desk: chart + coach + BS quote + order book + fills + verifiable pool link",
+      ok,
+      `chart=${chart} ${Object.entries(parts).map(([k, v]) => `${k}=${v}`).join(" ")} prov=${provLink} errors=${errors.length}`,
+    );
     await ctx.close();
   }
 
