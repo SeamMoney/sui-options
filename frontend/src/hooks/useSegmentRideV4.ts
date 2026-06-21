@@ -190,10 +190,21 @@ export interface UseSegmentRideV4Handle {
    * docs/design/v2/26_rug_pull_house_edge_v4.md §5.1.
    */
   lastSettlement:
-    | { kind: number; label: string; digest: string; settlementSubKind?: "rugged" }
+    | {
+        kind: number;
+        label: string;
+        digest: string;
+        settlementSubKind?: "rugged";
+        /** v4.31d — chain-attested stake (raw micro-USD), from RideClosedV4. */
+        stakePaidRaw?: bigint;
+        /** v4.31d — chain-attested payout (raw micro-USD), from RideClosedV4. */
+        payoutRaw?: bigint;
+      }
     | null;
   /** Human-readable last error, or null. */
   lastError: string | null;
+  /** Clear `lastError` (e.g. when the user dismisses an error banner). */
+  clearLastError: () => void;
   /**
    * Wallclock ms (Date.now()) at which the most recent `RugFiredV4`
    * event was observed for this market, or null if none seen this
