@@ -27,6 +27,7 @@
     "verify:fairness": "tsx scripts/verify-v4.ts --rpc mock://synthetic-v4 --ride 0xmock",
     "verify:fairness:tamper": "tsx scripts/verify-v4.ts --rpc mock://tamper-v4 --ride 0xmock",
     "verify:fairness:live": "tsx scripts/verify-v4.ts",
+    "audit:deployment": "tsx scripts/audit-deployment.ts",
     "verify:halt": "tsx scripts/verify-v4.ts --market 0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282 --ride 0x7b3df97e608bda202efd096bca652be8a846dc2a286abfd5d94a1ca3b9c4a5ea",
     "verify:payout": "tsx scripts/verify-payout.ts",
     "audit:ride": "tsx scripts/audit-ride.ts",
