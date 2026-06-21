@@ -98,12 +98,23 @@ export function WickProLive() {
     if (mark?.mid != null) targetSpotRef.current = mark.mid;
   }, [mark?.mid]);
 
+  // Whether a position is live — read inside the rAF loop without resubscribing.
+  const hasPositionRef = useRef(false);
+  useEffect(() => {
+    hasPositionRef.current = position != null;
+  }, [position]);
+
   // Single rAF loop: advance the clock (smooth theta decay) and ease the spot
-  // toward the live mark — both at the display refresh rate (~60fps).
+  // toward the live mark at the display refresh rate (~60fps). The per-frame
+  // clock tick only fires while a position is open (it drives the live P&L /
+  // countdown); idle, we still ease the spot but don't force 60fps re-renders,
+  // so the page doesn't burn battery when nobody's in a trade.
   useEffect(() => {
     let raf = 0;
     const loop = () => {
+      nowMsRef.current = Date.now();
       const target = targetSpotRef.current;
+      let eased = false;
       if (target != null) {
         const cur = spotSmoothRef.current;
         // Snap on first mark; otherwise exponential ease (~120ms to converge).
@@ -113,11 +124,13 @@ export function WickProLive() {
             : cur + (target - cur) * 0.18;
         if (next !== spotSmoothRef.current) {
           spotSmoothRef.current = next;
-          setSpotSmooth(next);
+          setSpotSmooth(next); // re-renders the spot/chart tip + (with a position) the P&L
+          eased = true;
         }
       }
-      nowMsRef.current = Date.now();
-      setNowMs(nowMsRef.current);
+      // Drive the live-P&L/countdown clock every frame while in a trade; when
+      // idle and the spot has settled, skip the re-render entirely.
+      if (hasPositionRef.current && !eased) setNowMs(nowMsRef.current);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
