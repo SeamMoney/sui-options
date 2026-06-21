@@ -793,6 +793,10 @@ const MarkChart = memo(function MarkChart(props: {
   const area = `${line} L${W},${H} L0,${H} Z`;
   // bloxwap signature: neon green (winning / idle) vs hot magenta (losing).
   const neon = up ? "#00ff3f" : "#ff0696";
+  // W1: while in a position, split the area fill at the break-even line —
+  // GREEN above break-even, RED below — instead of one flat colour.
+  const strikeY = strike !== null ? y(strike) : null;
+  const strikeFrac = strikeY !== null ? Math.max(0, Math.min(1, strikeY / H)) : 0;
   const lastMid = plotMids[plotMids.length - 1]!;
   const lastY = y(lastMid);
   const decimals = lastMid < 1 ? 5 : lastMid < 100 ? 4 : lastMid < 10000 ? 2 : 0;
@@ -817,10 +821,21 @@ const MarkChart = memo(function MarkChart(props: {
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full">
         <defs>
           <linearGradient id="proFill" x1="0" y1="0" x2="0" y2="1">
-            {/* Bold PnL-colored fill while in a position (bloxwap); faint when
-                idle so it stays a bare glowing line with the ladder showing through. */}
-            <stop offset="0%" stopColor={neon} stopOpacity={pnl != null ? "0.42" : "0.14"} />
-            <stop offset="100%" stopColor={neon} stopOpacity="0" />
+            {/* W1: in a position, split the fill at the break-even line — GREEN
+                above, RED below. Idle = faint single colour (bare glowing line). */}
+            {strikeY !== null ? (
+              <>
+                <stop offset={0} stopColor="#00ff3f" stopOpacity="0.40" />
+                <stop offset={strikeFrac} stopColor="#00ff3f" stopOpacity="0.05" />
+                <stop offset={strikeFrac} stopColor="#ff0696" stopOpacity="0.05" />
+                <stop offset={1} stopColor="#ff0696" stopOpacity="0.40" />
+              </>
+            ) : (
+              <>
+                <stop offset="0%" stopColor={neon} stopOpacity="0.14" />
+                <stop offset="100%" stopColor={neon} stopOpacity="0" />
+              </>
+            )}
           </linearGradient>
         </defs>
         <path d={area} fill="url(#proFill)" />
