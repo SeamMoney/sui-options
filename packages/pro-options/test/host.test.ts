@@ -53,6 +53,29 @@ check("host drives a full round and emits the phase/reveal/settle/seed events", 
   assert.ok(seed?.verified, "seed reveal should verify against the commit");
 });
 
+check("engine.livePnl at expiry equals realized playerPnl (live == settlement)", () => {
+  const preset = presetById("volatile")!;
+  const cfg = roundConfigFromPreset({ preset, seed: 7, startedAtMs: 0 });
+  const engine = new RoundEngine(cfg);
+
+  // Open a couple of positions during the round.
+  const liveStart = cfg.round.lobbyMs;
+  const expiry = liveStart + cfg.round.liveMs; // expire at end of live
+  engine.open({ id: "c1", side: "call", strike: preset.startPrice * 1.01, expiryMs: expiry, contracts: 3, nowMs: 1_000 });
+  engine.open({ id: "p1", side: "put", strike: preset.startPrice * 0.99, expiryMs: expiry, contracts: 2, nowMs: 1_000 });
+
+  // The live readout at the expiry instant must equal what settlement realizes.
+  const expiryNow = expiry;
+  const live = engine.livePnl(expiryNow);
+  engine.settleAll();
+  const realized = engine.playerPnl();
+  assert.ok(
+    Math.abs(live - realized) < 1e-9,
+    `livePnl(${live}) != playerPnl(${realized}) at expiry`,
+  );
+  assert.ok(engine.premiumAtRisk() > 0, "premium denominator should be positive");
+});
+
 check("host.on returns a working unsubscribe", () => {
   const preset = presetById("calm")!;
   const host = new RoundHost(new RoundEngine(roundConfigFromPreset({ preset, seed: 1, startedAtMs: 0 })));

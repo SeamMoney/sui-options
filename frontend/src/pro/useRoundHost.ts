@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   RoundEngine,
   RoundHost,
+  pnlReturnFraction,
   roundConfigFromPreset,
   type HostEvent,
   type MarketPreset,
@@ -36,6 +37,20 @@ export interface RoundSnapshot {
   /** Revealed price prefix, for charting. */
   path: number[];
   positions: OptionPosition[];
+  /**
+   * The ONE headline live P&L (absolute, in quote units). This is the
+   * settlement-projected P&L — `intrinsic(side, strike, spot) − premium`
+   * across the book at the current spot — i.e. the SAME formula and inputs
+   * the round settles with. So the number shown here always converges to,
+   * and at expiry equals, what the player is actually paid. (Not the
+   * Black-Scholes sell-to-close mark, which carries time value + spread and
+   * would mismatch the cash settlement.)
+   */
+  pnl: number;
+  /** Total premium paid across the book — the denominator for `pnlReturn`. */
+  premiumAtRisk: number;
+  /** `pnl / premiumAtRisk` as a fraction (0.5 = +50%); 0 with no positions. */
+  pnlReturn: number;
   commit: string;
   reveal: { seed: number; verified: boolean } | null;
   msLeftInPhase: number;
@@ -56,6 +71,9 @@ const EMPTY: RoundSnapshot = {
   spot: 0,
   path: [],
   positions: [],
+  pnl: 0,
+  premiumAtRisk: 0,
+  pnlReturn: 0,
   commit: "",
   reveal: null,
   msLeftInPhase: 0,
@@ -81,11 +99,16 @@ export function useRoundHost(opts: UseRoundHostOptions): RoundHostApi {
 
     const read = (): RoundSnapshot => {
       const t = performance.now() - startRef.current;
+      const pnl = engine.livePnl(t);
+      const premiumAtRisk = engine.premiumAtRisk();
       return {
         phase: engine.phase(t),
         spot: engine.spotAt(t),
         path: engine.revealedPath(t),
         positions: engine.getPositions(),
+        pnl,
+        premiumAtRisk,
+        pnlReturn: pnlReturnFraction(pnl, premiumAtRisk),
         commit: engine.commit,
         reveal: revealRef.current,
         msLeftInPhase: engine.msLeftInPhase(t),
@@ -137,15 +160,35 @@ export function useRoundHost(opts: UseRoundHostOptions): RoundHostApi {
       contracts,
       nowMs: t,
     });
-    setSnap((s) => ({ ...s, positions: engine.getPositions() }));
+    // Refresh P&L synchronously so the headline shows the instant the
+    // position is placed (mandate: "see clear live P&L IMMEDIATELY"),
+    // not on the next 200ms tick.
+    const pnl = engine.livePnl(t);
+    const premiumAtRisk = engine.premiumAtRisk();
+    setSnap((s) => ({
+      ...s,
+      positions: engine.getPositions(),
+      pnl,
+      premiumAtRisk,
+      pnlReturn: pnlReturnFraction(pnl, premiumAtRisk),
+    }));
     return pos;
   }, []);
 
   const sellToClose = useCallback<RoundHostApi["sellToClose"]>((id) => {
     const engine = engineRef.current;
     if (!engine) return;
-    engine.sellToClose(id, performance.now() - startRef.current);
-    setSnap((s) => ({ ...s, positions: engine.getPositions() }));
+    const t = performance.now() - startRef.current;
+    engine.sellToClose(id, t);
+    const pnl = engine.livePnl(t);
+    const premiumAtRisk = engine.premiumAtRisk();
+    setSnap((s) => ({
+      ...s,
+      positions: engine.getPositions(),
+      pnl,
+      premiumAtRisk,
+      pnlReturn: pnlReturnFraction(pnl, premiumAtRisk),
+    }));
   }, []);
 
   return { ...snap, quote, openOption, sellToClose };

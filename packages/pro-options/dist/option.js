@@ -47,6 +47,39 @@ export function markPerContract(pos, spot, nowMs, sigma, rate = 0, yearsPerSecon
         rate,
     });
 }
+/**
+ * Settlement-projected P&L: what the position would realize if the round
+ * settled at `spot` RIGHT NOW. This is the headline "Live P&L" for a
+ * hold-to-expiry round.
+ *
+ * It deliberately uses the EXACT formula `settleAtExpiry` → `realizedPnl`
+ * uses — `intrinsic(side, strike, spot) × contracts − premiumPaid` — fed
+ * with the live spot. Because the live readout and the settlement share one
+ * formula and one set of inputs, the number a player watches converges to,
+ * and at expiry EQUALS, the realized settlement. No trust gap.
+ *
+ * Contrast `unrealizedPnl` below, which marks to the Black-Scholes
+ * sell-to-close value: that carries time-value + the sell-side spread, so it
+ * will NOT match the intrinsic cash settlement. Use `unrealizedPnl` only to
+ * quote an early sell-to-close; use this for the "your P&L" headline.
+ *
+ * For a closed position it returns the already-realized P&L, so callers can
+ * sum a mixed book without branching.
+ */
+export function settlementPnlAtSpot(pos, spot) {
+    if (pos.status !== "open")
+        return realizedPnl(pos);
+    const value = intrinsic(pos.side, pos.strike, spot);
+    return value * pos.contracts - pos.premiumPaid;
+}
+/**
+ * Return on premium for a P&L figure, as a fraction (0.5 = +50%). The natural
+ * denominator for an option is the premium at risk. Returns 0 when no premium
+ * was paid (avoids divide-by-zero for the empty/edge case).
+ */
+export function pnlReturnFraction(pnl, premiumPaid) {
+    return premiumPaid > 0 ? pnl / premiumPaid : 0;
+}
 /** Unrealized P&L for an open position at the current spot (after sell spread). */
 export function unrealizedPnl(pos, spot, nowMs, sigma, spreadBps, rate = 0, yearsPerSecond = DEFAULT_YEARS_PER_SECOND) {
     if (pos.status !== "open")
