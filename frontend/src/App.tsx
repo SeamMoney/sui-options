@@ -1,13 +1,12 @@
 import { lazy, Suspense } from "react";
-import { Ride } from "@/routes/Ride";
 
-// The headline `/` (and `/degen`) route is `Ride`, so it stays eagerly
-// imported — it's what a judge hits cold and it must paint instantly.
-// Every other route is a separate destination reached only by an explicit
-// URL, so we lazy-load them: that keeps the candle-vision scanner (gsap +
-// motion + the candle-vision lib), the docs grid, the provable-fairness
-// verifier, and the pro terminal OUT of the entry chunk the ride page
-// downloads. Pre-split, all of that rode along in one ~3.4 MB bundle.
+// Every route is lazy-loaded. Crucially this keeps the Ride game's wallet
+// stack (Dynamic Labs social-login SDK + dapp-kit) — the bulk of the JS —
+// OUT of the shared entry chunk, so the Wick Pro submission at /pro (which
+// uses no wallet) downloads and becomes interactive far sooner. Each route
+// also carries its own heavy deps (candle-vision scanner, docs, verifier)
+// only when visited.
+const Ride = lazy(() => import("@/routes/Ride").then((m) => ({ default: m.Ride })));
 const CandleVision = lazy(() =>
   import("@/routes/CandleVision").then((m) => ({ default: m.CandleVision })),
 );
@@ -66,7 +65,12 @@ export default function App() {
         <Docs path={PATHNAME} />
       </Suspense>
     ); // docs grid + topic pages (chaos-feed)
-  if (IS_DEGEN_ROUTE) return <Ride />; // degen tap-hold app
+  if (IS_DEGEN_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <Ride />
+      </Suspense>
+    ); // degen tap-hold app
   if (IS_CANDLE_VISION_ROUTE)
     return (
       <Suspense fallback={<RouteFallback />}>
@@ -97,5 +101,9 @@ export default function App() {
         <WickPro />
       </Suspense>
     ); // synthetic commit/reveal provably-fair variant
-  return <Ride />; // default
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <Ride />
+    </Suspense>
+  ); // default
 }
