@@ -1,13 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { TopBar, type TopBarTab } from "@/components/layout/TopBar";
-import { MarketsRail } from "@/components/market/MarketsRail";
-import { MarketHeader } from "@/components/market/MarketHeader";
-import { TradePanel } from "@/components/market/TradePanel";
-import { PriceChart } from "@/components/market/PriceChart";
-import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
-import { STUB_MARKETS, type MarketSnapshot } from "@/fixtures/markets";
-import { useLiveMarkets } from "@/hooks/useLiveMarkets";
-import { usePortfolio } from "@/hooks/usePortfolio";
+import { lazy, Suspense } from "react";
 import { Ride } from "@/routes/Ride";
 
 // The headline `/` (and `/degen`) route is `Ride`, so it stays eagerly
@@ -26,15 +17,15 @@ const RideTest = lazy(() =>
   import("@/routes/RideTest").then((m) => ({ default: m.RideTest })),
 );
 const Coach = lazy(() => import("@/routes/Coach").then((m) => ({ default: m.Coach })));
+const WickPro = lazy(() => import("@/routes/WickPro").then((m) => ({ default: m.WickPro })));
 
 // Minimal pathname-based routing. Computed once at module load (no hash
 // routing / SPA nav within these pages — the Vercel SPA rewrite in
 // vercel.json serves index.html for non-asset paths so reload works).
 //
-// 2026-05-24 — flipped: `/` is the game now (Ride). The legacy touch-
-// trading shell (MainApp) moved to `/pro`. The old `/ride` URL still
-// renders Ride for any external links / bookmarks that point at it.
-// User: "Just make ride the main page and have the other stuff be on /pro".
+// `/` is the tap-hold Ride game; `/pro` is Wick Pro, the Black-Scholes
+// options round game (the hackathon submission). The old `/ride` URL
+// still renders Ride for any external links / bookmarks that point at it.
 const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
 const IS_PRO_ROUTE = PATHNAME === "/pro";
@@ -87,71 +78,11 @@ export default function App() {
         <Coach />
       </Suspense>
     ); // CandleVision pattern-coach panel preview (Wick Pro side panel)
-  if (IS_PRO_ROUTE) return <MainApp />; // TEMP placeholder — real Legend panes go here next
+  if (IS_PRO_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <WickPro />
+      </Suspense>
+    ); // Wick Pro — the Black-Scholes options round game (the submission)
   return <Ride />; // default
-}
-
-function MainApp() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState<number>(Date.now());
-  const [tab, setTab] = useState<TopBarTab>("trade");
-  const live = useLiveMarkets();
-  const portfolio = usePortfolio();
-
-  useEffect(() => {
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const { markets, isLive } = useMemo<{ markets: MarketSnapshot[]; isLive: boolean }>(() => {
-    const liveMarkets = live.data ?? [];
-    if (liveMarkets.length > 0) return { markets: liveMarkets, isLive: true };
-    return { markets: STUB_MARKETS, isLive: false };
-  }, [live.data]);
-
-  const selected =
-    markets.find((m) => m.id === selectedId) ?? markets[0]!;
-
-  useEffect(() => {
-    if (!markets.find((m) => m.id === selectedId)) {
-      setSelectedId(markets[0]?.id ?? null);
-    }
-  }, [markets, selectedId]);
-
-  const portfolioCount =
-    (portfolio.data?.positions.length ?? 0) + (portfolio.data?.lpPositions.length ?? 0);
-
-  return (
-    <div className="h-full flex flex-col bg-background text-foreground">
-      <TopBar
-        isLive={isLive}
-        marketsLoading={live.isLoading}
-        marketsCount={markets.length}
-        tab={tab}
-        onTabChange={setTab}
-        portfolioCount={portfolioCount}
-      />
-      <main className="flex-1 flex min-h-0">
-        {tab === "trade" ? (
-          <>
-            <MarketsRail
-              markets={markets}
-              selectedId={selected.id}
-              nowMs={nowMs}
-              onSelect={setSelectedId}
-            />
-            <section className="flex-1 flex flex-col min-w-0">
-              <MarketHeader market={selected} nowMs={nowMs} />
-              <PriceChart market={selected} />
-              <TradePanel market={selected} isLive={isLive} />
-            </section>
-          </>
-        ) : (
-          <section className="flex-1 flex flex-col min-w-0">
-            <PortfolioPanel />
-          </section>
-        )}
-      </main>
-    </div>
-  );
 }
