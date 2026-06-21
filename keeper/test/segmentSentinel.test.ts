@@ -95,7 +95,7 @@ test("DEFAULT_SPONSOR_URL matches the doc 22 §3.4 reference", () => {
   assert.equal(DEFAULT_SPONSOR_URL, "https://wick-markets.vercel.app/api/sponsor");
 });
 
-test("buildOpenSentinelRideTx: sender + gas owner set, calls open_segment_ride", async () => {
+test("buildOpenSentinelRideTx: sender + gas owner set, calls open_segment_ride_v3", async () => {
   const tx = buildOpenSentinelRideTx({
     packageId: FAKE_PKG,
     collateralType: SUI,
@@ -131,13 +131,13 @@ test("buildOpenSentinelRideTx: sender + gas owner set, calls open_segment_ride",
   );
   assert.ok(moveCmd, "expected exactly one MoveCall command");
   assert.equal(moveCmd!.MoveCall!["module"], "wick");
-  assert.equal(moveCmd!.MoveCall!["function"], "open_segment_ride");
+  assert.equal(moveCmd!.MoveCall!["function"], "open_segment_ride_v3");
   // NOTE the api/sponsor allowlist is currently `segment_market_v3::*` so
   // this open call will be 403'd by /api/sponsor — that's the v2-bridge
   // status documented in the README. The PTB shape itself is correct.
 });
 
-test("buildCloseSentinelRideTx: sender + gas owner set, calls close_segment_ride", async () => {
+test("buildCloseSentinelRideTx: sender + gas owner set, calls close_segment_ride_v3", async () => {
   const tx = buildCloseSentinelRideTx({
     packageId: FAKE_PKG,
     collateralType: SUI,
@@ -164,7 +164,7 @@ test("buildCloseSentinelRideTx: sender + gas owner set, calls close_segment_ride
   );
   assert.ok(moveCmd, "expected exactly one MoveCall command");
   assert.equal(moveCmd!.MoveCall!["module"], "wick");
-  assert.equal(moveCmd!.MoveCall!["function"], "close_segment_ride");
+  assert.equal(moveCmd!.MoveCall!["function"], "close_segment_ride_v3");
 });
 
 test("buildOpenSentinelRideTx rejects zero / negative escrow", () => {
