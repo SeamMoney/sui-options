@@ -157,6 +157,53 @@ export async function fetchDeepBookTicker(
   };
 }
 
+/** One price level in the order book. */
+export interface DeepBookLevel {
+  readonly price: number;
+  /** Resting size at this level, in base units. */
+  readonly size: number;
+}
+
+/** Top-of-book depth — the real on-chain CLOB ladder (proof of liquidity). */
+export interface DeepBookDepth {
+  readonly pool: string;
+  /** Bids, best (highest) first. */
+  readonly bids: DeepBookLevel[];
+  /** Asks, best (lowest) first. */
+  readonly asks: DeepBookLevel[];
+  readonly tsMs: number;
+}
+
+/**
+ * Top `levels` bids and asks from the DeepBook order book — the real resting
+ * liquidity, for a "this is a live on-chain CLOB" depth ladder.
+ */
+export async function fetchDeepBookDepth(
+  pool: string,
+  levels = 5,
+  signal?: AbortSignal,
+): Promise<DeepBookDepth> {
+  const data = (await getJson(
+    `/orderbook/${pool}?level=2&depth=${levels * 2}`,
+    signal,
+  )) as {
+    bids?: [string, string][];
+    asks?: [string, string][];
+    timestamp?: string | number;
+  };
+  const parse = (rows: [string, string][] | undefined): DeepBookLevel[] =>
+    (rows ?? [])
+      .map(([p, s]): DeepBookLevel => ({ price: Number(p), size: Number(s) }))
+      .filter((l) => Number.isFinite(l.price) && l.price > 0)
+      .slice(0, levels);
+  return {
+    pool,
+    bids: parse(data.bids),
+    asks: parse(data.asks),
+    tsMs: Number(data.timestamp) || Date.now(),
+  };
+}
+
 /** Recent trades, oldest-first, for candle aggregation. */
 export async function fetchDeepBookTrades(
   pool: string,
