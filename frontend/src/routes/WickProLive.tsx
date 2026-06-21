@@ -806,7 +806,9 @@ const MarkChart = memo(function MarkChart(props: {
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full">
         <defs>
           <linearGradient id="proFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={neon} stopOpacity="0.16" />
+            {/* Bold PnL-colored fill while in a position (bloxwap); faint when
+                idle so it stays a bare glowing line with the ladder showing through. */}
+            <stop offset="0%" stopColor={neon} stopOpacity={pnl != null ? "0.42" : "0.14"} />
             <stop offset="100%" stopColor={neon} stopOpacity="0" />
           </linearGradient>
         </defs>
