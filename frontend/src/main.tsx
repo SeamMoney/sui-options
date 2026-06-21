@@ -18,7 +18,12 @@ const WalletProviders = lazy(() =>
 );
 
 const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
-const NEEDS_WALLET = PATHNAME !== "/pro";
+// Only the Ride game (its session wallet + faucet) actually uses the wallet.
+// Every other route — the Wick Pro submission (/pro, /pro-sim), the provable-
+// fairness verifier, docs, candle-vision, the coach — is wallet-free and skips
+// the heavy Dynamic + dapp-kit stack entirely, so they all load fast.
+const WALLET_ROUTES = new Set(["/", "/ride", "/degen", "/ride-test"]);
+const NEEDS_WALLET = WALLET_ROUTES.has(PATHNAME);
 
 // On wallet routes, kick off the wallet-stack + Ride downloads immediately
 // (in parallel with React init) instead of waiting for the Suspense boundary
@@ -26,9 +31,7 @@ const NEEDS_WALLET = PATHNAME !== "/pro";
 // otherwise add to the landing page's time-to-interactive.
 if (NEEDS_WALLET && typeof window !== "undefined") {
   void import("@/providers/WalletProviders");
-  if (PATHNAME === "/" || PATHNAME === "/ride" || PATHNAME === "/degen") {
-    void import("@/routes/Ride");
-  }
+  void import("@/routes/Ride");
 }
 
 // Dark, full-screen hold while the wallet chunk streams in on wallet routes —
