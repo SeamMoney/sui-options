@@ -712,6 +712,10 @@ function breakevenLabel(spot: number, side: OptionSide, sigma: number): string {
 /** Minimal dependency-free SVG area chart of the rolling mark + strike line.
  *  Memoized so the 60fps P&L loop doesn't re-render the chart every frame —
  *  it only re-draws when the history/strike/colour actually change. */
+// Faint `+` cross grid — the bloxwap trading-screen texture (a few % white).
+const PLUS_GRID =
+  "url(\"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='40'%20height='40'%3E%3Cpath%20d='M20%2016v8M16%2020h8'%20stroke='%23ffffff'%20stroke-opacity='0.06'%20stroke-width='1'/%3E%3C/svg%3E\")";
+
 const MarkChart = memo(function MarkChart(props: {
   history: MarkPoint[];
   strike: number | null;
@@ -740,57 +744,88 @@ const MarkChart = memo(function MarkChart(props: {
   const y = (v: number) => H - ((v - lo) / (hi - lo)) * H;
   const line = mids.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
   const area = `${line} L${W},${H} L0,${H} Z`;
-  const stroke = up ? "#34d399" : "#f43f5e";
-  const lastY = y(mids[mids.length - 1]);
+  // bloxwap signature: neon green (winning / idle) vs hot magenta (losing).
+  const neon = up ? "#00ff3f" : "#ff0696";
+  const lastMid = mids[mids.length - 1]!;
+  const lastY = y(lastMid);
+  const decimals = lastMid < 1 ? 5 : lastMid < 100 ? 4 : lastMid < 10000 ? 2 : 0;
+  // Right-edge price ladder — evenly spaced levels across the visible range.
+  const N_LADDER = 11;
+  const ladder = Array.from(
+    { length: N_LADDER },
+    (_, k) => lo + ((hi - lo) * (k + 0.5)) / N_LADDER,
+  );
+  let entryX: number | null = null;
+  if (strike !== null && entryTime !== null) {
+    let bestI = 0;
+    let bestDt = Infinity;
+    for (let i = 0; i < history.length; i++) {
+      const dt = Math.abs(history[i]!.t - entryTime);
+      if (dt < bestDt) { bestDt = dt; bestI = i; }
+    }
+    entryX = x(bestI);
+  }
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full">
-      <defs>
-        <linearGradient id="proFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={stroke} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#proFill)" />
-      <path d={line} fill="none" stroke={stroke} strokeWidth={3} vectorEffect="non-scaling-stroke" />
+    <div className="relative h-full w-full" style={{ backgroundImage: PLUS_GRID, backgroundSize: "40px 40px" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full">
+        <defs>
+          <linearGradient id="proFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={neon} stopOpacity="0.16" />
+            <stop offset="100%" stopColor={neon} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#proFill)" />
+        {/* neon glow halo under the sharp line */}
+        <path d={line} fill="none" stroke={neon} strokeWidth={9} opacity={0.3} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        <path d={line} fill="none" stroke={neon} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        {strike !== null && (
+          <line x1={0} x2={W} y1={y(strike)} y2={y(strike)} stroke="#ffffff" strokeWidth={1.5} strokeDasharray="6 6" vectorEffect="non-scaling-stroke" opacity={0.5} />
+        )}
+        {entryX !== null && strike !== null && (
+          <g>
+            <circle cx={entryX} cy={y(strike)} r={7} fill="none" stroke="#ffffff" strokeWidth={2} vectorEffect="non-scaling-stroke" opacity={0.9} />
+            <circle cx={entryX} cy={y(strike)} r={2.5} fill="#ffffff" vectorEffect="non-scaling-stroke" />
+          </g>
+        )}
+      </svg>
+
+      {/* Price ladder — HTML so the mono glyphs never distort with the chart. */}
+      <div className="pointer-events-none absolute inset-0">
+        {ladder.map((lvl, k) => (
+          <span
+            key={k}
+            className="absolute right-2.5 -translate-y-1/2 font-mono text-[10px] tabular-nums text-white/25"
+            style={{ top: `${(y(lvl) / H) * 100}%` }}
+          >
+            {lvl.toFixed(decimals)}
+          </span>
+        ))}
+      </div>
+
+      {/* Break-even label rides the strike line. */}
       {strike !== null && (
-        <line
-          x1={0}
-          x2={W}
-          y1={y(strike)}
-          y2={y(strike)}
-          stroke="#ffffff"
-          strokeWidth={1.5}
-          strokeDasharray="6 6"
-          vectorEffect="non-scaling-stroke"
-          opacity={0.5}
-        />
+        <span
+          className="pointer-events-none absolute right-2.5 -translate-y-[140%] font-mono text-[9px] font-semibold uppercase tracking-wider text-white/55"
+          style={{ top: `${(y(strike) / H) * 100}%` }}
+        >
+          break even
+        </span>
       )}
-      {/* Entry marker — where (in time) you opened, sitting on the strike line.
-          Makes the move-since-entry tangible. */}
-      {strike !== null &&
-        entryTime !== null &&
-        (() => {
-          // Index of the history point nearest the entry timestamp.
-          let bestI = 0;
-          let bestDt = Infinity;
-          for (let i = 0; i < history.length; i++) {
-            const dt = Math.abs(history[i]!.t - entryTime);
-            if (dt < bestDt) {
-              bestDt = dt;
-              bestI = i;
-            }
-          }
-          const ex = x(bestI);
-          const ey = y(strike);
-          return (
-            <g>
-              <circle cx={ex} cy={ey} r={7} fill="none" stroke="#ffffff" strokeWidth={2} vectorEffect="non-scaling-stroke" opacity={0.9} />
-              <circle cx={ex} cy={ey} r={2.5} fill="#ffffff" vectorEffect="non-scaling-stroke" />
-            </g>
-          );
-        })()}
-      <circle cx={W} cy={lastY} r={5} fill={stroke} vectorEffect="non-scaling-stroke" />
-    </svg>
+
+      {/* Live price pill — neon, glowing, at the last point. */}
+      <div
+        className="pointer-events-none absolute right-1 z-10 -translate-y-1/2 rounded-full border px-2 py-0.5 font-mono text-[11px] font-bold tabular-nums"
+        style={{
+          top: `${(lastY / H) * 100}%`,
+          color: neon,
+          borderColor: neon,
+          background: "#000",
+          boxShadow: `0 0 14px ${neon}88`,
+        }}
+      >
+        {lastMid.toFixed(decimals)}
+      </div>
+    </div>
   );
 });
 
