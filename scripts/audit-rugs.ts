@@ -169,11 +169,26 @@ async function firstQualifyingSegment(
   start: bigint,
   end: bigint,
 ): Promise<bigint | null> {
-  for (let k = start; k < end; k++) {
-    const key = await readSegmentKey(client, market.segmentsTableId, k);
-    if (!key) continue;
-    if (rollRugFired(key, market.marketId, round, market.rugChanceBps).fired) {
-      return k;
+  // Read the round's segment keys in concurrent batches, then check rolls in
+  // index order — identical "first qualifying segment" result as a sequential
+  // scan, but I/O-parallel. A clean round (no fire) otherwise costs one RPC per
+  // segment (~75 sequential round-trips); batching makes the whole-round sweep
+  // a handful of round-trips, so `check:rugs` doesn't slow linearly as the
+  // market grows. Short-circuits at the batch granularity once a fire is found.
+  const BATCH = 20n;
+  for (let base = start; base < end; base += BATCH) {
+    const batchEnd = base + BATCH < end ? base + BATCH : end;
+    const ks: bigint[] = [];
+    for (let k = base; k < batchEnd; k++) ks.push(k);
+    const keys = await Promise.all(
+      ks.map((k) => readSegmentKey(client, market.segmentsTableId, k)),
+    );
+    for (let i = 0; i < ks.length; i++) {
+      const key = keys[i];
+      if (!key) continue;
+      if (rollRugFired(key, market.marketId, round, market.rugChanceBps).fired) {
+        return ks[i]!;
+      }
     }
   }
   return null;
