@@ -62,11 +62,13 @@ export function PatternCoachPanel({
     <div
       className={`rounded-2xl border border-white/10 bg-black/60 backdrop-blur-md p-4 font-mono select-none ${className}`}
     >
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-[10px] uppercase tracking-[0.22em] text-white/40">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        {/* nowrap + tighter tracking so the label stays on one line inside the
+            narrow (158px) mobile panel instead of wrapping to two. */}
+        <div className="whitespace-nowrap text-[10px] uppercase tracking-[0.12em] text-white/40">
           Pattern Coach
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <span className="relative flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/70 motion-safe:animate-ping" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
