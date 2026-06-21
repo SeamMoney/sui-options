@@ -24,7 +24,7 @@
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -42,13 +42,13 @@ const dim = (s: string) => `\x1b[90m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 
 /** Decimals + ticker for the collateral types we deploy against. */
-function denom(collateralType: string): { decimals: number; ticker: string } {
+export function denom(collateralType: string): { decimals: number; ticker: string } {
   if (/::sui::SUI$/i.test(collateralType)) return { decimals: 9, ticker: "SUI" };
   if (/::tusd::TUSD$/i.test(collateralType)) return { decimals: 6, ticker: "TUSD" };
   return { decimals: 0, ticker: collateralType.split("::").pop() ?? "units" };
 }
 
-function human(raw: bigint, decimals: number): string {
+export function human(raw: bigint, decimals: number): string {
   if (decimals === 0) return raw.toString();
   const s = raw.toString().padStart(decimals + 1, "0");
   const whole = s.slice(0, -decimals);
@@ -56,7 +56,15 @@ function human(raw: bigint, decimals: number): string {
   return frac ? `${whole}.${frac}` : whole;
 }
 
-function asBig(v: unknown): bigint {
+/**
+ * The solvency invariant: liquid reserves (treasury + side_bucket) cover the
+ * full FIFO claim queue. Pure so it can be unit-tested without a live vault.
+ */
+export function isSolvent(treasury: bigint, sideBucket: bigint, queueTotal: bigint): boolean {
+  return treasury + sideBucket >= queueTotal;
+}
+
+export function asBig(v: unknown): bigint {
   if (typeof v === "bigint") return v;
   if (typeof v === "number") return BigInt(v);
   if (typeof v === "string" && v.trim() !== "") return BigInt(v);
@@ -132,7 +140,7 @@ async function main(): Promise<void> {
     checked++;
     const { decimals, ticker } = denom(s.collateralType);
     const liquid = s.treasury + s.sideBucket;
-    const solvent = liquid >= s.queueTotal;
+    const solvent = isSolvent(s.treasury, s.sideBucket, s.queueTotal);
     if (!solvent) insolvent++;
     const tag = solvent ? green("✓ SOLVENT") : red("✗ UNDER-COLLATERALIZED");
     console.log(`  ${bold(v.key)} ${dim(`(${ticker})`)}  ${tag}`);
@@ -163,7 +171,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exitCode = 1;
-});
+// Run only when invoked directly (not when imported by the test).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  });
+}
