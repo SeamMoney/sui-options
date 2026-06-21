@@ -48,7 +48,16 @@ import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
 // 0.1 SUI drip survived only ~7 rides before re-triggering the
 // funding gate + 90 s faucet cooldown. 0.2 SUI doubles that runway
 // with no other cost.
-const DRIP_MIST = 200_000_000n; // 0.2 SUI
+// 2026-06-21 — bumped 200M → 1_000M (0.2 → 1.0 SUI). The earlier low
+// drip existed ONLY because the faucet wallet was nearly empty (~162M
+// MIST); it now holds ~8.9K SUI, so runway is a non-issue (>8000 drips).
+// Crucially, the v4 /ride game has the player's own browser crank each
+// held segment (no sponsor wired, no always-on sentinel), and a measured
+// record_segment_v4 costs ~9M MIST — so the headline "hold for the touch
+// jackpot" play (≈70 segments) burns ~0.65 SUI. At 0.2 SUI a judge ran
+// out of gas after ~20 segments and the ride stalled. 1.0 SUI covers a
+// full hold-to-touch ride plus open/close with margin to spare.
+const DRIP_MIST = 1_000_000_000n; // 1.0 SUI
 const GAS_BUFFER_MIST = 20_000_000n; // ~0.02 SUI; ample headroom for one transfer
 const COOLDOWN_MS = 90 * 1000; // 90s per recipient
 
