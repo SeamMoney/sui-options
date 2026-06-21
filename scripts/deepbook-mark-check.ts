@@ -14,6 +14,7 @@ import {
   fetchDeepBookMark,
   fetchDeepBookTicker,
   fetchDeepBookTrades,
+  fetchDeepBookDepth,
   tradesToCandles,
   realizedVolatility,
   DEEPBOOK_POOLS,
@@ -98,6 +99,27 @@ async function live() {
     assert.ok(mark.ask >= mark.bid, `${pool.name} ask >= bid`);
     const ticker = await fetchDeepBookTicker(pool.name);
     assert.ok(ticker.lastPrice > 0, `${pool.name} last > 0`);
+    // Depth ladder data: bids best-first (descending), asks best-first
+    // (ascending), best bid < best ask (a sane, crossed-free book).
+    const depth = await fetchDeepBookDepth(pool.name, 5);
+    if (depth.bids.length >= 2) {
+      assert.ok(
+        depth.bids[0]!.price >= depth.bids[1]!.price,
+        `${pool.name} bids best-first`,
+      );
+    }
+    if (depth.asks.length >= 2) {
+      assert.ok(
+        depth.asks[0]!.price <= depth.asks[1]!.price,
+        `${pool.name} asks best-first`,
+      );
+    }
+    if (depth.bids[0] && depth.asks[0]) {
+      assert.ok(
+        depth.bids[0]!.price < depth.asks[0]!.price,
+        `${pool.name} book not crossed`,
+      );
+    }
     const trades = await fetchDeepBookTrades(pool.name, 500);
     const bucketMs = 60_000;
     const candles = tradesToCandles(trades, bucketMs); // 1m candles
