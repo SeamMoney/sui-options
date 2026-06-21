@@ -40,7 +40,12 @@ export interface BotsConfig {
 function rpcFor(network: Network): string {
   switch (network) {
     case "mainnet": return "https://fullnode.mainnet.sui.io:443";
-    case "testnet": return "https://fullnode.testnet.sui.io:443";
+    // testnet defaults to PublicNode, not the Mysten public fullnode. The
+    // personality-bot fleet fires ~1 trade/sec, and the Mysten testnet
+    // endpoint throttles under that sustained load — the same v4.29 finding
+    // that moved the frontend (frontend/src/lib/sui.ts) and keeper off it.
+    // PublicNode sustains ~10× the rate. Override with WICK_BOTS_RPC.
+    case "testnet": return "https://sui-testnet-rpc.publicnode.com";
     case "devnet":  return "https://fullnode.devnet.sui.io:443";
     case "localnet":return "http://127.0.0.1:9000";
   }
