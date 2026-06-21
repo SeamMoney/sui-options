@@ -31,7 +31,7 @@
     "check:treasury": "tsx scripts/treasury-health.ts",
     "check:rugs": "tsx scripts/audit-rugs.ts",
     "check:meta": "node scripts/check-meta.mjs",
-    "check:all": "npm run check:meta && npm run smoke:demo && npm run check:routes && npm run verify:pro && npm run verify:pro-fairness && npm run verify:fairness && npm run check:deepbook && npm run check:treasury",
+    "check:all": "npm run check:meta && npm run smoke:demo && npm run check:routes && npm run verify:pro && npm run verify:pro-fairness && npm run verify:fairness && npm run check:rugs && npm run check:deepbook && npm run check:treasury",
     "smoke:demo": "bash scripts/demo-smoke.sh",
     "smoke:ride": "tsx scripts/judge-ride-smoke.ts",
     "e2e:pro": "node scripts/e2e-pro-smoke.mjs",
