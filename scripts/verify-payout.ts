@@ -158,7 +158,14 @@ export function checkPayoutIdentity(
   } else if (kind === 2) {
     // CASHOUT — sanity bounds here; the EXACT Bachelier payout is re-derived
     // and compared against the chain in main() (needs the close spot via RPC).
-    if (!(payout > 0n)) errs.push(`CASHOUT payout ${payout} must be > 0`);
+    // A 0-segment cashout (the user closed before any segment was recorded)
+    // legitimately pays 0: stake_paid is 0, so the Bachelier payout on a zero
+    // stake is 0 and the full escrow is refunded via (escrowed − stake_paid).
+    // Only a cashout that actually accrued stake must pay something positive —
+    // requiring payout > 0 unconditionally falsely FAILs an honest quick cashout.
+    if (stakePaid > 0n && !(payout > 0n)) {
+      errs.push(`CASHOUT payout ${payout} must be > 0 when stake_paid ${stakePaid} > 0`);
+    }
     if (payout > stakePaid) errs.push(`CASHOUT payout ${payout} > stake_paid ${stakePaid}`);
   } else if (kind === 4) {
     // ABORTED_REFUND — escrow refunded 1:1; no stake consumed, no bounty.
