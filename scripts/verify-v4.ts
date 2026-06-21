@@ -48,6 +48,7 @@ import {
   newState,
   type WalkState,
 } from "../sdk/src/seededPath.js";
+import { rollRugFired } from "./rugRoll.js";
 
 const DEFAULT_RPC = "https://sui-testnet-rpc.publicnode.com";
 const DEFAULT_VOL_REGIME_INIT = 1_000_000n;
@@ -202,6 +203,14 @@ interface MarketInfo {
   deadbandBps: bigint;
   roundDurationSegments: bigint;
   nextSegmentIndex: bigint;
+  cachedRoundIndex: bigint;
+}
+
+/** v4.26 rug (MARKET HALT) config — a `RugConfig` dynamic field on the market. */
+interface RugConfig {
+  rugChanceBps: bigint;
+  /** Set only for the market's CURRENT round (reset on round roll); null if none. */
+  ruggedAtSegment: bigint | null;
 }
 
 interface RideInfo {
@@ -239,8 +248,53 @@ async function readMarket(client: RpcClient, marketId: string): Promise<MarketIn
     deadbandBps: asBig(f.deadband_bps),
     roundDurationSegments: asBig(f.round_duration_segments),
     nextSegmentIndex: asBig(f.next_segment_index),
+    cachedRoundIndex: asBig(f.cached_round_index),
   };
 }
+
+/**
+ * Read the market's v4.26 `RugConfig` dynamic field (key = b"rug_config").
+ * Returns null when rug was never enabled on this market (the common case) —
+ * that's not a failure, it just means there's no MARKET HALT to audit.
+ */
+async function readRugConfig(
+  client: RpcClient,
+  marketId: string,
+): Promise<RugConfig | null> {
+  try {
+    const d = asObject(
+      await client.getDynamicFieldObject({
+        parentId: marketId,
+        // b"rug_config" as a vector<u8> dynamic-field name — the RPC wants the
+        // raw byte array (not the ASCII string) as the BCS value.
+        name: {
+          type: "vector<u8>",
+          value: Array.from(new TextEncoder().encode("rug_config")) as unknown as string,
+        },
+      }),
+    );
+    const data = asObject(d.data);
+    if (!data.content) return null;
+    const content = asObject(data.content);
+    const value = asObject(asObject(content.fields).value);
+    const cf = asObject(value.fields);
+    if (cf.rug_chance_bps == null) return null;
+    // `rugged_at_segment` is `Option<u64>` → RPC renders Some(x) as { fields: { vec: [x] } }
+    // or a bare value, and None as null/empty.
+    const ruggedRaw = cf.rugged_at_segment;
+    let rugged: bigint | null = null;
+    if (ruggedRaw != null) {
+      const inner = asObject(asObject(ruggedRaw).fields).vec;
+      if (Array.isArray(inner) && inner.length > 0) rugged = asBig(inner[0]);
+      else if (typeof ruggedRaw === "string" || typeof ruggedRaw === "number")
+        rugged = asBig(ruggedRaw);
+    }
+    return { rugChanceBps: asBig(cf.rug_chance_bps), ruggedAtSegment: rugged };
+  } catch {
+    return null;
+  }
+}
+
 
 async function readRide(client: RpcClient, rideId: string): Promise<RideInfo> {
   const o = asObject(await client.getObject({ id: rideId, options: { showContent: true, showType: true } }));
@@ -445,19 +499,52 @@ async function verifySegments(
   return { rows, allIntegrityOk, touchedInWindow, maxInWindowK };
 }
 
-/** Mirror `decide_settlement`'s KIND branch (rug/abort handled by caller). */
+/**
+ * Mirror `decide_settlement`'s ordering: ABORTED_REFUND (handled by caller) >
+ * rug→EXPIRED_LOSS > TOUCH_WIN > round-expiry EXPIRED_LOSS > CASHOUT. The rug
+ * beats a later touch — a ride open when the halt fired loses, full stop.
+ */
 function deriveSettlementKind(
+  rugAffectsRide: boolean,
   touchedInWindow: boolean,
   maxInWindowK: bigint | null,
   ride: RideInfo,
   roundDurationSegments: bigint,
 ): number {
+  if (rugAffectsRide) return SETTLEMENT_EXPIRED_LOSS;
   if (touchedInWindow) return SETTLEMENT_TOUCH_WIN;
   const rideRoundEnd = (ride.roundIndex + 1n) * roundDurationSegments;
   // next_segment_index@close == (last in-window k) + 1.
   const nextAtClose = maxInWindowK === null ? ride.entrySegmentIndex : maxInWindowK + 1n;
   if (nextAtClose >= rideRoundEnd) return SETTLEMENT_EXPIRED_LOSS;
   return SETTLEMENT_CASHOUT;
+}
+
+/**
+ * Find the round's MARKET HALT by RE-DERIVING the keccak rug-roll for each
+ * recorded segment from the round's start up to the ride's close, returning the
+ * FIRST segment that rolled a halt — exactly how Move arms `rugged_at_segment`
+ * (sticky, once per round). Scans from round start (not the ride's entry) so a
+ * rug that fired before the ride opened is correctly attributed: such a ride
+ * "bet into an already-halted round" and is NOT re-halted (entry > ruggedSeg).
+ */
+async function findRoundRug(
+  client: RpcClient,
+  market: MarketInfo,
+  marketId: string,
+  ride: RideInfo,
+  rug: RugConfig,
+  scanEnd: bigint,
+): Promise<{ ruggedSeg: bigint; roll: bigint } | null> {
+  if (rug.rugChanceBps <= 0n) return null;
+  const roundStart = ride.roundIndex * market.roundDurationSegments;
+  for (let k = roundStart; k < scanEnd; k++) {
+    const rec = await readSegment(client, market.segmentsTableId, k);
+    if (!rec) continue;
+    const r = rollRugFired(rec.key, marketId, ride.roundIndex, rug.rugChanceBps);
+    if (r.fired) return { ruggedSeg: k, roll: r.roll };
+  }
+  return null;
 }
 
 async function verify(args: Args): Promise<boolean> {
@@ -527,14 +614,60 @@ async function verify(args: Args): Promise<boolean> {
       ]),
     );
 
+    // ── v4.26 MARKET HALT (rug) ──────────────────────────────────────────────
+    // The chain routes a rugged ride to EXPIRED_LOSS by reading
+    // `rugged_at_segment` at close — independent of any RugFiredV4 event (which
+    // some markets never emit). We RE-DERIVE the halt from segment keys so the
+    // verdict is provable, not event-trusted.
+    const scanEnd = maxInWindowK === null ? ride.entrySegmentIndex : maxInWindowK + 1n;
+    const rug = await readRugConfig(client, marketId);
+    let rugRollOk = true;
+    let rugAffectsRide = false;
+    if (rug && rug.rugChanceBps > 0n) {
+      const fire = await findRoundRug(client, market, marketId, ride, rug, scanEnd);
+      const ruggedSeg = fire ? fire.ruggedSeg : null;
+      rugAffectsRide = ruggedSeg !== null && ride.entrySegmentIndex <= ruggedSeg;
+      // Cross-check our re-derived fire against the chain's stored field (only
+      // meaningful for the market's CURRENT round). Our scan is bounded by the
+      // ride's close (`scanEnd`): if the chain's fire is inside that window we
+      // must reproduce it; if it fired AFTER this ride closed (≥ scanEnd) our
+      // window is correctly empty — that's consistent, not a mismatch.
+      let cross = "no chain field to cross-check (re-derived from keys)";
+      if (rug.ruggedAtSegment != null && ride.roundIndex === market.cachedRoundIndex) {
+        const fieldSeg = rug.ruggedAtSegment;
+        const expected = fieldSeg < scanEnd ? fieldSeg : null;
+        const ok = expected === ruggedSeg;
+        if (!ok) rugRollOk = false;
+        cross =
+          fieldSeg < scanEnd
+            ? `chain rugged_at_segment=${fieldSeg} (${ok ? "match" : "MISMATCH"})`
+            : `chain rugged_at_segment=${fieldSeg} fired after this ride closed @ ${scanEnd} (consistent)`;
+      }
+      console.log("");
+      if (fire) {
+        console.log(
+          `MARKET HALT:       rug fired @ segment ${fire.ruggedSeg} (round ${ride.roundIndex}) — ` +
+            `keccak roll=${fire.roll} < rug_chance_bps=${rug.rugChanceBps} (HONEST); ${cross}`,
+        );
+        console.log(
+          `                   ${rugAffectsRide ? `ride entered @ ${ride.entrySegmentIndex} ≤ ${fire.ruggedSeg} → halt applies → EXPIRED_LOSS` : `ride entered @ ${ride.entrySegmentIndex} > ${fire.ruggedSeg} → bet into an already-halted round; halt does not re-apply`}`,
+        );
+      } else {
+        console.log(
+          `rug:               enabled (rug_chance_bps=${rug.rugChanceBps}) — no segment in this round's window rolled a halt`,
+        );
+      }
+    }
+
     const derived = deriveSettlementKind(
+      rugAffectsRide,
       touchedInWindow,
       maxInWindowK,
       ride,
       market.roundDurationSegments,
     );
     const verdictMatch = derived === ride.settlementKind;
-    const pass = allIntegrityOk && verdictMatch;
+    const pass = allIntegrityOk && verdictMatch && rugRollOk;
 
     console.log("");
     console.log(`extrema replay:    ${allIntegrityOk ? "match (every segment)" : "MISMATCH"}`);
