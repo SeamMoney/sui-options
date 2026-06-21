@@ -240,6 +240,17 @@ export function WickProLive() {
       const merged = [...olderSeed, ...h];
       return merged.length > MAX_POINTS ? merged.slice(merged.length - MAX_POINTS) : merged;
     });
+    // Optimistic immediacy: if no live mark has landed yet, seed the tradeable
+    // spot from the latest candle close so UP / DOWN are usable from the FIRST
+    // paint — betting no longer waits on the mark fetch to lift the disabled
+    // gate. The rAF loop eases this to the live mark the instant it arrives, and
+    // live==settlement still holds (the strike is whatever spot was at open; the
+    // headline P&L and settlement read the same spot).
+    if (spotSmoothRef.current === null && seed.length > 0) {
+      const lastClose = seed[seed.length - 1]!.mid;
+      spotSmoothRef.current = lastClose;
+      setSpotSmooth(lastClose);
+    }
   }, [candles]);
   useEffect(() => {
     if (!mark) return;
