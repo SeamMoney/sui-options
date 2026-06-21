@@ -430,7 +430,7 @@ export function WickProLive() {
   const poolMeta = DEEPBOOK_POOLS[pool];
 
   return (
-    <div className="fixed inset-0 bg-[#0b0b0c] text-white overflow-hidden">
+    <div className="fixed inset-0 bg-black text-white overflow-hidden">
       <style>{`
         @keyframes wpFlash { 0% { opacity: 0.9 } 100% { opacity: 0 } }
         @keyframes wpPop { 0% { transform: scale(0.7); opacity: 0 } 45% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }
@@ -622,8 +622,8 @@ export function WickProLive() {
               <button
                 key={s}
                 onClick={() => setStakeUsd(s)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-bold tabular-nums transition ${
-                  s === stakeUsd ? "bg-white/90 text-zinc-950" : "bg-white/10 text-white/70"
+                className={`px-4 py-1.5 rounded-full text-sm font-bold tabular-nums transition ${
+                  s === stakeUsd ? "bg-white text-black" : "bg-white/[0.07] text-white/60"
                 }`}
               >
                 ${s}
@@ -638,23 +638,23 @@ export function WickProLive() {
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={closeNow}
-              className="rounded-2xl bg-white text-zinc-950 active:scale-95 transition py-5 font-black text-xl disabled:opacity-40 shadow-lg"
+              className="rounded-full border border-[#00ff3f]/45 bg-[#00ff3f]/[0.07] text-[#00ff3f] active:scale-[0.97] transition-transform duration-75 py-5 font-black text-2xl tracking-wide disabled:opacity-40 shadow-[0_0_34px_-6px_#00ff3f]"
             >
               CLOSE
-              <div className="text-[11px] font-semibold text-zinc-950/60 normal-case tabular-nums">
+              <div className="text-[11px] font-semibold text-[#00ff3f]/60 normal-case tracking-normal tabular-nums">
                 cash out {headline ? fmtSignedUsd(headline.pnl) : ""}
               </div>
             </button>
             <button
               onClick={flip}
-              className={`rounded-2xl active:scale-95 transition py-5 font-black text-xl text-zinc-950 shadow-lg ${
+              className={`rounded-full active:scale-[0.97] transition-transform duration-75 py-5 font-black text-2xl tracking-wide border ${
                 position.side === "call"
-                  ? "bg-rose-500 shadow-rose-500/20"
-                  : "bg-emerald-500 shadow-emerald-500/20"
+                  ? "border-[#ff0696]/45 bg-[#ff0696]/[0.07] text-[#ff0696] shadow-[0_0_34px_-6px_#ff0696]"
+                  : "border-[#00ff3f]/45 bg-[#00ff3f]/[0.07] text-[#00ff3f] shadow-[0_0_34px_-6px_#00ff3f]"
               }`}
             >
               FLIP {position.side === "call" ? "▼ DOWN" : "▲ UP"}
-              <div className="text-[11px] font-semibold normal-case opacity-70">
+              <div className="text-[11px] font-semibold normal-case tracking-normal opacity-60">
                 reverse · {secsLeft}s left
               </div>
             </button>
@@ -664,20 +664,20 @@ export function WickProLive() {
             <button
               onClick={() => openPosition("call")}
               disabled={spot === null}
-              className="rounded-2xl bg-emerald-500 active:scale-95 transition py-5 font-black text-xl text-zinc-950 disabled:opacity-40 shadow-lg shadow-emerald-500/20"
+              className="rounded-full border border-[#00ff3f]/45 bg-[#00ff3f]/[0.07] text-[#00ff3f] active:scale-[0.97] transition-transform duration-75 py-5 font-black text-2xl tracking-wide disabled:opacity-40 shadow-[0_0_34px_-6px_#00ff3f]"
             >
               ▲ UP
-              <div className="text-[11px] font-semibold text-emerald-950/70 normal-case">
+              <div className="text-[11px] font-semibold text-[#00ff3f]/60 normal-case tracking-normal">
                 {spot !== null ? breakevenLabel(spot, "call", sigma) : "call"}
               </div>
             </button>
             <button
               onClick={() => openPosition("put")}
               disabled={spot === null}
-              className="rounded-2xl bg-rose-500 active:scale-95 transition py-5 font-black text-xl text-zinc-950 disabled:opacity-40 shadow-lg shadow-rose-500/20"
+              className="rounded-full border border-[#ff0696]/45 bg-[#ff0696]/[0.07] text-[#ff0696] active:scale-[0.97] transition-transform duration-75 py-5 font-black text-2xl tracking-wide disabled:opacity-40 shadow-[0_0_34px_-6px_#ff0696]"
             >
               ▼ DOWN
-              <div className="text-[11px] font-semibold text-rose-950/70 normal-case">
+              <div className="text-[11px] font-semibold text-[#ff0696]/60 normal-case tracking-normal">
                 {spot !== null ? breakevenLabel(spot, "put", sigma) : "put"}
               </div>
             </button>
