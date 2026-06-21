@@ -173,6 +173,11 @@ async function runOneRide(idx) {
     try {
       const tx = new Transaction();
       tx.setSender(sender);
+      // record_segment_v4 consumes &Random AND may write the rug
+      // dynamic-field; auto gas-budgeting under-estimates that combo and the
+      // crank reverts, so the round never advances and every close cashes out
+      // at stake_paid=0. Pin a generous budget.
+      tx.setGasBudget(50_000_000);
       tx.moveCall({
         target: `${PKG}::wick::record_segment_v4`,
         typeArguments: [COLL],
@@ -183,8 +188,16 @@ async function runOneRide(idx) {
         transaction: tx,
         options: { showEffects: false },
       });
-    } catch (_err) {
-      // crank may revert if ride already settled (touch / rug) — fine
+    } catch (err) {
+      // A crank reverts once the ride has settled (touch / rug) — that's the
+      // expected stop condition. But a gas/under-budget revert ALSO lands
+      // here and silently aborts the hold, leaving segments_held=0 (the very
+      // failure mode the pinned gas budget above guards against). Surface it
+      // so a stuck harness is debuggable instead of looking like "0 payout".
+      const msg = String(err);
+      if (/InsufficientGas|budget|GasBalanceTooLow/i.test(msg)) {
+        console.log(`  [${idx}] crank ${s} gas revert: ${msg.slice(0, 100)}`);
+      }
       break;
     }
     await new Promise((r) => setTimeout(r, 200));
