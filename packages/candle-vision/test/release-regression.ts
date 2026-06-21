@@ -39,6 +39,8 @@ assertFixtureDetects('marubozu', 'marubozu');
 assertFixtureDetects('harami', 'harami');
 assertFixtureDetects('shooting-star', 'shooting-star');
 assertFixtureDetects('three-white-soldiers', 'three-white-soldiers');
+assertFixtureDetects('piercing-line', 'piercing-line');
+assertFixtureDetects('dark-cloud-cover', 'dark-cloud-cover');
 assertFixtureDetects('morning-star', 'morning-star');
 assertFixtureDetects('vision-momentum', 'vision-momentum');
 
