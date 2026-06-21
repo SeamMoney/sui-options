@@ -11,8 +11,9 @@ Everything below is live on testnet — no install, no wallet needed to play.
 
 1. **Open `/pro` on a phone.** The header shows a live price + `● DEEPBOOK LIVE` and a `σ` — that's
    a real DeepBook mid — toggle **SUI**, **BTC** (XBTC/USDC ~$64k), or **DEEP** — with volatility
-   computed from each pool's live trade tape. (Try **BTC**: Bitcoin options on a real on-chain CLOB
-   mark.) The chart is seeded with real DeepBook candle history.
+   computed from each pool's live trade tape. (Jump straight to
+   **[Bitcoin options ↗](https://wick-markets.vercel.app/pro?asset=XBTC_USDC)** — `/pro?asset=XBTC_USDC`,
+   a real on-chain CLOB mark ~$64k.) The chart is seeded with real DeepBook candle history.
 2. **Tap ▲ UP or ▼ DOWN.** You've bought a 60-second at-the-money call/put. The premium and the
    `±%` to win come from a real Black-Scholes engine (`@sui-options/pro-options`) using that live mid
    and σ.
