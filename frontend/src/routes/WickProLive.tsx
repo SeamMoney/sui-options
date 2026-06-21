@@ -98,6 +98,21 @@ export function WickProLive() {
   // spot, so the number a player watches still equals what they're paid.
   const spot = spotSmooth;
 
+  // Graceful degradation: if the DeepBook indexer never delivers a first mark
+  // (cold-start outage), don't sit on a blank "waiting…" screen during a demo —
+  // surface the offline /pro-sim variant. Resets the moment a mark lands.
+  const [coldStartFailed, setColdStartFailed] = useState(false);
+  useEffect(() => {
+    if (spot !== null) {
+      setColdStartFailed(false);
+      return;
+    }
+    const id = window.setTimeout(() => {
+      if (spotSmoothRef.current === null) setColdStartFailed(true);
+    }, 12_000);
+    return () => window.clearTimeout(id);
+  }, [spot]);
+
   // Latest real mark is the easing target.
   useEffect(() => {
     if (mark?.mid != null) targetSpotRef.current = mark.mid;
@@ -369,6 +384,18 @@ export function WickProLive() {
           DeepBook {status}
         </span>
       </div>
+
+      {/* Indexer cold-start fallback — only if no mark after ~12s. */}
+      {coldStartFailed && spot === null && (
+        <div className="px-4 pb-1 shrink-0">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200/90">
+            Can't reach the DeepBook indexer right now.{" "}
+            <a href="/pro-sim" className="font-semibold underline underline-offset-2">
+              Play the offline version →
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Chart + coach overlay */}
       <div className="relative flex-1 min-h-0 px-2 py-2">
