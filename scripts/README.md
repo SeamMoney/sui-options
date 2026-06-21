@@ -22,6 +22,12 @@ Operator-facing bash + node scripts. All scripts read live IDs from
 
 ## Smoke / verify
 
+- `e2e-pro-smoke.mjs` (`npm run e2e:pro`) — drives the **submission** (Wick Pro,
+  `/pro`) headless against the live site exactly as a judge would: loads the
+  live DeepBook mark, opens a $5 UP option, asserts the live P&L ticks, closes
+  back to the lobby, switches the asset to BTC, and fails on any console/page
+  error. Screenshots each step to `~/work/uploads/a8-e2e`. Skips cleanly (exit 0)
+  if Playwright isn't installed, so CI without browsers stays green.
 - `segment-smoke.sh` — end-to-end open / record / close on the most-recent
   segment market, then run `verify.ts`.
 - `smoke.sh` — original touch-market smoke.
