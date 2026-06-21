@@ -161,6 +161,16 @@ export function WickProLive() {
     prevMidRef.current = mark.mid;
   }, [mark?.mid]);
 
+  // Keep the URL's ?asset= in sync with the selected pool, so the choice is
+  // shareable and survives a refresh (the initial state reads it back). Uses
+  // replaceState — switching assets shouldn't spam browser history.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("asset") === pool) return;
+    params.set("asset", pool);
+    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+  }, [pool]);
+
   // Whether a position is live — read inside the rAF loop without resubscribing.
   const hasPositionRef = useRef(false);
   useEffect(() => {
