@@ -55,9 +55,11 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
     `npm run verify:fairness` · `npm run verify:fairness:tamper`
   - **audit the live chain, zero args** (auto-picks a live market from `deployments/testnet.json`):
     `npm run verify:fairness:live`
-  - **prove the house won fairly** — `npm run verify:halt` re-derives the keccak halt-roll of a real
-    `MARKET HALT` ride and confirms it fired honestly (`roll < rug_chance_bps`) → the wiped ride settled
-    `EXPIRED_LOSS` exactly as the chain says. The headline "that's how the house wins" — provably.
+  - **prove the house won fairly** — `npm run verify:halt` runs the **complete** audit of a real
+    `MARKET HALT` ride: the candles reproduce from their on-chain keys, the halt was an honest keccak
+    roll (`roll < rug_chance_bps`), the ride settled `EXPIRED_LOSS` exactly as the chain says, **and**
+    the house forfeited *exactly* the held stake — not a satoshi more. The headline "that's how the
+    house wins" — provable to the last unit.
   - audit a specific market's recorded segments: `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>`
   - verify one closed ride's settlement: `npx tsx scripts/verify-v4.ts --market <id> --ride <id>`
   - **pick your own ride to audit** — `npm run rides:recent` lists real recent closed rides (a touch
