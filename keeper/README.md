@@ -146,13 +146,22 @@ and pipelines submissions fire-and-forget behind a small in-flight cap.
 # comma-separated <marketId>[@<packageId>[:<collateral>]] — package + collateral
 # default to deployments/testnet.json + 0x2::sui::SUI when omitted.
 export WICK_KEEPER_SEGMENT_MARKETS=0xmarket1,0xmarket2@0xpkg:0x2::sui::SUI
+
+# v4 markets (all LIVE markets are v4 — touch-either + rug). Cranks
+# `record_segment_v4` and tracks the `*_V4` events. For TUSD pass the type arg:
+export WICK_KEEPER_SEGMENT_MARKETS_V4=0x54e9…@0x1fdf…:0x204d…::tusd::TUSD
 ```
 
 | Var                              | Default | Notes |
 |----------------------------------|---------|-------|
-| `WICK_KEEPER_SEGMENT_MARKETS`    | (empty — cranker off) | markets to crank |
+| `WICK_KEEPER_SEGMENT_MARKETS`    | (empty — cranker off) | **v3** markets to crank (`record_segment`) |
+| `WICK_KEEPER_SEGMENT_MARKETS_V4` | (empty) | **v4** markets to crank (`record_segment_v4`) — the live module |
 | `WICK_KEEPER_SEGMENT_INTERVAL_MS`| `400`   | per-market crank cadence (the chain hard-codes 400 ms / segment) |
 | `WICK_KEEPER_GAS_RECORD_SEGMENT` | —       | optional per-tx gas budget override |
+
+Both env vars feed one cranker; v3 and v4 markets can run side by side. The
+`scripts/sentinel-v4-fast.mjs` + `chart-keeper.sh` path is the lighter-weight
+demo alternative; this keeper is the production cranker.
 
 ### `SegmentSentinel` — keep the gate satisfied between players (sponsored)
 

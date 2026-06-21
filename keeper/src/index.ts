@@ -146,12 +146,26 @@ async function main() {
     // Segment-market cranker (C1). Optional — driven by env var. Each item:
     //   "<marketId>" (uses default package + collateral) or
     //   "<marketId>@<packageId>:<collateralType>". Comma-separated.
+    //   WICK_KEEPER_SEGMENT_MARKETS        → v3 markets (legacy)
+    //   WICK_KEEPER_SEGMENT_MARKETS_V4     → v4 markets (all live markets)
+    // Both feed one cranker; v4 bindings crank record_segment_v4 + track the
+    // *_V4 events. For TUSD markets pass the type arg, e.g.
+    //   "<market>@<pkg>:0x204d…::tusd::TUSD".
     let segmentCranker: SegmentCranker | null = null;
-    const segmentBindings: SegmentMarketBinding[] = parseSegmentMarketsEnv(
-      process.env.WICK_KEEPER_SEGMENT_MARKETS,
-      cfg.packageId,
-      cfg.collateralType,
-    );
+    const segmentBindings: SegmentMarketBinding[] = [
+      ...parseSegmentMarketsEnv(
+        process.env.WICK_KEEPER_SEGMENT_MARKETS,
+        cfg.packageId,
+        cfg.collateralType,
+        "v3",
+      ),
+      ...parseSegmentMarketsEnv(
+        process.env.WICK_KEEPER_SEGMENT_MARKETS_V4,
+        cfg.packageId,
+        cfg.collateralType,
+        "v4",
+      ),
+    ];
     if (segmentBindings.length > 0) {
       segmentCranker = new SegmentCranker(client, signer.keypair, {
         intervalMs: Number(process.env.WICK_KEEPER_SEGMENT_INTERVAL_MS ?? 400),

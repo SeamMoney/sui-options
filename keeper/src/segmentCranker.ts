@@ -74,6 +74,13 @@ export interface SegmentMarketBinding {
   collateralType: string;
   /** Shared SegmentMarket<C> object id. */
   marketId: string;
+  /**
+   * Which segment-market module to crank. "v3" (default) cranks
+   * `wick::record_segment` and tracks `segment_market::Ride{Opened,Closed}`;
+   * "v4" cranks `wick::record_segment_v4` and tracks
+   * `segment_market_v4::Ride{Opened,Closed}V4`. All live markets are v4.
+   */
+  version?: "v3" | "v4";
 }
 
 export interface SegmentCrankerOptions {
@@ -169,8 +176,11 @@ export function buildRecordSegmentTx(
   gasBudget: bigint,
 ): Transaction {
   const tx = new Transaction();
+  // v4 markets crank `record_segment_v4`; v3 (legacy) crank `record_segment`.
+  // Both have the identical (market, &Random, &Clock) shape via the wick router.
+  const fn = binding.version === "v4" ? "record_segment_v4" : "record_segment";
   tx.moveCall({
-    target: `${binding.packageId}::wick::record_segment`,
+    target: `${binding.packageId}::wick::${fn}`,
     typeArguments: [binding.collateralType],
     arguments: [
       tx.object(binding.marketId),
@@ -184,12 +194,22 @@ export function buildRecordSegmentTx(
 
 // ── Event-type helpers — match SDK `rideOpenedEventType` / `rideClosedEventType` ─
 
-export function rideOpenedEventType(packageId: string): string {
-  return `${packageId}::segment_market::RideOpened`;
+export function rideOpenedEventType(
+  packageId: string,
+  version: "v3" | "v4" = "v3",
+): string {
+  return version === "v4"
+    ? `${packageId}::segment_market_v4::RideOpenedV4`
+    : `${packageId}::segment_market::RideOpened`;
 }
 
-export function rideClosedEventType(packageId: string): string {
-  return `${packageId}::segment_market::RideClosed`;
+export function rideClosedEventType(
+  packageId: string,
+  version: "v3" | "v4" = "v3",
+): string {
+  return version === "v4"
+    ? `${packageId}::segment_market_v4::RideClosedV4`
+    : `${packageId}::segment_market::RideClosed`;
 }
 
 // ── The cranker ─────────────────────────────────────────────────────────────
@@ -423,8 +443,8 @@ export class SegmentCranker {
       // Poll both event streams. We use MoveEventType to filter at the
       // RPC; we further filter by market_id client-side because the Move
       // emit doesn't expose a per-market topic.
-      const openedType = rideOpenedEventType(state.binding.packageId);
-      const closedType = rideClosedEventType(state.binding.packageId);
+      const openedType = rideOpenedEventType(state.binding.packageId, state.binding.version);
+      const closedType = rideClosedEventType(state.binding.packageId, state.binding.version);
       const [openedDelta, closedDelta] = await Promise.all([
         this.pollEventStream(state, openedType, "opened"),
         this.pollEventStream(state, closedType, "closed"),
@@ -628,6 +648,7 @@ export function parseSegmentMarketsEnv(
   raw: string | undefined,
   defaultPackageId: string,
   defaultCollateralType = "0x2::sui::SUI",
+  version: "v3" | "v4" = "v3",
 ): SegmentMarketBinding[] {
   if (!raw || raw.trim().length === 0) return [];
   const out: SegmentMarketBinding[] = [];
@@ -640,6 +661,7 @@ export function parseSegmentMarketsEnv(
         marketId: trimmed,
         packageId: defaultPackageId,
         collateralType: defaultCollateralType,
+        version,
       });
       continue;
     }
@@ -651,13 +673,14 @@ export function parseSegmentMarketsEnv(
         marketId,
         packageId: rest,
         collateralType: defaultCollateralType,
+        version,
       });
       continue;
     }
     const packageId = rest.slice(0, colonIdx).trim();
     // Collateral type may contain '::' — take everything after the first ':'.
     const collateralType = rest.slice(colonIdx + 1).trim();
-    out.push({ marketId, packageId, collateralType });
+    out.push({ marketId, packageId, collateralType, version });
   }
   return out;
 }
