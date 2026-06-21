@@ -22,7 +22,27 @@
  * Exit code is non-zero if any surface fails. Needs Chromium
  * (`npx playwright install chromium`).
  */
-import { chromium, devices } from "playwright";
+// Playwright drives a real browser; it isn't a repo dependency (it pulls ~100MB
+// of browser binaries). Resolve it at runtime — `playwright` or the lighter
+// `playwright-core` — and if it's absent, print how to enable this gate instead
+// of a raw stack trace.
+let chromium, devices;
+try {
+  ({ chromium, devices } = await import("playwright"));
+} catch {
+  try {
+    ({ chromium, devices } = await import("playwright-core"));
+  } catch {
+    console.error(
+      "check:demo needs Playwright (it drives a real browser), which isn't bundled.\n" +
+        "Enable it once:\n" +
+        "    npm i -D playwright && npx playwright install chromium\n" +
+        "then re-run:  npm run check:demo\n" +
+        "(Or use the no-browser gate: `npm run smoke:demo`.)",
+    );
+    process.exit(2);
+  }
+}
 
 const BASE = (process.argv[2] || process.env.PRO_URL || "https://wick-markets.vercel.app").replace(/\/$/, "");
 

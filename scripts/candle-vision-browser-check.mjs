@@ -1,5 +1,20 @@
 #!/usr/bin/env node
-import { chromium } from "playwright";
+// Playwright drives a real browser; it isn't a repo dependency. Resolve it at
+// runtime (`playwright` → `playwright-core`); if absent, say how to enable it.
+let chromium;
+try {
+  ({ chromium } = await import("playwright"));
+} catch {
+  try {
+    ({ chromium } = await import("playwright-core"));
+  } catch {
+    console.error(
+      "candle-vision browser check needs Playwright. Enable it once:\n" +
+        "    npm i -D playwright && npx playwright install chromium",
+    );
+    process.exit(2);
+  }
+}
 
 const url = process.env.CANDLE_VISION_URL || "http://127.0.0.1:5173/candle-vision";
 const backend = process.env.BROWSER_BACKEND || (process.env.LIGHTCONE ? "lightcone" : "local");
