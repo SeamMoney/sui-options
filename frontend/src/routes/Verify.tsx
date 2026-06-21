@@ -131,6 +131,11 @@ function VerifyChart({ rows }: { rows: VerifyRow[] }) {
   const y = (v: number) => ((hi - v) / range) * H;
   const cw = W / n;
   const bw = Math.max(1.4, cw * 0.55);
+  // Which side of the barrier did price reach? Shade that "touch zone" so the
+  // win condition reads at a glance (self-determined from the data, no
+  // hardcoded barrier direction).
+  const touchedAbove = highs.some((h) => h > barrier);
+  const touchedBelow = lows.some((l) => l < barrier);
 
   return (
     <div className="mb-4 rounded-lg border border-slate-800 bg-[#0d0f13] p-3">
@@ -140,6 +145,12 @@ function VerifyChart({ rows }: { rows: VerifyRow[] }) {
       </div>
       <div className="h-[180px] w-full">
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full" aria-hidden>
+          {touchedAbove && (
+            <rect x={0} y={0} width={W} height={y(barrier)} fill="#22c55e" opacity={0.05} />
+          )}
+          {touchedBelow && (
+            <rect x={0} y={y(barrier)} width={W} height={H - y(barrier)} fill="#22c55e" opacity={0.05} />
+          )}
           <line
             x1={0}
             x2={W}
