@@ -3,12 +3,16 @@
 **The submission is Wick Pro:** one-tap Black-Scholes options priced off a **live DeepBook mark**.
 Everything below is live on testnet — no install, no wallet needed to play.
 
-> Quick health check: `npm run smoke:demo` (curl-only, ~5s) confirms the live demo is green.
-> Deeper: `npm run check:routes` drives a real headless browser over **every** route below
-> (`/pro` · `/coach` · `/ride` · `/verify`) and asserts each loads, renders, and throws no errors.
-> Zero-trust, **zero-network**: `npm run verify:offline` proves the core fairness +
-> correctness claims (commit-reveal binds, on-chain ride replay, P&L engine) with no
-> network and no wallet — for a judge behind a firewall or on a plane.
+> **One command proves the whole story:** `npm run judge` (~20s, no wallet, no browser)
+> chains every claim — live demo up · on-chain ride fairness (honest + tamper + rug) ·
+> live P&L == settlement · `/pro` commit-reveal fairness (honest + a forged reveal caught) —
+> and prints a single **PASS — 7/7**. Add `--with-e2e` for the live UI + all-routes browser
+> pass, `--with-chain` for a real cold on-chain ride, or `--full` for everything.
+>
+> Narrower checks if you want them: `npm run smoke:demo` (curl-only, ~5s, live demo green) ·
+> `npm run check:routes` (headless browser over every route + the unknown-route fallback) ·
+> `npm run verify:offline` (the fairness + correctness proofs with **zero network**, for a
+> judge behind a firewall or on a plane).
 
 ---
 

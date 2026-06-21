@@ -93,6 +93,11 @@ git clone https://github.com/SeamMoney/sui-options && cd sui-options
 # 2. install everything (sdk + frontend + keeper + bots + api)
 npm install
 
+# 2a. THE one command — prove the whole story in ~20s (no wallet, no browser):
+npm run judge       # live demo up · ride fairness (honest+tamper+rug) · live P&L
+                    # == settlement · /pro commit-reveal (honest + forged reveal
+                    # caught) → PASS 7/7. Add --with-e2e / --with-chain / --full.
+
 # 2b. reproduce the full CI gate locally in one command
 #     (build packages + sdk, typecheck every workspace, run the keeper /
 #      candle-vision / pro-options suites, build the frontend)
