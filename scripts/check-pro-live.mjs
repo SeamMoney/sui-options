@@ -169,7 +169,29 @@ try {
   // 7. No console errors.
   check("no uncaught console errors", consoleErrors.length === 0, consoleErrors.slice(0, 2).join(" | "));
 
-  // 8. Mobile-first: no horizontal overflow at common phone widths.
+  // 8. Every pool DEMO.md sends judges to works (SUI is covered above; BTC and
+  // DEEP must each load real DeepBook data + a full chart, no errors).
+  for (const pool of ["BTC", "DEEP"]) {
+    const chip = page.locator(`button:has-text("${pool}")`).first();
+    if ((await chip.count()) === 0) {
+      check(`pool ${pool} is available`, false, "no chip");
+      continue;
+    }
+    await chip.click();
+    const ok = await waitUntil(async () => {
+      const r = await page.evaluate(() => {
+        const path = document.querySelector("svg path");
+        const segs = path ? (path.getAttribute("d") || "").match(/[ML]/g)?.length ?? 0 : 0;
+        const live = /DEEPBOOK\s+LIVE/i.test(document.body.innerText);
+        const px = document.body.innerText.match(/\b\d+(?:\.\d+)?\b/);
+        return segs > 20 && live && !!px;
+      });
+      return r;
+    }, 14000);
+    check(`pool ${pool} loads real DeepBook data + full chart`, ok);
+  }
+
+  // 9. Mobile-first: no horizontal overflow at common phone widths.
   let worstOverflow = 0;
   let mobileErrors = 0;
   for (const w of [320, 360, 390, 414]) {
