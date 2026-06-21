@@ -74,9 +74,18 @@ for (const route of ROUTES) {
   } catch (e) {
     errors.push("nav: " + e.message);
   }
-  await page.waitForTimeout(5000); // let the live mark / SPA render settle
 
-  const text = (await page.innerText("body").catch(() => "")).replace(/\s+/g, " ").trim();
+  // Poll for a landmark instead of a single fixed wait. Heavy streaming routes
+  // (e.g. /ride: a p5 ride chart that also fetches the live mark before painting
+  // its "ONE TAP TO START" CTA) can take >5s to render their text — a fixed wait
+  // produced a flaky false FAIL with text=8b. Read the body every 750ms for up
+  // to ~18s and stop as soon as a route landmark shows up.
+  let text = "";
+  for (let i = 0; i < 24; i++) {
+    await page.waitForTimeout(750);
+    text = (await page.innerText("body").catch(() => "")).replace(/\s+/g, " ").trim();
+    if (route.landmarks.some((l) => text.toLowerCase().includes(l.toLowerCase()))) break;
+  }
   const realErrors = errors.filter((e) => !BENIGN.test(e));
   const landmarkHit = route.landmarks.find((l) => text.toLowerCase().includes(l.toLowerCase()));
 
