@@ -1,0 +1,5 @@
+{
+  "name": "@wick/api-tests",
+  "private": true,
+  "type": "module"
+}

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 
-import { handle, resetSponsorStateForTests } from "./sponsor.js";
+import { handle, resetSponsorStateForTests } from "../api/sponsor.js";
 
 const PACKAGE_ID = "0x0b94e3daa9ca156f2e541caa177ae27abd40aaacbe599a8f93b3a5a136700e70";
 const SENDER = "0x510e60a9faf790c747a982cc39b6332c821d1f61a28ba71381864977c744cd57";

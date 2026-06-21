@@ -1,13 +1,13 @@
 {
   "name": "@wick/api",
   "version": "0.1.0",
-  "description": "HTTP API for Wick Markets — read-only endpoints over the on-chain protocol.",
+  "description": "HTTP API for Wick Markets \u2014 read-only endpoints over the on-chain protocol.",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test *.test.ts",
+    "test": "tsx --test ../api-tests/*.test.ts",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "smoke": "tsx src/smoke.ts"

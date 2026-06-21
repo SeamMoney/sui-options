@@ -14,7 +14,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { executeWithRetry } from "./faucet.js";
+import { executeWithRetry } from "../api/faucet.js";
 
 const noSleep = async () => {};
 
