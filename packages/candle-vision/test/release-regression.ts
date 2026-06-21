@@ -236,6 +236,20 @@ assert.equal(expiredWatch.decision.action, 'hold', 'expired watch should hold');
 assert.equal(expiredWatch.decision.status, 'expired', 'expired watch should expire');
 assert.ok(reasonCodes(expiredWatch.decision).includes('watch_expired'), 'expired watch should explain expiry');
 
+// No setup at all: with no pattern events the coach must stay flat (the default,
+// most-common state on /pro), never invent an action.
+const noSetup = decideTradeFromEvents([], baseCandles(8));
+assert.equal(noSetup.decision.action, 'hold', 'no events should hold');
+assert.equal(noSetup.decision.side, 'none', 'no events should pick no side');
+assert.equal(noSetup.decision.status, 'no-signal', 'no events should be no-signal');
+assert.equal(noSetup.decisions.length, 0, 'no events should yield no decisions');
+
+// Degenerate input: empty candles + empty events must not throw and must report
+// no-signal (robustness — the coach renders before any candle history loads).
+const emptyInput = decideTradeFromEvents([], []);
+assert.equal(emptyInput.decision.action, 'hold', 'empty input should hold, not crash');
+assert.equal(emptyInput.decision.status, 'no-signal', 'empty input should be no-signal');
+
 const supportRetest = fixtureEvent({
   id: 'fixture:support-retest',
   kind: 'support-retest',
