@@ -55,6 +55,27 @@ const referenced = [...new Set([...docText.matchAll(/\bnpm run ([a-z0-9:_-]+)/g)
 const phantom = referenced.filter((s) => !scripts.has(s));
 assert(phantom.length === 0, `README/DEMO npm scripts all exist${phantom.length ? ` (phantom: ${phantom.join(", ")})` : ""}`);
 
+// Move-test-count consistency. The count is hardcoded in many doc spots (README
+// CI badge + body + layout tree, DEMO, SAFETY) and has repeatedly drifted into
+// self-contradiction when a test PR updated some but not all (574 vs 577 vs 584
+// across #304/#306/#321/#323/#326). This guard doesn't know the absolute count
+// (that needs a `sui move test` run) — it asserts every doc reference AGREES, so
+// a partial update can't ship a set of numbers that disagree with each other.
+const countDocs = ["README.md", "DEMO.md", "move/SAFETY.md"]
+  .map((f) => readFileSync(join(root, f), "utf8"))
+  .join("\n");
+const countNums = [
+  ...countDocs.matchAll(/move%20tests-(\d{3,4})/g), // CI badge
+  ...countDocs.matchAll(/(\d{3,4})\s*\/\s*\d{3,4}\s*(?:Move\s+)?(?:tests|pass)/gi), // "584/584 Move tests" · "584 / 584 pass"
+  ...countDocs.matchAll(/(\d{3,4})\s+Move tests/g), // "584 Move tests"
+  ...countDocs.matchAll(/(\d{3,4})-test suite/g), // "584-test suite"
+].map((m) => m[1]);
+const distinctCounts = [...new Set(countNums)];
+assert(
+  distinctCounts.length <= 1,
+  `Move test count agrees across all docs${distinctCounts.length > 1 ? ` (DISAGREE: ${distinctCounts.join(" vs ")} — update the badge, README body, layout tree, DEMO, and SAFETY together)` : ` (${distinctCounts[0] ?? "none found"})`}`,
+);
+
 for (const o of ok) console.log(`  ✓ ${o}`);
 for (const f of fails) console.error(`  ✗ ${f}`);
 if (fails.length) {
