@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0a0612"/>
+      <stop offset="0.55" stop-color="#120a22"/>
+      <stop offset="1" stop-color="#070409"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a06bff"/>
+      <stop offset="1" stop-color="#7e14ff"/>
+    </linearGradient>
+    <linearGradient id="wickline" x1="0" y1="0" x2="1200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#47bfff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#47bfff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#863bff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- faint candle grid -->
+  <g opacity="0.10" stroke="#ffffff" stroke-width="1">
+    <line x1="0" y1="157" x2="1200" y2="157"/>
+    <line x1="0" y1="315" x2="1200" y2="315"/>
+    <line x1="0" y1="472" x2="1200" y2="472"/>
+  </g>
+
+  <!-- barrier line + the wick that touches it -->
+  <line x1="80" y1="250" x2="1120" y2="250" stroke="#47bfff" stroke-width="2" stroke-dasharray="10 8" opacity="0.55"/>
+  <text x="1120" y="240" text-anchor="end" font-family="monospace" font-size="20" fill="#47bfff" opacity="0.85">BARRIER · TOUCH = 1.75×</text>
+
+  <!-- candles -->
+  <g stroke-linecap="round">
+    <!-- losing candles -->
+    <g stroke="#3a2d4f"><line x1="760" y1="360" x2="760" y2="440" stroke-width="3"/></g>
+    <rect x="748" y="380" width="24" height="44" rx="3" fill="#46365f"/>
+    <g stroke="#3a2d4f"><line x1="820" y1="340" x2="820" y2="430" stroke-width="3"/></g>
+    <rect x="808" y="360" width="24" height="50" rx="3" fill="#46365f"/>
+    <!-- the hero candle: a long upper wick stabbing the barrier -->
+    <line x1="892" y1="248" x2="892" y2="420" stroke="url(#purple)" stroke-width="4" filter="url(#glow)"/>
+    <rect x="876" y="330" width="32" height="74" rx="4" fill="url(#purple)" filter="url(#glow)"/>
+    <circle cx="892" cy="250" r="9" fill="#ffffff"/>
+    <circle cx="892" cy="250" r="20" fill="#a06bff" opacity="0.35"/>
+  </g>
+
+  <!-- wick mascot mark (scaled from favicon path) -->
+  <g transform="translate(80,70) scale(2.0)">
+    <path fill="#863bff" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
+  </g>
+
+  <!-- wordmark + tagline -->
+  <text x="178" y="135" font-family="'Bai Jamjuree', sans-serif, monospace" font-size="58" font-weight="700" fill="#ffffff">wick<tspan fill="#8b7aa6">.markets</tspan></text>
+
+  <text x="80" y="496" font-family="'Bai Jamjuree', sans-serif" font-size="64" font-weight="700" fill="#ffffff">Options for the next candle.</text>
+  <text x="82" y="548" font-family="'Bai Jamjuree', sans-serif" font-size="29" font-weight="400" fill="#b9a9d6">Tap and hold the chart to ride a barrier, tick by tick.</text>
+
+  <!-- credibility chips -->
+  <g transform="translate(80,576)">
+    <rect x="0" y="0" width="230" height="34" rx="17" fill="#10b981" opacity="0.14"/>
+    <circle cx="22" cy="17" r="5" fill="#10b981"/>
+    <text x="38" y="23" font-family="monospace" font-size="17" fill="#34d399">PROVABLY FAIR</text>
+  </g>
+  <g transform="translate(330,576)">
+    <rect x="0" y="0" width="240" height="34" rx="17" fill="#3b82f6" opacity="0.14"/>
+    <circle cx="22" cy="17" r="5" fill="#3b82f6"/>
+    <text x="38" y="23" font-family="monospace" font-size="17" fill="#60a5fa">SUI · LIVE TESTNET</text>
+  </g>
+</svg>
