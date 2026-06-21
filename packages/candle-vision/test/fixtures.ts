@@ -35,6 +35,13 @@ export const patternFixtures: Record<string, CandleInput[]> = {
     ...baseCandles(4),
     { time: 5, open: 99.0, high: 105.05, low: 98.95, close: 105.0, volume: 170 },
   ],
+  // Bullish Harami: a large bearish candle followed by a small body fully inside
+  // the prior body (the "inside bar"). Also surfaced by the live coach on /pro.
+  harami: [
+    ...baseCandles(4),
+    { time: 5, open: 101, high: 101.5, low: 93.5, close: 94, volume: 160 },
+    { time: 6, open: 96, high: 97, low: 95.5, close: 96.8, volume: 90 },
+  ],
   'morning-star': [
     ...baseCandles(4, 112),
     { time: 5, open: 111, high: 112, low: 99, close: 100, volume: 140 },
