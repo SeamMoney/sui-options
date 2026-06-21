@@ -37,7 +37,10 @@ export function recordTick(state: HealthState, atMs: number, failed: number): vo
   }
 }
 
-function summary(state: HealthState): {
+export function summary(
+  state: HealthState,
+  now: number = Date.now(),
+): {
   ok: boolean;
   last_tick_ms: number;
   errors_last_5m: number;
@@ -45,7 +48,6 @@ function summary(state: HealthState): {
   network: string;
   address: string;
 } {
-  const now = Date.now();
   const cutoff = now - WINDOW_MS;
   const errors = state.errorWindow
     .filter((e) => e.tsMs >= cutoff)
