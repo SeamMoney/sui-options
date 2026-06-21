@@ -86,3 +86,13 @@ for (const p of engine.getPositions()) {
   console.log(`    ${p.id.padEnd(6)} ${p.status.padEnd(18)} paid ${usd(p.premiumPaid).padStart(9)}  got ${usd(p.proceeds ?? 0).padStart(9)}  P&L ${usd(realizedPnl(p))}`);
 }
 console.log(`\n  players net ${usd(engine.playerPnl())}    house ${usd(engine.housePnl())}\n`);
+
+// The verification triple — re-hash these yourself to confirm the path was fixed
+// before the bet (no frontend needed; this closes the commit-reveal loop CLI-only).
+console.log(`  ── verify this round (the path was committed before the reveal) ──`);
+console.log(`    commit     : ${engine.commit}`);
+console.log(`    seed       : ${reveal.seed}`);
+console.log(`    paramsJson : ${reveal.paramsJson}`);
+console.log(`    re-hash it : SHA-256("<seed>:<paramsJson>") must equal commit. Confirm it any way you like —`);
+console.log(`                 paste the three values into scripts/verify-pro.html (client-side, offline),`);
+console.log(`                 POST them to /api/verify-pro, or call the SDK's verifyProRound(commit, seed, paramsJson).\n`);
