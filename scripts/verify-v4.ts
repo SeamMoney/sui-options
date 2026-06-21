@@ -36,13 +36,19 @@
  *        npx tsx scripts/verify-v4.ts --rpc mock://synthetic-v4 --ride 0xmock
  *        npx tsx scripts/verify-v4.ts --rpc mock://tamper-v4   --ride 0xmock   # FAILs
  *
- * Settlement mirror: `decide_settlement` in `move/sources/segment_market_v4.move`
- * — TOUCH_WIN(1) on either barrier, EXPIRED_LOSS(3) if the round closed first,
- * CASHOUT(2) otherwise; ABORTED_REFUND(4) is taken from the chain. The ride's
- * live window is bounded by `recorded_at_ms <= closed_at_ms` (no event lookup),
- * so the touch scan matches the chain's `[entry, next_segment_index@close)`.
+ * Settlement mirror: `decide_settlement` in `move/sources/segment_market_v4.move`,
+ * full precedence — RUG routing (v4.26) → TOUCH_WIN(1) on either barrier →
+ * EXPIRED_LOSS(3) if the round closed first → CASHOUT(2); ABORTED_REFUND(4) is
+ * taken from the chain. The rug segment is re-derived deterministically from
+ * each segment's on-chain key (same prune-proof, no-event basis as the candles
+ * — see `rollRugFires`), and applied with the chain's close-time rule. The
+ * ride's live window is bounded by `recorded_at_ms <= closed_at_ms` (no event
+ * lookup), so the touch scan matches the chain's `[entry, next_segment_index@close)`.
  */
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { keccak_256 } from "@noble/hashes/sha3.js";
+import { fileURLToPath } from "node:url";
+import { resolve as resolvePath } from "node:path";
 import {
   expandSegment,
   newState,
@@ -143,7 +149,9 @@ interface RpcClient {
   }): Promise<unknown>;
   getDynamicFieldObject(args: {
     parentId: string;
-    name: { type: string; value: string };
+    // value is `string` for primitive keys (u64) and `number[]` for byte-vector
+    // keys (vector<u8>, e.g. the b"rug_config" RugConfig field).
+    name: { type: string; value: string | number[] };
   }): Promise<unknown>;
 }
 
@@ -196,15 +204,95 @@ interface SegmentRecord {
 }
 
 interface MarketInfo {
+  marketId: string;
   packageId: string;
   collateralType: string;
   segmentsTableId: string;
   deadbandBps: bigint;
   roundDurationSegments: bigint;
   nextSegmentIndex: bigint;
+  /** v4.26 rug-pull house edge — read from the market's RugConfig dynamic field. */
+  rugEnabled: boolean;
+  rugChanceBps: bigint;
 }
 
-interface RideInfo {
+const RUG_CONFIG_KEY_BYTES = Array.from(
+  new TextEncoder().encode("rug_config"),
+);
+
+/**
+ * Re-derive the on-chain `roll_rug` (segment_market_v4.move) for one segment,
+ * deterministically from its key — NO event lookup, prune-proof like the rest
+ * of this verifier. The rug fires for the round's FIRST segment whose roll
+ * passes the threshold:
+ *   roll = LE-u64(keccak256(segment_key || market_id_bytes || bcs_u64(round)))
+ *   fires iff (roll % 10000) < rug_chance_bps
+ * `bcs_u64` is little-endian (Sui BCS) and the first 8 bytes are read LE
+ * (matching Move `bcs::peel_u64`).
+ */
+function rollRugFires(
+  segmentKey: Uint8Array,
+  marketIdBytes: Uint8Array,
+  round: bigint,
+  rugChanceBps: bigint,
+): boolean {
+  if (rugChanceBps <= 0n) return false;
+  const roundBytes = new Uint8Array(8);
+  let r = round;
+  for (let i = 0; i < 8; i++) {
+    roundBytes[i] = Number(r & 0xffn);
+    r >>= 8n;
+  }
+  const buf = new Uint8Array(
+    segmentKey.length + marketIdBytes.length + 8,
+  );
+  buf.set(segmentKey, 0);
+  buf.set(marketIdBytes, segmentKey.length);
+  buf.set(roundBytes, segmentKey.length + marketIdBytes.length);
+  const h = keccak_256(buf);
+  let roll = 0n;
+  for (let i = 7; i >= 0; i--) roll = (roll << 8n) | BigInt(h[i]!);
+  return roll % 10_000n < rugChanceBps;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const h = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+/**
+ * The segment the ride's round was rugged at — the FIRST segment in
+ * [roundStart, scanEnd) whose deterministic roll fires — or null if the round
+ * wasn't rugged before the ride closed. Reads only segment keys from the Table
+ * (no events). `scanEnd` bounds the search to "before the ride closed" so a rug
+ * that fires AFTER a ride self-closes doesn't retroactively catch it.
+ */
+async function findRoundRugSegment(
+  client: RpcClient,
+  market: MarketInfo,
+  roundStart: bigint,
+  scanEnd: bigint,
+): Promise<bigint | null> {
+  if (!market.rugEnabled || market.rugChanceBps <= 0n) return null;
+  const round = market.roundDurationSegments > 0n
+    ? roundStart / market.roundDurationSegments
+    : 0n;
+  const marketIdBytes = hexToBytes(market.marketId);
+  for (let k = roundStart; k < scanEnd; k++) {
+    const rec = await readSegment(client, market.segmentsTableId, k);
+    if (!rec) continue;
+    if (rollRugFires(rec.key, marketIdBytes, round, market.rugChanceBps)) {
+      return k; // fires once per round → first hit wins
+    }
+  }
+  return null;
+}
+
+export interface RideInfo {
   entrySegmentIndex: bigint;
   roundIndex: bigint;
   upperBarrier: bigint;
@@ -232,13 +320,40 @@ async function readMarket(client: RpcClient, marketId: string): Promise<MarketIn
   const f = asObject(content.fields);
   const segments = asObject(asObject(f.segments).fields);
   const tableId = asString(asObject(segments.id).id);
+
+  // v4.26 rug-pull config lives in a `b"rug_config"` dynamic field on the
+  // market (added under a COMPATIBLE upgrade). Absent on markets that never
+  // called enable_rug → rug disabled. Read it once so ride settlement can
+  // re-derive the deterministic rug roll (prune-proof, no events).
+  let rugEnabled = false;
+  let rugChanceBps = 0n;
+  try {
+    const rc = asObject(
+      await client.getDynamicFieldObject({
+        parentId: marketId,
+        name: { type: "vector<u8>", value: RUG_CONFIG_KEY_BYTES },
+      }),
+    );
+    const rcFields = asObject(asObject(asObject(asObject(rc.data).content).fields).value);
+    const cfg = asObject(rcFields.fields);
+    if (cfg.rug_chance_bps !== undefined) {
+      rugEnabled = true;
+      rugChanceBps = asBig(cfg.rug_chance_bps);
+    }
+  } catch {
+    // No rug config (or a node that can't serve the field) → treat as disabled.
+  }
+
   return {
+    marketId,
     packageId: type.split("::")[0]!,
     collateralType: m[1]!,
     segmentsTableId: tableId,
     deadbandBps: asBig(f.deadband_bps),
     roundDurationSegments: asBig(f.round_duration_segments),
     nextSegmentIndex: asBig(f.next_segment_index),
+    rugEnabled,
+    rugChanceBps,
   };
 }
 
@@ -445,17 +560,26 @@ async function verifySegments(
   return { rows, allIntegrityOk, touchedInWindow, maxInWindowK };
 }
 
-/** Mirror `decide_settlement`'s KIND branch (rug/abort handled by caller). */
+/**
+ * Mirror `decide_settlement`'s precedence (ABORTED handled by the caller):
+ *   rug routing → touch-either → time-expiry → cashout.
+ *
+ * Rug routing (v4.26) is checked FIRST and BEFORE touch — exactly as the Move
+ * does — because the contract reads `rugged_at_segment` at close time and a
+ * caught ride loses regardless of any barrier touch. `rugApplies` already
+ * encodes the timing rule (entered at/before the rug AND still open when it
+ * fired); see the caller.
+ */
 function deriveSettlementKind(
+  rugApplies: boolean,
   touchedInWindow: boolean,
-  maxInWindowK: bigint | null,
+  nextAtClose: bigint,
   ride: RideInfo,
   roundDurationSegments: bigint,
 ): number {
+  if (rugApplies) return SETTLEMENT_EXPIRED_LOSS;
   if (touchedInWindow) return SETTLEMENT_TOUCH_WIN;
   const rideRoundEnd = (ride.roundIndex + 1n) * roundDurationSegments;
-  // next_segment_index@close == (last in-window k) + 1.
-  const nextAtClose = maxInWindowK === null ? ride.entrySegmentIndex : maxInWindowK + 1n;
   if (nextAtClose >= rideRoundEnd) return SETTLEMENT_EXPIRED_LOSS;
   return SETTLEMENT_CASHOUT;
 }
@@ -527,9 +651,27 @@ async function verify(args: Args): Promise<boolean> {
       ]),
     );
 
+    // next_segment_index@close == (last in-window k) + 1.
+    const nextAtClose =
+      maxInWindowK === null ? ride.entrySegmentIndex : maxInWindowK + 1n;
+
+    // v4.26 rug routing — re-derive the round's rug segment from segment keys
+    // (deterministic, prune-proof) and apply the chain's close-time rule: a rug
+    // catches the ride only if it entered at/before the rug AND was still open
+    // when it fired (rugSeg < nextAtClose). A ride that touched and self-closed
+    // BEFORE the rug fired is a legitimate TOUCH_WIN even if the round later
+    // rugged.
+    const roundStart = ride.roundIndex * market.roundDurationSegments;
+    const rugSeg = await findRoundRugSegment(client, market, roundStart, nextAtClose);
+    const rugApplies =
+      rugSeg !== null &&
+      ride.entrySegmentIndex <= rugSeg &&
+      rugSeg < nextAtClose;
+
     const derived = deriveSettlementKind(
+      rugApplies,
       touchedInWindow,
-      maxInWindowK,
+      nextAtClose,
       ride,
       market.roundDurationSegments,
     );
@@ -537,6 +679,21 @@ async function verify(args: Args): Promise<boolean> {
     const pass = allIntegrityOk && verdictMatch;
 
     console.log("");
+    if (market.rugEnabled) {
+      console.log(
+        `rug-pull:          ${
+          rugSeg === null
+            ? `none in round ${ride.roundIndex} before close (chance ${market.rugChanceBps}bps/seg)`
+            : `fired @ segment ${rugSeg} — ${
+                rugApplies
+                  ? "ride OPEN across it → EXPIRED_LOSS"
+                  : ride.entrySegmentIndex > rugSeg
+                    ? "ride entered AFTER the rug"
+                    : "ride CLOSED before the rug fired"
+              }`
+        }`,
+      );
+    }
     console.log(`extrema replay:    ${allIntegrityOk ? "match (every segment)" : "MISMATCH"}`);
     console.log(`off-chain verdict: ${SETTLEMENT_NAME[derived] ?? derived}`);
     console.log(`on-chain verdict:  ${SETTLEMENT_NAME[ride.settlementKind] ?? ride.settlementKind}`);
@@ -732,11 +889,21 @@ function buildSyntheticClient(tamper: boolean): RpcClient {
   };
 }
 
-verify(parseArgs(process.argv.slice(2)))
-  .then((ok) => {
-    process.exitCode = ok ? 0 : 1;
-  })
-  .catch((err: unknown) => {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exitCode = 1;
-  });
+// Exported for unit tests (scripts/verify-v4.test.ts). Pure, no I/O.
+export { rollRugFires, deriveSettlementKind, SETTLEMENT_TOUCH_WIN, SETTLEMENT_CASHOUT, SETTLEMENT_EXPIRED_LOSS };
+
+// CLI entrypoint — guarded so `import`ing this module (e.g. from the test) does
+// NOT auto-run the verifier against the test runner's argv.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  fileURLToPath(import.meta.url) === resolvePath(process.argv[1]);
+if (invokedDirectly) {
+  verify(parseArgs(process.argv.slice(2)))
+    .then((ok) => {
+      process.exitCode = ok ? 0 : 1;
+    })
+    .catch((err: unknown) => {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+    });
+}

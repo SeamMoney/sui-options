@@ -45,11 +45,20 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
   - instant offline demo (honest PASS, then a tampered-segment FAIL):
     `npm run verify:fairness` · `npm run verify:fairness:tamper`
   - audit a real market's recorded segments: `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>`
-  - verify one closed ride's settlement: `npx tsx scripts/verify-v4.ts --market <id> --ride <id>`
+  - **verify a real rug-caught ride** — proves the `MARKET HALT` was honest:
 
-  It re-runs the byte-identical seeded walk from each segment's on-chain key + carried state and
-  confirms the chain's published high/low/verdict — prune-proof (reads the segment Table directly, no
-  event replay). Tamper any key or extremum and it exits non-zero.
+    ```bash
+    npx tsx scripts/verify-v4.ts \
+      --market 0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282 \
+      --ride   0x7b3df97e608bda202efd096bca652be8a846dc2a286abfd5d94a1ca3b9c4a5ea
+    ```
+
+    → **PASS** — `rug-pull: fired @ segment 458 — ride OPEN across it → EXPIRED_LOSS`.
+
+  It re-runs the byte-identical seeded walk from each segment's on-chain key + carried state, confirms
+  the chain's published high/low, **re-derives the v4.26 rug roll** (`keccak256(key‖market‖round)`) to
+  prove the halt was honest, and checks the settlement verdict — all prune-proof (reads the segment
+  Table directly, no event replay). Tamper any key or extremum and it exits non-zero.
 
 ## Proof points
 
