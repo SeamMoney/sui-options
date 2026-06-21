@@ -199,7 +199,12 @@ function MiniCandles({
 }
 
 export function Coach() {
-  const [pool, setPool] = useState<DeepBookPoolName>("SUI_USDC");
+  // Honour ?asset=<pool> so arriving from the /pro DeepBook-status link keeps
+  // the asset you were watching (e.g. /pro on BTC → /coach on BTC).
+  const [pool, setPool] = useState<DeepBookPoolName>(() => {
+    const a = new URLSearchParams(window.location.search).get("asset");
+    return a && a in DEEPBOOK_POOLS ? (a as DeepBookPoolName) : "SUI_USDC";
+  });
   // Real candles off the selected DeepBook mark (the same source Wick Pro
   // prices against). Falls back to a synthetic stream so the page renders cold
   // — no wallet, no RPC — and during the first poll.

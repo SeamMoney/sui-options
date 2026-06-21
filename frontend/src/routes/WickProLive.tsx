@@ -482,7 +482,7 @@ export function WickProLive() {
         {/* Links to the full DeepBook desk (/coach): live order book, depth,
             24h volume, recent fills + the same BS quote/payoff. */}
         <a
-          href="/coach"
+          href={`/coach?asset=${pool}`}
           title="Open the live DeepBook desk — order book, depth, recent fills"
           className={`ml-auto text-[10px] uppercase tracking-widest flex items-center gap-1 hover:opacity-75 transition-opacity ${
             status === "live" ? "text-emerald-400" : status === "stale" ? "text-amber-400" : "text-white/40"
