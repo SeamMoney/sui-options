@@ -38,9 +38,12 @@ export interface DeepBookPool {
   readonly label: string;
 }
 
-/** The pools Wick Pro can mark against. SUI_USDC is the default (deepest). */
+/** The pools Wick Pro can mark against. SUI_USDC is the default (deepest).
+ *  Consumers iterate Object.keys(DEEPBOOK_POOLS) (the /pro asset toggle, the
+ *  check:deepbook smoke), so adding a pool here auto-wires a new asset tab. */
 export const DEEPBOOK_POOLS = {
   SUI_USDC: { name: "SUI_USDC", base: "SUI", quote: "USDC", label: "SUI" },
+  XBTC_USDC: { name: "XBTC_USDC", base: "XBTC", quote: "USDC", label: "BTC" },
   DEEP_USDC: { name: "DEEP_USDC", base: "DEEP", quote: "USDC", label: "DEEP" },
 } as const satisfies Record<string, DeepBookPool>;
 
