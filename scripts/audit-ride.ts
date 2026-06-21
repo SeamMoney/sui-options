@@ -1,16 +1,19 @@
 #!/usr/bin/env tsx
 /**
  * audit-ride — the COMPLETE provable-fairness audit of one closed v4 ride, in a
- * single command. Runs both verifiers back to back and fails if either fails:
+ * single command. Runs the verifiers back to back and fails if any fails:
  *
- *   1. scripts/verify-v4.ts   — the candles are honest (every segment's high/low
+ *   1. scripts/verify-barriers.ts — the round's TOUCH barriers were not
+ *      cherry-picked: they re-derive from the walk price at round-roll
+ *      (spot ± barrier_offset_bps), which itself ⟸ the on-chain random keys.
+ *   2. scripts/verify-v4.ts   — the candles are honest (every segment's high/low
  *      reproduces from its on-chain key), the MARKET HALT (rug) was an honest
  *      keccak roll, and the settlement KIND matches the price path.
- *   2. scripts/verify-payout.ts — the AMOUNT paid is exactly right (stake_paid
+ *   3. scripts/verify-payout.ts — the AMOUNT paid is exactly right (stake_paid
  *      re-derived from on-chain state; payout identity per settlement kind).
  *
- * Together: every dimension a skeptic could question — the chart, the house
- * edge, the verdict, and the money — proven for a real on-chain ride.
+ * Together: every dimension a skeptic could question — the barrier, the chart,
+ * the house edge, the verdict, and the money — proven for a real on-chain ride.
  *
  *   npx tsx scripts/audit-ride.ts --market <SegmentMarketV4 id> --ride <id> [--rpc <url>]
  *   npm run audit:ride -- --market <id> --ride <id>
@@ -43,19 +46,23 @@ function step(title: string, script: string): boolean {
   return (r.status ?? 1) === 0;
 }
 
+const barriers = step(
+  "1/3  ROUND BARRIERS — not cherry-picked   (scripts/verify-barriers.ts)",
+  "verify-barriers.ts",
+);
 const candlesAndHalt = step(
-  "1/2  CANDLES · MARKET HALT · VERDICT   (scripts/verify-v4.ts)",
+  "2/3  CANDLES · MARKET HALT · VERDICT   (scripts/verify-v4.ts)",
   "verify-v4.ts",
 );
-const payout = step("2/2  PAYOUT AMOUNT   (scripts/verify-payout.ts)", "verify-payout.ts");
+const payout = step("3/3  PAYOUT AMOUNT   (scripts/verify-payout.ts)", "verify-payout.ts");
 
 console.log(`\n${"═".repeat(72)}`);
-const pass = candlesAndHalt && payout;
+const pass = barriers && candlesAndHalt && payout;
 if (pass) {
-  console.log("  ✅ COMPLETE AUDIT PASS — candles, house edge, verdict, AND payout are honest.");
+  console.log("  ✅ COMPLETE AUDIT PASS — barriers, candles, house edge, verdict, AND payout are honest.");
 } else {
   console.log(
-    `  ❌ AUDIT FAILED — candles/halt/verdict: ${candlesAndHalt ? "PASS" : "FAIL"} · payout: ${payout ? "PASS" : "FAIL"}`,
+    `  ❌ AUDIT FAILED — barriers: ${barriers ? "PASS" : "FAIL"} · candles/halt/verdict: ${candlesAndHalt ? "PASS" : "FAIL"} · payout: ${payout ? "PASS" : "FAIL"}`,
   );
 }
 console.log("═".repeat(72));
