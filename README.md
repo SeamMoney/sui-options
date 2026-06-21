@@ -293,9 +293,14 @@ npm run -w api dev                         # http://localhost:8787
 # frontend
 npm run -w frontend dev                    # http://localhost:5173
 
-# personality bots for organic activity
-npm run bots:run                           # ~1 trade/sec across the fleet
+# keep the live v4 chart moving for a demo (open → crank → close, supervised)
+npm run chart:keep                         # ~30 SUI/hr; Ctrl+C closes the ride
 ```
+
+> The `bots/` package drove the **retired v1** touch/no-touch *trade* model
+> (`wick::create_market` / `buy`), which no longer exists on-chain — so
+> `npm run bots:run` is legacy and won't settle against the current package.
+> Use `npm run chart:keep` (above) to animate the live v4 chart instead.
 
 `scripts/agent-preflight.sh` is the canonical pre-commit gate: Move test + frontend / keeper / bots tsc. Required green before any commit.
 
