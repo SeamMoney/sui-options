@@ -27,10 +27,17 @@ const market: MarketConfig = {
 
 const round: RoundConfig = { startedAtMs: 0, lobbyMs: 60_000, liveMs: 90_000, settleMs: 5_000 };
 
+// `--seed <n>` replays a SPECIFIC round deterministically (e.g. the seed the
+// engine revealed at settle for a round you played) — same market, same clock,
+// so the candles + commit reproduce exactly. Default is the showcase seed.
+const seedArgIdx = process.argv.indexOf("--seed");
+const seedArg = seedArgIdx >= 0 ? Number(process.argv[seedArgIdx + 1]) : 424242;
+const seed = Number.isFinite(seedArg) ? seedArg : 424242;
+
 const engine = new RoundEngine({
   market,
   round,
-  seed: 424242,
+  seed,
   steps: 90,
   stepMs: 1000,
   spreadBps: 150, // 1.5% vig
