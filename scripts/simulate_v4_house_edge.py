@@ -156,8 +156,23 @@ def fmt_dollars(raw: float) -> str:
 
 
 def main():
+    # Stream each strategy row as it finishes even when piped/logged — Python
+    # block-buffers a pipe, which otherwise makes the sim look hung until the
+    # end. Each strategy runs --rounds × 75-segment byte-identical walks
+    # (a few ms/round on an idle laptop), so the default 4-strategy sweep lands
+    # in ~30-60s (slower on a busy machine). The headline cashout edge is
+    # low-variance — cashout_at_5 already reads ~+3.4% by ~700 rounds — so the
+    # default reproduces the +3% number; raise --rounds for a tighter estimate
+    # (20000 ≈ several minutes).
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rounds", type=int, default=20_000)
+    ap.add_argument("--rounds", type=int, default=1500,
+                    help="Monte Carlo rounds per strategy (default 1500; "
+                         "~30-60s idle. cashout_at_5 reads ~+3.4% house edge). "
+                         "Raise for precision: 20000 ≈ several min.")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 

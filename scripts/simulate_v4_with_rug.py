@@ -93,15 +93,24 @@ def simulate(rug_per_segment: float, n_rounds: int) -> dict:
 
 def main():
     import argparse
+    # Stream each config row as it's computed even when stdout is piped/logged
+    # (Python block-buffers a pipe by default, which made the sweep look hung
+    # for its whole runtime before dumping everything at the end).
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(
         description="V4.26 rug-pull house-edge sweep (hold_full strategy).",
     )
-    # Default sized so the full 9-config sweep finishes in well under a minute
-    # on a laptop (each round runs the byte-identical seeded walk for up to 75
-    # segments). Bump --rounds for a tighter estimate; the seed is fixed so a
-    # given --rounds is reproducible run-to-run.
+    # Each round runs the byte-identical seeded walk for up to 75 segments, so
+    # the full 9-config sweep takes ~2-3 min at the default on a laptop; rows
+    # stream as each config finishes. Drop --rounds for a quicker (noisier)
+    # read, raise it for a tighter estimate. The seed is fixed, so a given
+    # --rounds is reproducible run-to-run.
     ap.add_argument("--rounds", type=int, default=1200,
-                    help="Monte Carlo rounds per rug config (default 1200).")
+                    help="Monte Carlo rounds per rug config (default 1200; "
+                         "~2-3 min). Try --rounds 400 for a ~45s preview.")
     args = ap.parse_args()
     n = args.rounds
     print(f"V4 + rug-pull mechanism — hold_full, {n:,} rounds per config")
