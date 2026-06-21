@@ -290,7 +290,7 @@ npm run bots:run                           # ~1 trade/sec across the fleet
 ## Repository layout
 
 ```
-move/sources/      25 Move modules — market, segment_market, vault, fee_router, …
+move/sources/      26 Move modules — market, segment_market, vault, fee_router, …
 move/tests/        574 Move tests including conformance, invariants, adversarial, e2e replay, v4.26 rug-roll suite
 sdk/src/           @wick/sdk — PTB builders, typed event parsers, deterministic walk TS port
 frontend/src/      Vite + React + Sui dApp Kit; live testnet markets
