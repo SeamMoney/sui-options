@@ -20,7 +20,7 @@
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -78,14 +78,25 @@ function auditOne(m: MarketEntry): Result {
     out = `${err.stdout ?? ""}\n${err.stderr ?? ""}`;
     ok = false;
   }
+  return classifyVerifyOutput(out, ok, name, m.market);
+}
+
+/**
+ * Map a verify-v4 run (its stdout + whether it exited 0) to a per-market
+ * verdict. Pure — separated from the subprocess so it's unit-testable:
+ *   - "EMPTY" when the market had no segments in range (idle, not a failure)
+ *   - "PASS"  only when the verifier ran AND printed the honest verdict
+ *   - "FAIL"  otherwise (tamper, unreachable, or a non-zero exit)
+ */
+export function classifyVerifyOutput(out: string, ranOk: boolean, name: string, market: string): Result {
   // Pull the recorded-segment count the verifier prints ("segments: N recorded …").
   const segMatch = /segments:\s+(\d+)\s+recorded/.exec(out);
   const segments = segMatch ? segMatch[1]! : "?";
   if (/No segments in range — nothing to verify/.test(out)) {
-    return { name, market: m.market, status: "EMPTY", segments };
+    return { name, market, status: "EMPTY", segments };
   }
-  const passed = ok && /\bPASS — the chain was honest\.\s*$/.test(out.trim());
-  return { name, market: m.market, status: passed ? "PASS" : "FAIL", segments };
+  const passed = ranOk && /\bPASS — the chain was honest\.\s*$/.test(out.trim());
+  return { name, market, status: passed ? "PASS" : "FAIL", segments };
 }
 
 function main(): void {
@@ -122,4 +133,7 @@ function main(): void {
   }
 }
 
-main();
+// Run only when invoked directly (not when imported by the test).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
