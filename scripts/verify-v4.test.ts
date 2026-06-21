@@ -19,10 +19,10 @@ import { rollRugFired } from "./rugRoll.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "verify-v4.ts");
 
-function run(rpc: string): { code: number; out: string } {
+function run(rpc: string, extra: string[] = []): { code: number; out: string } {
   const r = spawnSync(
     "npx",
-    ["tsx", cli, "--rpc", rpc, "--ride", "0xmock"],
+    ["tsx", cli, "--rpc", rpc, "--ride", "0xmock", ...extra],
     { encoding: "utf8", cwd: join(here, "..") },
   );
   return { code: r.status ?? -1, out: `${r.stdout}\n${r.stderr}` };
@@ -44,6 +44,24 @@ test("a tampered extremum FAILs verification (exit 1) and is pinpointed", () => 
   // The tamper is on segment k=5: its integ column must read FAIL.
   assert.match(out, /^\s*5\b.*\bFAIL\s*$/m, "segment 5 should be flagged FAIL");
   assert.equal(code, 1, "a dishonest house must exit non-zero");
+});
+
+test("synthetic MARKET HALT (rug) ride settles EXPIRED_LOSS and PASSes", () => {
+  // Exercises the full rug settlement WIRING offline: readRugConfig →
+  // findRoundRug (re-derive the keccak halt) → EXPIRED_LOSS routing → verdict
+  // match. This is the only CI guard on the rug path other than the pure-roll
+  // golden vectors, and verify-v4.ts has been churned by many PRs — so it
+  // protects the headline "provably-fair house edge" from a silent regression.
+  const { code, out } = run("mock://rug-v4", ["--home", "1000000000"]);
+  assert.match(out, /MARKET HALT:.*rug fired @ segment 0/);
+  assert.match(out, /keccak roll=\d+ < rug_chance_bps=10000 \(HONEST\)/);
+  assert.match(out, /chain rugged_at_segment=0 \(match\)/);
+  assert.match(out, /halt applies → EXPIRED_LOSS/);
+  assert.match(out, /off-chain verdict: EXPIRED_LOSS/);
+  assert.match(out, /on-chain verdict:\s+EXPIRED_LOSS/);
+  assert.match(out, /extrema replay:\s+match \(every segment\)/);
+  assert.match(out, /PASS — the chain was honest\./);
+  assert.equal(code, 0, "an honest rugged ride must PASS (exit 0)");
 });
 
 // ── MARKET HALT (rug) roll — golden vectors captured live from testnet ──────
