@@ -12,10 +12,14 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same ref to save CI minutes.
+# Cancel superseded runs on the same ref to save CI minutes — but NEVER on
+# main. Rapid back-to-back merges were cancelling main's in-progress run on
+# every new merge, so the default-branch CI almost never completed and the
+# README's CI badge sat perpetually grey/cancelled. Let main runs always
+# finish (badge reflects real status); PR/branch runs still cancel superseded.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   node:
