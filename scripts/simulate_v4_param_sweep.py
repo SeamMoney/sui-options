@@ -8,7 +8,7 @@ User strategy: hold_full (the worst case for the house — touch wins
 strongly favor the user when held to expiry).
 """
 from __future__ import annotations
-import os, sys, secrets
+import os, sys, random
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 from simulate_segment_protocol import expand_segment, fresh_walk, HOME_PRICE  # noqa
@@ -17,7 +17,11 @@ ROUND_DURATION = 75
 STAKE_PER_SEGMENT = 100_000
 
 def measure(barrier_bps: int, mult_bps: int, n_rounds: int) -> dict:
-    secrets.SystemRandom().seed(42)
+    # Seeded PRNG: the old `secrets.SystemRandom().seed(42)` was a double no-op
+    # (it seeds a throwaway object, and SystemRandom ignores seeds anyway) — so
+    # this sweep was neither reproducible nor fast. random.Random honors the
+    # seed and skips the per-segment OS-CSPRNG syscall.
+    rng = random.Random(42)
     total_net = 0.0
     total_stake = 0.0
     touches = 0
@@ -28,7 +32,7 @@ def measure(barrier_bps: int, mult_bps: int, n_rounds: int) -> dict:
         lower = spot - spot * barrier_bps // 10_000
         touched = False
         for _ in range(ROUND_DURATION):
-            key = secrets.token_bytes(32)
+            key = rng.randbytes(32)
             state, smin, smax = expand_segment(state, key)
             if smax >= upper or smin <= lower:
                 touched = True; break
