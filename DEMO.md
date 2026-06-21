@@ -44,7 +44,9 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
   Or audit the **live v4 chain** from a terminal, no wallet, no indexer:
   - instant offline demo (honest PASS, then a tampered-segment FAIL):
     `npm run verify:fairness` · `npm run verify:fairness:tamper`
-  - audit a real market's recorded segments: `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>`
+  - **audit the live chain, zero args** (auto-picks a live market from `deployments/testnet.json`):
+    `npm run verify:fairness:live`
+  - audit a specific market's recorded segments: `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>`
   - verify one closed ride's settlement: `npx tsx scripts/verify-v4.ts --market <id> --ride <id>`
 
   It re-runs the byte-identical seeded walk from each segment's on-chain key + carried state and

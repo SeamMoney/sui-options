@@ -42,6 +42,9 @@
  * live window is bounded by `recorded_at_ms <= closed_at_ms` (no event lookup),
  * so the touch scan matches the chain's `[entry, next_segment_index@close)`.
  */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import {
   expandSegment,
@@ -128,9 +131,14 @@ function parseArgs(argv: string[]): Args {
       throw new Error(`unknown or incomplete argument: ${arg}`);
     }
   }
-  // Synthetic modes synthesize a market id, so --market is optional there.
+  // Synthetic modes synthesize a market id; market-audit mode can auto-discover
+  // a live market from deployments. Only ride mode strictly needs --market (the
+  // market must match the ride).
   const synthetic = (out.rpc ?? "").startsWith("mock://");
-  if (!synthetic && !out.market) usage();
+  if (!synthetic && out.ride && !out.market) {
+    console.error("--ride requires --market (the market the ride belongs to)");
+    usage();
+  }
   return out as Args;
 }
 
@@ -214,6 +222,51 @@ interface RideInfo {
   settlementKind: number;
 }
 
+/**
+ * Zero-arg convenience: pick a live v4 market to audit from
+ * `deployments/testnet.json`. Probes each `segment_markets_v4` entry and
+ * returns the one with the most segments recorded (the busiest = best demo),
+ * so `npx tsx scripts/verify-v4.ts` with no `--market` audits the live chain.
+ */
+async function discoverLiveMarket(client: RpcClient): Promise<string> {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const path = join(here, "..", "deployments", "testnet.json");
+  let markets: string[];
+  try {
+    const dep = JSON.parse(readFileSync(path, "utf8")) as {
+      segment_markets_v4?: Array<{ market?: string }>;
+    };
+    markets = (dep.segment_markets_v4 ?? [])
+      .map((m) => m.market)
+      .filter((m): m is string => typeof m === "string");
+  } catch (e) {
+    throw new Error(
+      `pass --market <SegmentMarketV4 id> (could not read ${path}: ${
+        e instanceof Error ? e.message : String(e)
+      })`,
+    );
+  }
+  if (markets.length === 0) {
+    throw new Error("no segment_markets_v4 in deployments/testnet.json — pass --market <id>");
+  }
+  let best: { id: string; segs: bigint } | null = null;
+  for (const id of markets) {
+    try {
+      const m = await readMarket(client, id);
+      if (!best || m.nextSegmentIndex > best.segs) {
+        best = { id, segs: m.nextSegmentIndex };
+      }
+    } catch {
+      // skip unreachable / wrong-type entries
+    }
+  }
+  if (!best || best.segs < 2n) {
+    throw new Error("no live v4 market with recorded segments found — pass --market <id>");
+  }
+  console.log(`(auto-selected live market with ${best.segs} segments from deployments/testnet.json)`);
+  return best.id;
+}
+
 async function readMarket(client: RpcClient, marketId: string): Promise<MarketInfo> {
   const o = asObject(await client.getObject({ id: marketId, options: { showContent: true, showType: true } }));
   const data = asObject(o.data);
@@ -265,6 +318,31 @@ async function readRide(client: RpcClient, rideId: string): Promise<RideInfo> {
     closedAtMs: asBig(f.closed_at_ms),
     settlementKind: Number(asBig(f.settlement_kind)),
   };
+}
+
+/**
+ * Is this market rug-enabled? (doc 26) A `RugConfig` dynamic field under the
+ * market UID, keyed by the bytes of "rug_config", means `enable_rug` was
+ * called. On a rug market the chain checks `rugged_at_segment` BEFORE the touch
+ * scan in `decide_settlement`, so a rug can override any path-derived verdict —
+ * and the rug segment is per-round mutable state we can't reconstruct from the
+ * current object without the (prunable) RugFiredV4 event. So we detect rug here
+ * and refuse to over-claim the settlement KIND on those markets.
+ */
+async function readRugEnabled(client: RpcClient, marketId: string): Promise<boolean> {
+  const key = Array.from(new TextEncoder().encode("rug_config"));
+  try {
+    const d = asObject(
+      await client.getDynamicFieldObject({
+        parentId: marketId,
+        // The RPC accepts the byte array as the dynamic-field name value.
+        name: { type: "vector<u8>", value: key as unknown as string },
+      }),
+    );
+    return Boolean(asObject(d.data).content);
+  } catch {
+    return false;
+  }
 }
 
 /** Read one SegmentRecord from the market's Table<u64, SegmentRecord>. */
@@ -466,7 +544,9 @@ async function verify(args: Args): Promise<boolean> {
     ? buildSyntheticClient(args.rpc.includes("tamper"))
     : (new SuiJsonRpcClient({ url: args.rpc, network: "testnet" }) as unknown as RpcClient);
 
-  const marketId = synthetic ? SYNTH_MARKET : args.market!;
+  const marketId = synthetic
+    ? SYNTH_MARKET
+    : (args.market ?? (await discoverLiveMarket(client)));
   const market = await readMarket(client, marketId);
 
   console.log(`network:  ${synthetic ? "synthetic (offline)" : args.rpc}`);
@@ -527,20 +607,48 @@ async function verify(args: Args): Promise<boolean> {
       ]),
     );
 
-    const derived = deriveSettlementKind(
-      touchedInWindow,
-      maxInWindowK,
-      ride,
-      market.roundDurationSegments,
-    );
-    const verdictMatch = derived === ride.settlementKind;
-    const pass = allIntegrityOk && verdictMatch;
+    // Rug markets (doc 26) check `rugged_at_segment` BEFORE the touch scan, so a
+    // rug can route ANY ride to EXPIRED_LOSS — overriding the path-derived
+    // verdict. The rug segment is per-round mutable state, reset each round, so
+    // it isn't reconstructable from the current object (only from the prunable
+    // RugFiredV4 event, which this prune-proof verifier deliberately avoids).
+    // To stay correct we never assert the CASHOUT/EXPIRED distinction on a rug
+    // market — but TOUCH_WIN ⟹ a touch occurred holds even with rug (rug never
+    // pays TOUCH_WIN), so that implication is still checked everywhere.
+    const rugEnabled = synthetic ? false : await readRugEnabled(client, marketId);
 
     console.log("");
     console.log(`extrema replay:    ${allIntegrityOk ? "match (every segment)" : "MISMATCH"}`);
-    console.log(`off-chain verdict: ${SETTLEMENT_NAME[derived] ?? derived}`);
     console.log(`on-chain verdict:  ${SETTLEMENT_NAME[ride.settlementKind] ?? ride.settlementKind}`);
-    console.log(verdictMatch ? "verdict:           match" : "verdict:           MISMATCH");
+
+    let verdictOk: boolean;
+    if (ride.settlementKind === SETTLEMENT_TOUCH_WIN) {
+      // TOUCH_WIN must be backed by a barrier touch in the live window.
+      verdictOk = touchedInWindow;
+      console.log(
+        `touch check:       ${touchedInWindow ? "barrier touched in-window ✓ (consistent with TOUCH_WIN)" : "NO touch found — TOUCH_WIN is unjustified"}`,
+      );
+    } else if (rugEnabled) {
+      // CASHOUT / EXPIRED_LOSS on a rug market: don't assert the kind. Integrity
+      // is the binding proof; the verdict can hinge on a rug we can't replay.
+      verdictOk = true;
+      console.log(
+        `verdict:           ${SETTLEMENT_NAME[ride.settlementKind] ?? ride.settlementKind} on a rug-enabled market — not asserted ` +
+          "(needs the round's RugFiredV4 event; integrity is the binding proof here)",
+      );
+    } else {
+      const derived = deriveSettlementKind(
+        touchedInWindow,
+        maxInWindowK,
+        ride,
+        market.roundDurationSegments,
+      );
+      verdictOk = derived === ride.settlementKind;
+      console.log(`off-chain verdict: ${SETTLEMENT_NAME[derived] ?? derived}`);
+      console.log(verdictOk ? "verdict:           match" : "verdict:           MISMATCH");
+    }
+
+    const pass = allIntegrityOk && verdictOk;
     console.log(pass ? "\nPASS — the chain was honest." : "\nFAIL — the chain lied.");
     return pass;
   }

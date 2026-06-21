@@ -98,8 +98,9 @@ cd move && sui move test seeded_path_conformance && cd ..
 # 4. prove provable fairness — instant, offline, no wallet:
 npm run verify:fairness          # honest synthetic v4 market+ride → PASS, exit 0
 npm run verify:fairness:tamper   # one tampered segment extremum → FAIL, exit 1
+npm run verify:fairness:live     # audit a LIVE market (auto-picked from deployments), zero args
 #
-#    …or audit the LIVE v4 chain (reads the segment Table directly — prune-proof):
+#    …or audit a specific LIVE v4 market (reads the segment Table directly — prune-proof):
 npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>            # audit recent segments
 npx tsx scripts/verify-v4.ts --market <id> --ride <SegmentRidePositionV4 id>  # verify one closed ride
 

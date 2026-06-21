@@ -24,6 +24,7 @@
     "verify:pro-fairness": "npm run --silent build:pro-options && tsx scripts/verify-fairness.ts",
     "verify:fairness": "tsx scripts/verify-v4.ts --rpc mock://synthetic-v4 --ride 0xmock",
     "verify:fairness:tamper": "tsx scripts/verify-v4.ts --rpc mock://tamper-v4 --ride 0xmock",
+    "verify:fairness:live": "tsx scripts/verify-v4.ts",
     "test:verify-v4": "tsx --test scripts/verify-v4.test.ts",
     "check:treasury": "tsx scripts/treasury-health.ts",
     "check:meta": "node scripts/check-meta.mjs",
