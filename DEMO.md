@@ -10,8 +10,9 @@ Everything below is live on testnet — no install, no wallet needed to play.
 ## ▶ The 60-second path — [wick-markets.vercel.app/pro](https://wick-markets.vercel.app/pro)
 
 1. **Open `/pro` on a phone.** The header shows a live price + `● DEEPBOOK LIVE` and a `σ` — that's
-   the real DeepBook **SUI/USDC** mid (toggle **DEEP** for DEEP/USDC) with volatility computed from
-   the live trade tape. The chart is seeded with real DeepBook candle history.
+   a real DeepBook mid — toggle **SUI**, **BTC** (XBTC/USDC ~$64k), or **DEEP** — with volatility
+   computed from each pool's live trade tape. (Try **BTC**: Bitcoin options on a real on-chain CLOB
+   mark.) The chart is seeded with real DeepBook candle history.
 2. **Tap ▲ UP or ▼ DOWN.** You've bought a 60-second at-the-money call/put. The premium and the
    `±%` to win come from a real Black-Scholes engine (`@sui-options/pro-options`) using that live mid
    and σ.
@@ -30,7 +31,8 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 ## Also worth a look
 
 - **[/coach](https://wick-markets.vercel.app/coach)** — the CandleVision pattern coach standalone, on
-  the live SUI/USDC DeepBook mark, beside a live Black-Scholes quote (CALL/PUT premium + Δ).
+  the live DeepBook mark (toggle SUI / BTC / DEEP), beside a live Black-Scholes quote (CALL/PUT
+  premium + Δ).
 - **[/ride](https://wick-markets.vercel.app/ride)** — the original tap-hold touch/no-touch game.
   Real **on-chain** rides: one-tap faucet (free testnet SUI + TUSD, no wallet) → hold the chart →
   segments recorded on-chain from `sui::random`.
