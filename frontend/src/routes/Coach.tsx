@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CandleInput } from "@sui-options/candle-vision";
 import { PatternCoachPanel } from "@/components/PatternCoachPanel";
+import { LiveOptionQuote } from "@/components/LiveOptionQuote";
 import { useDeepBookCandles } from "@/hooks/useDeepBookCandles";
 
 const MAX_CANDLES = 60;
@@ -183,8 +184,11 @@ export function Coach() {
             </div>
           </div>
 
-          {/* Coach panel */}
-          <PatternCoachPanel candles={candles} maxItems={4} />
+          {/* Right rail: pattern coach + a live BS option quote off the same mark */}
+          <div className="flex flex-col gap-4">
+            <PatternCoachPanel candles={candles} maxItems={4} />
+            {isLive ? <LiveOptionQuote pool="SUI_USDC" expirySecs={300} /> : null}
+          </div>
         </div>
       </div>
     </div>
