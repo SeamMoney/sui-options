@@ -173,9 +173,19 @@ def simulate_strategy(strat: Strategy, n_rounds: int, seed: int = 42) -> dict:
 
 
 def main():
+    # Stream output as each strategy finishes: this sweep runs minutes (20k
+    # rounds × 6 strategies of pure-Python segment expansion), and Python
+    # block-buffers stdout when piped/redirected — so without line buffering a
+    # judge piping the run into a file or `tail` sees a blank screen for the
+    # whole run and assumes it hung. Line-buffer so each result row appears live.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
     n = int(os.environ.get("ROUNDS", "20000"))
     seed = int(os.environ.get("SEED", "42"))
     print(f"v4.27 strategy sweep — {n:,} rounds per strategy, seed={seed}")
+    print("  (tip: ROUNDS=3000 python3 scripts/simulate_v4.27_strategies.py for a faster pass)")
     print(f"  rug_chance_per_segment = {RUG_PROBABILITY_PER_SEG*100:.2f}% (v4.26 calibration)")
     print(f"  multiplier = {MULTIPLIER_BPS/10000:.2f}x, barriers = ±{BARRIER_OFFSET_BPS/100:.1f}%")
     print(f"  same seed → same walk + rug timing across strategies (apples-to-apples)")
@@ -185,7 +195,8 @@ def main():
 
     strategies = [HoldFull(), CashoutOnProfit(), CashoutOnDrawdown(),
                   ChaseTouch(), EarlyExit(), MidHold()]
-    for strat in strategies:
+    for i, strat in enumerate(strategies, 1):
+        print(f"  … running {strat.name} ({i}/{len(strategies)})", end="\r", flush=True)
         r = simulate_strategy(strat, n, seed=seed)
         o = r["outcomes"]
         edge = r["house_edge"] * 100
