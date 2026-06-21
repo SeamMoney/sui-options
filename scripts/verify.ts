@@ -85,11 +85,12 @@ interface ReplayRow {
 }
 
 const DEFAULT_INITIAL_VOL_REGIME = 1_000_000n;
-// Default to PublicNode, not the Mysten public testnet fullnode: the latter
-// rate-limits under sustained load (and a throttled response drops its CORS
-// headers, surfacing as a misleading error). This is the repo-wide testnet RPC
-// convention — judges run `npx tsx scripts/verify.ts ...` cold, so the default
-// must be the reliable endpoint. Override with --rpc or WICK_VERIFY_RPC.
+// Default to PublicNode (the repo-wide testnet RPC convention — the Mysten
+// fullnode rate-limits under sustained load). PublicNode PRUNES old tx events,
+// which this event-replay tool needs, so `withArchivalEventFallback` transparently
+// fails over to the archival fullnode the moment a queryEvents call hits a pruned
+// range — keeping the cold `npx tsx scripts/verify.ts …` command working on old
+// rides without giving up the fast default. Override with --rpc or WICK_VERIFY_RPC.
 const DEFAULT_RPC =
   process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 
@@ -482,10 +483,58 @@ function offchainSettlementKind(
   return SETTLEMENT_CASHOUT;
 }
 
+/** Archival fullnode that retains full tx-event history (PublicNode prunes it). */
+const ARCHIVAL_FULLNODE = "https://fullnode.testnet.sui.io:443";
+
+/**
+ * verify.ts replays a ride from its on-chain EVENTS (SegmentRecorded /
+ * RideOpened / RideClosed), so it needs an RPC that retains tx-event history.
+ * The repo-default PublicNode prunes old events and throws
+ * "Could not find the referenced transaction events" mid-replay — which crashed
+ * the README's headline `npx tsx scripts/verify.ts …` command on any ride more
+ * than a few days old. Wrap the client so a pruning error on `queryEvents`
+ * transparently fails over to the archival Mysten fullnode (and sticks with it
+ * for the rest of the run). Objects aren't pruned, so getObject stays on the
+ * primary. No effect when the caller already passed an archival --rpc.
+ */
+function withArchivalEventFallback(primary: RpcClient, primaryUrl: string): RpcClient {
+  if (primaryUrl === ARCHIVAL_FULLNODE) return primary;
+  let archival: RpcClient | null = null;
+  let active = primary;
+  const isPruningError = (e: unknown): boolean =>
+    /Could not find the referenced transaction|not available|pruned|InternalError/i.test(
+      e instanceof Error ? e.message : String(e),
+    );
+  return {
+    getObject: (a) => primary.getObject(a),
+    async queryEvents(a) {
+      try {
+        return await active.queryEvents(a);
+      } catch (e) {
+        if (!isPruningError(e) || active === archival) throw e;
+        if (!archival) {
+          archival = new SuiJsonRpcClient({
+            url: ARCHIVAL_FULLNODE,
+            network: "testnet",
+          }) as unknown as RpcClient;
+        }
+        console.warn(
+          `note: primary RPC pruned tx events — falling back to the archival fullnode (${ARCHIVAL_FULLNODE}) for event history.`,
+        );
+        active = archival;
+        return await active.queryEvents(a);
+      }
+    },
+  };
+}
+
 async function verify(args: Args): Promise<boolean> {
   const client: RpcClient = args.rpc.startsWith("mock://")
     ? buildSyntheticClient(args.market, args.ride)
-    : new SuiJsonRpcClient({ url: args.rpc, network: "testnet" });
+    : withArchivalEventFallback(
+        new SuiJsonRpcClient({ url: args.rpc, network: "testnet" }) as unknown as RpcClient,
+        args.rpc,
+      );
 
   const marketInfo = await getMarketObjectInfo(client, args.market);
   const market = await fetchSegmentMarket(client as never, args.market);
