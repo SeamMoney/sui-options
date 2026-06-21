@@ -118,6 +118,7 @@ npm run verify:fairness          # honest synthetic v4 market+ride → PASS, exi
 npm run verify:fairness:tamper   # one tampered segment extremum → FAIL, exit 1
 npm run verify:fairness:live     # audit a LIVE market (auto-picked from deployments), zero args
 npm run audit:deployment         # audit EVERY live v4 market's candles in one command → PASS
+npm run verify:randomness        # prove the segment keys are drawn from sui::random (cranks consume 0x…08) → PASS
 npm run verify:halt              # prove a real MARKET HALT (rug) ride was an HONEST roll → PASS
 npm run gas:report               # real on-chain gas: a candle tick ≈ $0.004, settle ≈ $0.002 (Sui storage-rebated)
 npm run vault:solvency           # prove the live MartingalerVault covers every outstanding claim → SOLVENT
