@@ -57,6 +57,12 @@ const FALLBACK_SIGMA = 0.6; // until the live σ lands (useDeepBookCandles seeds
 const STAKE_PRESETS = [1, 5, 10, 25];
 const MAX_POINTS = 120; // rolling mark history for the sparkline
 
+// bloxwap palette — the chart/buttons/header are already neon (#138/#140/#142);
+// these let the BIG P&L number and the settle flash match instead of staying
+// the old soft emerald/rose.
+const NEON = "#00ff3f";
+const MAGENTA = "#ff0696";
+
 interface MarkPoint {
   t: number;
   mid: number;
@@ -435,10 +441,10 @@ export function WickProLive() {
         @keyframes wpFlash { 0% { opacity: 0.9 } 100% { opacity: 0 } }
         @keyframes wpPop { 0% { transform: scale(0.7); opacity: 0 } 45% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }
         @keyframes wpWin {
-          0% { transform: scale(0.6); opacity: 0; filter: drop-shadow(0 0 0 rgba(16,185,129,0)) }
-          40% { transform: scale(1.3); filter: drop-shadow(0 0 26px rgba(16,185,129,0.85)) }
+          0% { transform: scale(0.6); opacity: 0; filter: drop-shadow(0 0 0 rgba(0,255,63,0)) }
+          40% { transform: scale(1.3); filter: drop-shadow(0 0 26px rgba(0,255,63,0.85)) }
           70% { transform: scale(0.93) }
-          100% { transform: scale(1); opacity: 1; filter: drop-shadow(0 0 0 rgba(16,185,129,0)) }
+          100% { transform: scale(1); opacity: 1; filter: drop-shadow(0 0 0 rgba(0,255,63,0)) }
         }
       `}</style>
       {/* Settle flash — a fading colour wash, green on a win, red on a loss. */}
@@ -448,8 +454,8 @@ export function WickProLive() {
           style={{
             background:
               flash === "win"
-                ? "radial-gradient(circle at 50% 42%, rgba(16,185,129,0.30), transparent 70%)"
-                : "radial-gradient(circle at 50% 42%, rgba(244,63,94,0.22), transparent 70%)",
+                ? "radial-gradient(circle at 50% 42%, rgba(0,255,63,0.34), transparent 70%)"
+                : "radial-gradient(circle at 50% 42%, rgba(255,6,150,0.26), transparent 70%)",
             animation: "wpFlash 850ms ease-out forwards",
           }}
         />
@@ -593,11 +599,10 @@ export function WickProLive() {
               // when it settles. 60fps text updates keep the same key, so they
               // don't re-trigger the pop.
               key={headline.live ? `live-${position?.id ?? ""}` : `settled-${settled?.id ?? ""}`}
-              className={`text-6xl font-black tabular-nums leading-none ${
-                headline.pnl >= 0 ? "text-emerald-400" : "text-rose-500"
-              }`}
+              className="font-mono text-6xl font-black tabular-nums leading-none"
               style={{
-                textShadow: "0 2px 32px rgba(0,0,0,0.6)",
+                color: headline.pnl >= 0 ? NEON : MAGENTA,
+                textShadow: `0 0 28px ${headline.pnl >= 0 ? NEON : MAGENTA}55, 0 2px 24px rgba(0,0,0,0.6)`,
                 // A win settles with a bigger, glowing celebratory bounce; a
                 // loss and the live updates use the plain pop.
                 animation:
@@ -608,7 +613,7 @@ export function WickProLive() {
             >
               {fmtSignedUsd(headline.pnl)}
             </div>
-            <div className={`mt-1 text-lg font-bold tabular-nums ${headline.pnl >= 0 ? "text-emerald-400/80" : "text-rose-500/80"}`}>
+            <div className="mt-1 font-mono text-lg font-bold tabular-nums" style={{ color: headline.pnl >= 0 ? `${NEON}cc` : `${MAGENTA}cc` }}>
               {fmtPct(headline.pct)}
             </div>
           </>
