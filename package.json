@@ -19,6 +19,7 @@
     "test:candle-vision": "npm -w @sui-options/candle-vision run test",
     "check:deepbook": "tsx scripts/deepbook-mark-check.ts",
     "check:pro": "node scripts/check-pro-live.mjs",
+    "check:demo": "node scripts/check-demo.mjs",
     "verify:pro": "npm run --silent build:pro-options && tsx scripts/verify-pro-pnl.ts",
     "check:treasury": "tsx scripts/treasury-health.ts",
     "smoke:demo": "bash scripts/demo-smoke.sh",
