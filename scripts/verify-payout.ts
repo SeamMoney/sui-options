@@ -110,9 +110,10 @@ interface Ride {
 }
 
 /**
- * Compute the payout identity our way, return null if it holds, or a reason
- * string if it's violated. `bounty` is vault-paid (not from the rider's stake),
- * so the rider-side identity is `payout + forfeit == stake_paid`.
+ * Check the payout identity for the settlement kind, returning a list of
+ * violations (empty = honest). For non-winning kinds the stake is conserved as
+ * `payout + forfeit + bounty == stake_paid` — the `bounty` term is the 50bps
+ * CRANK_BOUNTY paid to a keeper that cranks an expired ride (0 on a self-close).
  */
 export function checkPayoutIdentity(
   kind: number,
@@ -120,32 +121,41 @@ export function checkPayoutIdentity(
   payout: bigint,
   forfeit: bigint,
   multiplierBps: bigint,
+  bounty: bigint = 0n,
 ): string[] {
   const errs: string[] = [];
   if (kind === 1) {
     // TOUCH_WIN — the vault tops up the win, so payout EXCEEDS stake_paid; the
     // conservation identity does NOT apply. payout = stake_paid × multiplier.
+    // A win is never crank-settled, so there is no bounty.
     const expected = (stakePaid * multiplierBps) / BPS;
     if (payout !== expected) {
       errs.push(`TOUCH_WIN payout ${payout} != stake_paid×${multiplierBps}bps = ${expected}`);
     }
     if (forfeit !== 0n) errs.push(`TOUCH_WIN forfeit ${forfeit} != 0`);
+    if (bounty !== 0n) errs.push(`TOUCH_WIN bounty ${bounty} != 0`);
     return errs;
   }
-  // Non-winning kinds: the rider can never gain — stake is conserved.
-  if (payout + forfeit !== stakePaid) {
-    errs.push(`payout(${payout}) + forfeit(${forfeit}) != stake_paid(${stakePaid})`);
+  // Non-winning kinds: the rider can never gain — stake is conserved. When a
+  // keeper CRANKS an expired ride, a CRANK_BOUNTY (50bps of stake_paid) is paid
+  // to the cranker out of the rider's forfeited stake, so the full identity is
+  // payout + forfeit + bounty == stake_paid (bounty is 0 on a self-close).
+  if (payout + forfeit + bounty !== stakePaid) {
+    errs.push(`payout(${payout}) + forfeit(${forfeit}) + bounty(${bounty}) != stake_paid(${stakePaid})`);
   }
   if (kind === 3) {
-    // EXPIRED_LOSS (incl. MARKET HALT)
+    // EXPIRED_LOSS (incl. MARKET HALT): no payout; the held stake is forfeited
+    // (minus any crank bounty). forfeit + bounty must equal stake_paid.
     if (payout !== 0n) errs.push(`EXPIRED_LOSS payout ${payout} != 0`);
-    if (forfeit !== stakePaid) errs.push(`EXPIRED_LOSS forfeit ${forfeit} != stake_paid ${stakePaid}`);
+    if (forfeit + bounty !== stakePaid) {
+      errs.push(`EXPIRED_LOSS forfeit ${forfeit} + bounty ${bounty} != stake_paid ${stakePaid}`);
+    }
   } else if (kind === 2) {
     // CASHOUT — exact Bachelier value computed on-chain; bound-check it.
     if (!(payout > 0n)) errs.push(`CASHOUT payout ${payout} must be > 0`);
     if (payout > stakePaid) errs.push(`CASHOUT payout ${payout} > stake_paid ${stakePaid}`);
   } else if (kind === 4) {
-    // ABORTED_REFUND — escrow refunded 1:1; no stake consumed.
+    // ABORTED_REFUND — escrow refunded 1:1; no stake consumed, no bounty.
     if (payout !== 0n) errs.push(`ABORTED_REFUND payout ${payout} != 0`);
     if (forfeit !== 0n) errs.push(`ABORTED_REFUND forfeit ${forfeit} != 0`);
   }
@@ -314,6 +324,7 @@ async function main(): Promise<boolean> {
       closed.payout,
       closed.forfeit,
       ride.multiplierBps,
+      closed.bounty,
     ),
   );
 
@@ -321,7 +332,8 @@ async function main(): Promise<boolean> {
   if (closed.settlementKind === 1) {
     console.log(`✓ TOUCH_WIN paid stake_paid × ${ride.multiplierBps}bps = ${(closed.stakePaid * ride.multiplierBps) / BPS}`);
   } else if (closed.settlementKind === 3) {
-    console.log(`✓ EXPIRED_LOSS / MARKET HALT forfeited exactly the held stake (${closed.forfeit}); payout 0 — not a satoshi more was taken`);
+    const bountyNote = closed.bounty > 0n ? ` (− ${closed.bounty} crank bounty to the keeper)` : "";
+    console.log(`✓ EXPIRED_LOSS / MARKET HALT forfeited exactly the held stake: forfeit ${closed.forfeit}${bountyNote} = stake_paid ${closed.stakePaid}; payout 0 — not a satoshi more was taken`);
   } else if (closed.settlementKind === 2) {
     console.log(`✓ CASHOUT: payout ${closed.payout} within (0, stake_paid ${closed.stakePaid}]; forfeit = stake_paid − payout (Bachelier value computed on-chain, path proven by verify-v4)`);
   } else if (closed.settlementKind === 4) {

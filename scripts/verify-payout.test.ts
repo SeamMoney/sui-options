@@ -39,6 +39,13 @@ test("EXPIRED_LOSS / MARKET HALT: payout 0, forfeit = stake_paid (not a satoshi 
   assert.deepEqual(checkPayoutIdentity(3, 20_000n, 0n, 20_000n, MULT), []);
 });
 
+test("EXPIRED_LOSS crank-closed: forfeit + bounty (50bps) == stake_paid", () => {
+  // A keeper-cranked expired ride: bounty = 20000 × 50/10000 = 100; forfeit = 19900.
+  assert.deepEqual(checkPayoutIdentity(3, 20_000n, 0n, 19_900n, MULT, 100n), []);
+  // Skimming a bigger bounty than the forfeit accounts for is rejected.
+  assert.ok(checkPayoutIdentity(3, 20_000n, 0n, 19_900n, MULT, 200n).length > 0);
+});
+
 test("EXPIRED_LOSS that skimmed extra (payout>0 or forfeit>stake) is rejected", () => {
   assert.ok(checkPayoutIdentity(3, 20_000n, 1n, 19_999n, MULT).length > 0); // payout != 0
   assert.ok(checkPayoutIdentity(3, 20_000n, 0n, 20_001n, MULT).length > 0); // forfeit > stake_paid
