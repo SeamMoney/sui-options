@@ -99,6 +99,17 @@ export function Verify() {
               <pre className="mt-2 overflow-x-auto rounded bg-[#0d0f13] border border-slate-800 p-3 text-slate-300">
                 npx tsx scripts/verify.ts --market &lt;id&gt; --ride &lt;id&gt;
               </pre>
+              <p className="mt-4">
+                This page proves the <b className="text-slate-300">provably-fair synthetic mode</b>.
+                The live{" "}
+                <a href="/pro" className="text-emerald-400 hover:underline">
+                  Wick Pro
+                </a>{" "}
+                options price off something even simpler to trust — the{" "}
+                <b className="text-slate-300">real DeepBook on-chain order book</b> itself. Open the
+                pool on Suiscan from <code className="text-slate-300">/pro</code> (tap the pair) to
+                see its live book.
+              </p>
             </footer>
           </>
         )}
