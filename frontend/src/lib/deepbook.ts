@@ -36,16 +36,24 @@ export interface DeepBookPool {
   readonly quote: string;
   /** Short display label for the underlying. */
   readonly label: string;
+  /** On-chain DeepBook v3 pool object id (mainnet) — the mid is read from this
+   *  real CLOB; link it on an explorer to prove the mark isn't fabricated. */
+  readonly poolId: string;
 }
 
 /** The pools Wick Pro can mark against. SUI_USDC is the default (deepest).
  *  Consumers iterate Object.keys(DEEPBOOK_POOLS) (the /pro asset toggle, the
  *  check:deepbook smoke), so adding a pool here auto-wires a new asset tab. */
 export const DEEPBOOK_POOLS = {
-  SUI_USDC: { name: "SUI_USDC", base: "SUI", quote: "USDC", label: "SUI" },
-  XBTC_USDC: { name: "XBTC_USDC", base: "XBTC", quote: "USDC", label: "BTC" },
-  DEEP_USDC: { name: "DEEP_USDC", base: "DEEP", quote: "USDC", label: "DEEP" },
+  SUI_USDC: { name: "SUI_USDC", base: "SUI", quote: "USDC", label: "SUI", poolId: "0xe05dafb5133bcffb8d59f4e12465dc0e9faeaa05e3e342a08fe135800e3e4407" },
+  XBTC_USDC: { name: "XBTC_USDC", base: "XBTC", quote: "USDC", label: "BTC", poolId: "0x20b9a3ec7a02d4f344aa1ebc5774b7b0ccafa9a5d76230662fdc0300bb215307" },
+  DEEP_USDC: { name: "DEEP_USDC", base: "DEEP", quote: "USDC", label: "DEEP", poolId: "0xf948981b806057580f91622417534f491da5f61aeaf33d0ed8e69fd5691c95ce" },
 } as const satisfies Record<string, DeepBookPool>;
+
+/** Explorer URL for a pool's on-chain DeepBook object (mainnet CLOB). */
+export function deepBookPoolExplorerUrl(pool: DeepBookPoolName): string {
+  return `https://suiscan.xyz/mainnet/object/${DEEPBOOK_POOLS[pool].poolId}`;
+}
 
 export type DeepBookPoolName = keyof typeof DEEPBOOK_POOLS;
 

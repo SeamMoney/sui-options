@@ -14,7 +14,11 @@
 import { quote, yearsFromSeconds } from "@sui-options/pro-options";
 import { useDeepBookMark } from "@/hooks/useDeepBookMark";
 import { useDeepBookCandles } from "@/hooks/useDeepBookCandles";
-import { DEEPBOOK_POOLS, type DeepBookPoolName } from "@/lib/deepbook";
+import {
+  DEEPBOOK_POOLS,
+  deepBookPoolExplorerUrl,
+  type DeepBookPoolName,
+} from "@/lib/deepbook";
 
 export interface LiveOptionQuoteProps {
   readonly pool?: DeepBookPoolName;
@@ -119,7 +123,15 @@ export function LiveOptionQuote({
 
       <p className="mt-3 text-[10px] leading-snug text-white/30">
         Black-Scholes premium off the live DeepBook mid, σ from the live tape —
-        the same engine Wick Pro settles against.
+        the same engine Wick Pro settles against.{" "}
+        <a
+          href={deepBookPoolExplorerUrl(pool)}
+          target="_blank"
+          rel="noreferrer"
+          className="text-emerald-400/60 underline underline-offset-2 hover:text-emerald-300/80"
+        >
+          verify the pool on-chain ↗
+        </a>
       </p>
     </div>
   );
