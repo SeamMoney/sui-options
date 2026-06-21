@@ -60,6 +60,7 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
   marks against, visible and moving.
 - **DeepBook v3 mark** the options price against: `npm run check:deepbook` (live mid + σ → BS premium).
 - **Live P&L == settlement, provably** — `npm run verify:pro` pulls the real DeepBook mark + σ and asserts the number you *watch* equals the number you're *paid* at a sweep of exit prices × times, to `1e-9`. Honest P&L isn't a promise; it's a function call. (`npm run check:all` runs every no-browser gate in one shot.)
+- **Commit-reveal fairness, provably** — `npm run verify:pro-fairness` publishes each `/pro` round's `commit` (real SHA-256 of `seed:params`) before the lobby, reveals the seed at settle, then **independently** recomputes the digest via `node:crypto` and confirms it binds — plus a tamper check that a wrong seed can't reproduce the commit. The price path was fixed before you bet; you don't have to trust us, you can re-hash it. (The on-chain `/ride` fairness has its own verifier: `npm run verify:fairness`.)
 - **Move package** (v4.26, testnet): [`0x1fdf78474…815924` on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924).
 - **553/553 Move tests** (incl. 10k seeded-path conformance vectors, TS↔Move byte-identical, enforced in CI).
 
