@@ -18,7 +18,12 @@ export const NETWORK = "testnet" as const;
 //
 // Override via VITE_SUI_TESTNET_RPC at build time if you want to point
 // at your own infra (Triton, Shinami, etc.) without editing this file.
-const TESTNET_RPC_URL =
+// Exported so every browser-side SuiClient (dApp Kit AND the session/burner
+// wallet in useSessionWallet) resolves the SAME CORS-safe endpoint. Before
+// this was shared, the burner client still pointed at the Mysten public RPC
+// and re-hit the v4.29 throttle/CORS symptom under ride load — see the note
+// above. Keep all testnet RPC clients pointed here.
+export const TESTNET_RPC_URL =
   (import.meta.env?.VITE_SUI_TESTNET_RPC as string | undefined) ??
   "https://sui-testnet-rpc.publicnode.com";
 
