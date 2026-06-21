@@ -62,9 +62,6 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
     house wins" — provable to the last unit.
   - audit a specific market's recorded segments: `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>`
   - verify one closed ride's settlement: `npx tsx scripts/verify-v4.ts --market <id> --ride <id>`
-  - **pick your own ride to audit** — `npm run rides:recent` lists real recent closed rides (a touch
-    win, a cashout, a MARKET HALT) straight off the chain, each with a paste-ready verify command. Don't
-    trust our cherry-picked example — verify a ride *you* chose; the market's been busy.
   - **the COMPLETE audit in one command** — `npm run audit:ride -- --market <id> --ride <id>` runs both
     verifiers and only passes if all four hold: honest candles · honest `MARKET HALT` · correct verdict ·
     exact payout → `✅ COMPLETE AUDIT PASS`.
