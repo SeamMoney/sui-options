@@ -103,6 +103,16 @@ if (withChain) {
   const rugsOk = run("check:rugs");
   results.push({ script: "check:rugs", title: "On-chain halt audit", ok: rugsOk });
   console.log(rugsOk ? C.green("   ✓ check:rugs PASS") : C.red("   ✗ check:rugs FAIL"));
+
+  // Closes the fairness loop. verify:fairness proves candles ⟸ keys; this proves
+  // keys ⟸ sui::random — every recorded segment's 32-byte key was drawn from the
+  // on-chain Random object (gated by Sui's PTB-Random rule, so it's un-grindable).
+  // Together: the house can't choose the keys, and the candles follow from them.
+  console.log(C.cyan(`\n[+] The candle keys come from sui::random (not the house)`));
+  console.log(C.dim(`      proves: every record_segment_v4 crank drew its key from the on-chain Random — keys ⟸ sui::random, completing candles ⟸ keys`));
+  const rndOk = run("verify:randomness");
+  results.push({ script: "verify:randomness", title: "Keys from sui::random", ok: rndOk });
+  console.log(rndOk ? C.green("   ✓ verify:randomness PASS") : C.red("   ✗ verify:randomness FAIL"));
 }
 
 const failed = results.filter((r) => !r.ok);
