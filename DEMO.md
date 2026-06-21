@@ -81,7 +81,7 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
   (`keccak256(segment_key ‖ market_id ‖ round) mod 10_000 < rug_chance_bps`) and proves the freeze only
   fired on an honest roll. Tamper any key, extremum, or halt and it exits non-zero.
 - **The whole loop in one command** — `npm run smoke:ride` mints a throwaway wallet, funds it from the
-  **production faucet** (the same 0.2 SUI + 10 TUSD a fresh player gets), opens a real touch-either ride,
+  **production faucet** (the same 1 SUI + 10 TUSD a fresh player gets), opens a real touch-either ride,
   cranks segments, settles on-chain, then hands the closed ride to `verify-v4.ts` and asserts **PASS** —
   every step printed with a SuiScan link. Fund → play → settle → audit, cold, no wallet extension.
 - **Watch the house win, live** — `npm run smoke:halt` (operator wallet) opens a ride and cranks the
