@@ -187,6 +187,16 @@ async function getMarketObjectInfo(
   const marker = "::segment_market::SegmentMarket<";
   const idx = type.indexOf(marker);
   if (idx < 0) {
+    // The live /ride arcade uses segment_market_v4 markets, which this v1/v2/v3
+    // verifier can't read. Point the user at the right tool instead of a cryptic
+    // type dump (mirrors verify-v4.ts's reverse hint).
+    if (type.includes("::segment_market_v4::SegmentMarketV4<")) {
+      throw new Error(
+        `object ${marketId} is a SegmentMarketV4 (the live touch-either + rug arcade). ` +
+          `Use scripts/verify-v4.ts instead:\n` +
+          `  npx tsx scripts/verify-v4.ts --market ${marketId} --ride <SegmentRidePositionV4 id>`,
+      );
+    }
     throw new Error(`object ${marketId} is not a SegmentMarket; type=${type}`);
   }
   return { packageId: type.slice(0, idx), type };
