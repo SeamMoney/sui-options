@@ -26,12 +26,12 @@ const DOCS: Doc[] = [
   // ── Start Here ────────────────────────────────────────────────────────
   {
     slug: "what-is-wick", exe: "WHAT_IS_WICK.EXE", category: "Start Here", tag: "intro", title: "What is Wick",
-    blurb: <>Short-dated options on Sui — touch/no-touch, corridors, rides, and Pro Options on synthetic candles.</>,
+    blurb: <>Short-dated options on Sui — Pro Options (Black-Scholes calls &amp; puts on a live DeepBook mark), plus touch/no-touch, corridors, and rides.</>,
     full: <>
       <p>Wick is a markets app for <b>short-dated, high-frequency options</b> on the Sui blockchain. Where prediction markets ask <i>where</i> a price ends up, Wick asks whether price <b>wicks</b> into a level — and lets you trade that tick-by-tick.</p>
       <H>The surfaces</H>
       <ul>
-        <li><b>Pro Options</b> — round-based vanilla calls and puts on <i>synthetic</i> candlestick markets, priced with Black-Scholes. The main product.</li>
+        <li><b>Pro Options</b> — vanilla calls and puts priced with Black-Scholes off a <b>live DeepBook CLOB mark</b> (SUI/USDC, BTC, DEEP), with a provably-fair synthetic mode too. The main product.</li>
         <li><b>Touch / No-Touch + DNT</b> — single- and double-barrier exotics on oracle-observed price.</li>
         <li><b>Degen</b> — a tap-and-hold spot ride.</li>
       </ul>
@@ -77,13 +77,13 @@ const DOCS: Doc[] = [
   // ── Pro Options ───────────────────────────────────────────────────────
   {
     slug: "pro-options", exe: "PRO_OPTIONS.EXE", category: "Pro Options", tag: "overview", title: "Pro Options Mode",
-    blurb: <>Round-based options on synthetic candlestick markets. <code>Black-Scholes</code> priced, with payoff curve + Greeks.</>,
+    blurb: <><code>Black-Scholes</code> calls &amp; puts on a live DeepBook mark. Settlement-consistent live P&amp;L, payoff curve + Greeks.</>,
     full: <>
-      <p>Pro Options turns options trading into a fast, fair, repeatable game on synthetic price paths. Every contract is a real option — strike, expiry, premium — priced with Black-Scholes, with a live payoff curve and Greeks.</p>
+      <p>Pro Options prices vanilla options off the <b>live DeepBook CLOB mark</b> (SUI/USDC, BTC, DEEP) — real Black-Scholes with the volatility taken from the live trade tape. Every contract is a real option — strike, expiry, premium — and the headline P&amp;L is <i>settlement-consistent</i> (what you watch is what you settle).</p>
       <H>The loop</H>
-      <p>You open positions deliberately at the <b>Desk</b>, then manage them <b>live</b> as the chart reveals: hold for the payoff, or <code>Sell to close</code> at the mark. It's built to train chart-reading and options skill — and to bet on it.</p>
-      <H>Why synthetic</H>
-      <p>Synthetic markets mean rounds are short, fair (provably so), and endlessly repeatable. You get hundreds of reps a session instead of waiting on real expiries.</p>
+      <p>Pick a side — <b>UP</b> (call) or <b>DOWN</b> (put) — and a stake. Watch one big live P&amp;L tick off the real mark, then close (or let the 60-second option auto-settle). Fast, repeatable, defined-risk: your max loss is the premium.</p>
+      <H>Provably-fair synthetic mode</H>
+      <p>The same engine also runs on commit-reveal synthetic price paths (at <code>/pro-sim</code>) — short, endlessly repeatable rounds whose every candle is reproducible bit-for-bit from on-chain randomness. Verify any of them at <code>/verify</code>.</p>
     </>,
   },
   {
@@ -285,7 +285,7 @@ const DOCS: Doc[] = [
       <H>Can I lose more than I put in?</H>
       <p>No. As an option <i>buyer</i>, your max loss is the premium you paid. Full stop.</p>
       <H>Are these real assets?</H>
-      <p>Pro Options trades synthetic markets — fair, fast, reproducible prices, honest about being synthetic. Touch/No-Touch trades oracle-observed price.</p>
+      <p>Yes — Pro Options prices off the <b>live DeepBook</b> on-chain CLOB mark for SUI/USDC, BTC and DEEP (real mid, real volatility). A provably-fair synthetic mode (<code>/pro-sim</code>) is also available for endlessly-repeatable reps. Touch/No-Touch trades oracle-observed price.</p>
       <H>Do I need real money?</H>
       <p>No — practice mode runs the exact engine with play money.</p>
     </>,
