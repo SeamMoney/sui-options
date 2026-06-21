@@ -43,6 +43,18 @@ Both landed on-chain; the funded wallet then held 0.2 SUI + 10 TUSD, ready to ri
 
 UpgradeCap: [`0xa5bd66c0…5cb590`](https://suiscan.xyz/testnet/object/0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590) ✅
 
+### Move modules in the package (26, all live)
+
+A live package ID alone doesn't prove the right code shipped — the deployed
+package exposes the full Wick protocol ABI (`sui_getNormalizedMoveModulesByPackage`):
+
+- **Markets & rides** — `market` · `segment_market` · `segment_market_v4` · `ride_position` · `ride_market_caps` · `ride_pricing`
+- **Vault, fees, impact** — `martingaler_vault` · `vault` · `fee_router` · `impact_fee`
+- **Provable fairness & oracles** — `seeded_path` · `path_observation` · `price_observation` · `probability` · `pull_oracle_driver` · `random_walk_driver` · `wick_oracle` · `oracle_version_lock` · `usd_price_oracle`
+- **Risk & registries** — `risk_config` · `global_exposure_registry` · `bot_registry`
+- **WICK token & staking** — `wick` · `wick_token` · `wick_staking`
+- **Gas sponsorship** — `sponsor`
+
 ## Core protocol objects (shared)
 
 | Object | ID | SuiScan |

@@ -76,6 +76,18 @@ print(f"objects verified on-chain: {len(live)}/{len(set(ids))} unique  ({'ALL LI
 for lbl, i in missing:
     print(f"  ❌ MISSING  {lbl:28s} {i}")
 
+# ── verify the package exposes the demo-critical Move modules ───────────────
+# (a live ID alone doesn't prove the right code shipped — check the ABI)
+EXPECTED_MODULES = ["market", "segment_market_v4", "sponsor", "martingaler_vault",
+                    "seeded_path", "path_observation", "wick_token", "wick_staking",
+                    "risk_config", "usd_price_oracle"]
+mods = rpc("sui_getNormalizedMoveModulesByPackage", [d["package_id"]]) or {}
+absent = [m for m in EXPECTED_MODULES if m not in mods]
+print(f"package exposes {len(mods)} Move modules; demo-critical "
+      f"{len(EXPECTED_MODULES) - len(absent)}/{len(EXPECTED_MODULES)} present")
+for m in absent:
+    print(f"  ❌ MISSING MODULE  {m}")
+
 # ── demo-critical funded state ──────────────────────────────────────────────
 def sui_bal(addr):
     r = rpc("suix_getBalance", [addr, "0x2::sui::SUI"])
@@ -95,4 +107,4 @@ supply = int(ts["fields"]["value"]) / 1e6 if ts else 0
 print(f"  TUSD total supply     : {supply:>14,.0f} TUSD")
 
 print()
-sys.exit(1 if missing else 0)
+sys.exit(1 if (missing or absent) else 0)
