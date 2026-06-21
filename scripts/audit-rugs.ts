@@ -1,18 +1,21 @@
 #!/usr/bin/env tsx
 /**
- * audit-rugs — prove EVERY `MARKET HALT` (v4.26 rug) a market ever fired was
- * cryptographically honest, BOTH ways:
+ * audit-rugs — prove EVERY round of a market is consistent with the published
+ * v4.26 `MARKET HALT` (rug) dice, cryptographically, BOTH ways:
  *
  *   1. No FAKED halt — for each round the chain rugged, re-derive the public
  *      keccak roll for the claimed rug segment and confirm it really did roll
  *      `< rug_chance_bps`. The house can't halt a round the dice didn't call.
- *   2. No SUPPRESSED halt (the subtle one) — confirm NO earlier segment in that
- *      round also rolled `< rug_chance_bps`. `roll_rug` fires on the FIRST
- *      qualifying segment, so if an earlier one qualified the chain skipped it —
- *      which is exactly how a cheating house would keep a winning ride alive.
+ *   2. No SUPPRESSED halt (the subtle one) — sweep EVERY round, derive the FIRST
+ *      segment whose roll fires, and confirm the chain halted at exactly that
+ *      segment. `roll_rug` fires on the first qualifying segment, so a halt that
+ *      lands late (an earlier segment qualified) OR a round that should have
+ *      halted but emitted no `RugFiredV4` at all is a held-back rug — exactly
+ *      how a cheating house keeps a winning ride alive. Clean rounds must have
+ *      no qualifying segment.
  *
- * Together these pin the house edge to the published dice: it can neither
- * invent a halt nor hold one back. This is the cryptographic complement to
+ * Sweeping ALL rounds (not just the emitted halts) is what makes the
+ * "cannot suppress" half airtight. This is the cryptographic complement to
  * `verify-v4.26-rug.mjs` (which checks the rug RATE statistically).
  *
  * Ground truth (round → rugged segment) comes from the chain's own
@@ -121,6 +124,7 @@ interface MarketInfo {
   typePackage: string;
   segmentsTableId: string;
   roundDurationSegments: bigint;
+  nextSegmentIndex: bigint;
   rugChanceBps: bigint;
 }
 
@@ -148,8 +152,31 @@ async function readMarket(client: ResilientClient, marketId: string): Promise<Ma
     typePackage: type.split("::")[0]!,
     segmentsTableId: tableId,
     roundDurationSegments: asBig(f.round_duration_segments),
+    nextSegmentIndex: asBig(f.next_segment_index),
     rugChanceBps,
   };
+}
+
+/**
+ * The first segment in [start, end) whose deterministic roll fires, or null if
+ * none. `roll_rug` fires on the FIRST qualifying segment of a round, so this is
+ * exactly the segment the chain SHOULD have rugged at (and only that one).
+ */
+async function firstQualifyingSegment(
+  client: ResilientClient,
+  market: MarketInfo,
+  round: bigint,
+  start: bigint,
+  end: bigint,
+): Promise<bigint | null> {
+  for (let k = start; k < end; k++) {
+    const key = await readSegmentKey(client, market.segmentsTableId, k);
+    if (!key) continue;
+    if (rollRugFired(key, market.marketId, round, market.rugChanceBps).fired) {
+      return k;
+    }
+  }
+  return null;
 }
 
 /** Read one segment's 32-byte key from the market's Table<u64, SegmentRecord>. */
@@ -272,69 +299,92 @@ async function audit(args: Args): Promise<boolean> {
     [...deploymentPackages(), market.typePackage],
     marketId,
   );
-  if (history.length === 0) {
-    console.log("\nNo RugFiredV4 events found for this market yet — no halts to audit.");
+  const rugByRound = new Map<string, bigint>();
+  for (const ev of history) rugByRound.set(ev.round.toString(), ev.segment);
+
+  const dur = market.roundDurationSegments;
+  if (dur <= 0n || market.nextSegmentIndex <= 0n) {
+    console.log("\nNo segments recorded yet — nothing to audit.");
     return true;
   }
+  // Every round that has at least one recorded segment.
+  const lastRound = (market.nextSegmentIndex - 1n) / dur;
+  const cap = Number.isFinite(args.maxRounds) ? BigInt(args.maxRounds) : lastRound + 1n;
+  const firstRound = lastRound + 1n > cap ? lastRound + 1n - cap : 0n;
 
-  const rounds = history.slice(0, Number.isFinite(args.maxRounds) ? args.maxRounds : history.length);
-  console.log(`halts on chain: ${history.length}${rounds.length < history.length ? ` (auditing ${rounds.length})` : ""}\n`);
+  console.log(
+    `rounds w/ segments: ${firstRound}..${lastRound} · on-chain halts: ${history.length}\n`,
+  );
 
+  // Sweep EVERY round — not just the ones the chain says it halted. That's the
+  // only way to catch a fully-SUPPRESSED round (one that should have halted but
+  // emitted no RugFiredV4 at all — exactly how a cheating house keeps a winning
+  // ride alive). For each round we derive the FIRST segment whose roll fires
+  // (the segment the chain SHOULD have halted at) and compare it to the chain.
   const audits: RoundAudit[] = [];
-  for (const ev of rounds) {
-    const roundStart = ev.round * market.roundDurationSegments;
-    // Re-derive the roll at the claimed rug segment.
-    const rugKey = await readSegmentKey(client, market.segmentsTableId, ev.segment);
-    const atRug = rugKey
-      ? rollRugFired(rugKey, marketId, ev.round, market.rugChanceBps)
-      : { roll: -1n, fired: false };
+  let cleanRounds = 0;
+  for (let R = firstRound; R <= lastRound; R++) {
+    const roundStart = R * dur;
+    const roundEnd = (() => {
+      const e = (R + 1n) * dur;
+      return e < market.nextSegmentIndex ? e : market.nextSegmentIndex;
+    })();
+    const chainRug = rugByRound.get(R.toString()) ?? null;
 
-    // Scan earlier segments in the round: NONE should have qualified.
-    let earlierFire: bigint | null = null;
-    for (let k = roundStart; k < ev.segment; k++) {
-      const key = await readSegmentKey(client, market.segmentsTableId, k);
-      if (!key) continue;
-      if (rollRugFired(key, marketId, ev.round, market.rugChanceBps).fired) {
-        earlierFire = k;
-        break;
+    // For a rugged round, scanning through the claimed rug segment is enough to
+    // prove it's the first qualifier; for a clean round we must scan the whole
+    // round to prove NOTHING qualified.
+    const scanEnd = chainRug !== null
+      ? (chainRug + 1n < roundEnd ? chainRug + 1n : roundEnd)
+      : roundEnd;
+    const firstQ = await firstQualifyingSegment(client, market, R, roundStart, scanEnd);
+
+    let honest: boolean;
+    let status: string;
+    let rollAtRug = -1n;
+    if (chainRug !== null) {
+      const rugKey = await readSegmentKey(client, market.segmentsTableId, chainRug);
+      rollAtRug = rugKey ? rollRugFired(rugKey, marketId, R, market.rugChanceBps).roll : -1n;
+      if (firstQ === null) {
+        honest = false;
+        status = `✗ FAKED — halt @ ${chainRug} rolled ${rollAtRug} ≥ ${market.rugChanceBps}; no segment qualified`;
+      } else if (firstQ < chainRug) {
+        honest = false;
+        status = `✗ SUPPRESSED — segment ${firstQ} qualified earlier; chain halted late @ ${chainRug}`;
+      } else {
+        honest = true;
+        status = `✓ HONEST · halt @ ${chainRug.toString().padStart(5)} · roll ${rollAtRug.toString().padStart(5)} < ${market.rugChanceBps}`;
+      }
+      audits.push({ round: R, chainRugSeg: chainRug, rollAtRug, fired: firstQ !== null, earlierFire: firstQ !== null && firstQ < chainRug ? firstQ : null, honest });
+      console.log(`round ${R.toString().padStart(3)} · ${status}`);
+    } else {
+      // Clean round — the chain claims NO halt. Prove no segment qualified.
+      if (firstQ !== null) {
+        honest = false;
+        status = `✗ SUPPRESSED — segment ${firstQ} qualified but the chain fired NO halt this round`;
+        audits.push({ round: R, chainRugSeg: -1n, rollAtRug, fired: true, earlierFire: firstQ, honest });
+        console.log(`round ${R.toString().padStart(3)} · ${status}`);
+      } else {
+        cleanRounds++;
       }
     }
-
-    const honest = atRug.fired && earlierFire === null;
-    audits.push({
-      round: ev.round,
-      chainRugSeg: ev.segment,
-      rollAtRug: atRug.roll,
-      fired: atRug.fired,
-      earlierFire,
-      honest,
-    });
-
-    const status = honest
-      ? "✓ HONEST"
-      : !atRug.fired
-        ? `✗ FAKED (roll ${atRug.roll} ≥ ${market.rugChanceBps} — should NOT have halted)`
-        : `✗ SUPPRESSED (segment ${earlierFire} rolled < ${market.rugChanceBps} earlier — chain should have halted there)`;
-    console.log(
-      `round ${ev.round.toString().padStart(3)} · halt @ segment ${ev.segment.toString().padStart(5)} · roll ${atRug.roll.toString().padStart(5)} < ${market.rugChanceBps}  ${status}`,
-    );
   }
 
   const bad = audits.filter((a) => !a.honest);
+  const halts = audits.filter((a) => a.chainRugSeg >= 0n && a.honest).length;
   console.log("");
+  if (cleanRounds > 0) {
+    console.log(`(${cleanRounds} round(s) correctly had no halt — no segment qualified.)`);
+  }
   if (bad.length === 0) {
-    console.log(
-      `PASS — all ${audits.length} on-chain MARKET HALTs are cryptographically honest:`,
-    );
-    console.log(
-      "       every halt rolled below the published dice, and no earlier segment in the round did.",
-    );
-    console.log(
-      "       The house can neither fake a halt nor suppress one. That is the house edge, provable.",
-    );
+    console.log(`PASS — every round audited is cryptographically honest (${halts} halt(s) verified):`);
+    console.log("       • no FAKED halt — each halt's keccak roll really is below the published dice;");
+    console.log("       • no SUPPRESSED halt — every round that should have halted did, at the FIRST");
+    console.log("         qualifying segment (and clean rounds correctly had none).");
+    console.log("       The house can neither invent a halt nor hold one back. The house edge, audited.");
     return true;
   }
-  console.log(`FAIL — ${bad.length}/${audits.length} halts are NOT honest (see ✗ above). The chain lied.`);
+  console.log(`FAIL — ${bad.length} round(s) are NOT honest (see ✗ above). The chain lied.`);
   return false;
 }
 
