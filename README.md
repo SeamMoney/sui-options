@@ -262,17 +262,15 @@ cd move && sui move test && cd ..          # 574/574
 # upgrade Move package on testnet (preserves all existing singletons)
 ./scripts/deploy-testnet.sh                # OR sui client upgrade --upgrade-capability <cap>
 
-# bootstrap a SegmentMarket
-./scripts/bootstrap-segment-market.sh      # B7-calibrated defaults
-# OR a smoke-friendly one:
-ROUND_DURATION_SEGMENTS=20 OPEN_WINDOW_SEGMENTS=5 MAX_PAYOUT_PER_BARRIER=50000000 \
-  ./scripts/bootstrap-segment-market.sh
+# bootstrap a SegmentMarketV4 (touch-either, always-open — the LIVE arcade module)
+./scripts/bootstrap-segment-market-v4.sh   # B7-calibrated defaults
 
-# end-to-end smoke (open ride, record 3 segments, close, verify)
-./scripts/segment-smoke.sh
+# end-to-end smoke — funds a throwaway burner, then open → crank → close → audit,
+# all on-chain, no wallet/setup (this is the one judges run):
+npm run smoke:ride
 
-# permissionless keeper (cranks record_segment + lock_and_settle)
-WICK_KEEPER_SEGMENT_MARKETS=<segment_market_id> npm run --silent -w keeper watch
+# keep a v4 market's on-chain chart cranking (record_segment_v4) from a wallet:
+node scripts/sentinel-v4-fast.mjs          # poll mode — cranks only while rides are open
 
 # read-only API
 npm run -w api dev                         # http://localhost:8787
