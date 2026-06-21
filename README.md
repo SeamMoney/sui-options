@@ -82,6 +82,13 @@ git clone https://github.com/SeamMoney/sui-options && cd sui-options
 # 2. install everything (sdk + frontend + keeper + bots + api)
 npm install
 
+# 2b. reproduce the full CI gate locally in one command
+#     (build packages + sdk, typecheck every workspace, run the keeper /
+#      candle-vision / pro-options suites, build the frontend)
+npm run ci          # the same checks .github/workflows/ci.yml runs
+npm test            # just the TS unit suites
+npm run test:move   # just `sui move test` (needs the Sui CLI)
+
 # 3. run the deterministic-walk conformance harness on your machine
 #    (10k vectors, Move↔TS rolling digest must match exactly)
 cd move && sui move test seeded_path_conformance && cd ..
