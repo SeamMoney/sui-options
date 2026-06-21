@@ -545,14 +545,8 @@ export function WickProLive() {
         {candleStatus === "live" && (
           <span className="text-[10px] text-white/35 tabular-nums">σ {(sigma * 100).toFixed(0)}%</span>
         )}
-        {session.wins + session.losses > 0 && (
-          <span
-            className={`text-[10px] tabular-nums ${session.pnl >= 0 ? "text-emerald-400/80" : "text-rose-500/80"}`}
-            title="Your running result this session"
-          >
-            sess {fmtSignedUsd(session.pnl)} · {session.wins}W/{session.losses}L
-          </span>
-        )}
+        {/* The running session result moved OUT of this cramped row into the big
+            headline slot when idle (one glance answers "am I up?"). */}
         {/* Links to the full DeepBook desk (/coach): live order book, depth,
             24h volume, recent fills + the same BS quote/payoff. */}
         <a
@@ -640,9 +634,31 @@ export function WickProLive() {
               {fmtPct(headline.pct)}
             </div>
           </>
+        ) : session.wins + session.losses > 0 ? (
+          // Between rounds: the running session result IS the at-a-glance P&L.
+          // Reuses the SAME big number slot the live/settled P&L uses (text by
+          // state), so a single glance always answers "am I up?" — instead of
+          // hiding it in a tiny chip up in the price row.
+          <>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">
+              Session · {session.wins}W / {session.losses}L
+            </div>
+            <div
+              className="font-mono text-5xl font-black tabular-nums leading-none"
+              style={{
+                color: session.pnl >= 0 ? NEON : MAGENTA,
+                textShadow: `0 0 24px ${session.pnl >= 0 ? NEON : MAGENTA}44, 0 2px 24px rgba(0,0,0,0.6)`,
+              }}
+            >
+              {fmtSignedUsd(session.pnl)}
+            </div>
+            <div className="mt-1 text-white/40 text-xs">
+              Pick a side to keep going · auto-settles in {EXPIRY_SECONDS}s
+            </div>
+          </>
         ) : (
           <div className="text-white/45 text-sm">
-            Pick a side. ${stakeUsd} premium · live P&L updates off the real mark · auto-settles in {EXPIRY_SECONDS}s.
+            Pick a side. ${stakeUsd} premium · live P&L off the real mark · auto-settles in {EXPIRY_SECONDS}s.
           </div>
         )}
       </div>
