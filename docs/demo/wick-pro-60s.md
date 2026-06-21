@@ -45,10 +45,14 @@ Deep-link straight to an asset: **`/pro?asset=XBTC_USDC`** (Bitcoin), `?asset=SU
 ## Certify it's live (anytime, ~5s, no browser)
 
 ```bash
+npm run check:all      # ONE command, ~60s, no browser: runs all four below in order
+                       #   and exits non-zero on any failure. Run it right before you present.
 npm run smoke:demo     # routes 200 · faucets alive · DeepBook mark reachable (curl, ~5s)
 npm run verify:pro     # proves "what you watch == what you're paid" on LIVE DeepBook data
-npm run check:pro      # drives the real /pro flow headless: mark live, UP/DOWN→CLOSE/FLIP,
-                       #   live==settlement, no console errors (needs Chromium)
+npm run check:deepbook # live mid → live σ → Black-Scholes premium/Greeks, all 3 pools
+npm run check:treasury # the faucet wallet can still mint (treasury cap + SUI balance)
+npm run check:pro      # (needs Chromium) drives the real /pro flow headless: mark live,
+                       #   UP/DOWN→CLOSE/FLIP, live==settlement, no console errors
 ```
 
 `verify:pro` pulls the **real DeepBook mark + realized σ**, opens real
