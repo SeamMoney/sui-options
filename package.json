@@ -20,6 +20,7 @@
     "check:deepbook": "tsx scripts/deepbook-mark-check.ts",
     "check:pro": "node scripts/check-pro-live.mjs",
     "check:treasury": "tsx scripts/treasury-health.ts",
+    "smoke:demo": "bash scripts/demo-smoke.sh",
     "check:candle-vision:browser": "node scripts/candle-vision-browser-check.mjs",
     "check:candle-vision:lightcone": "BROWSER_BACKEND=lightcone CANDLE_VISION_URL=https://wick-markets.vercel.app/candle-vision node scripts/candle-vision-browser-check.mjs",
     "build:candle-vision-react": "npm -w @sui-options/candle-vision-react run build",
