@@ -42,6 +42,8 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 
 ## Proof points
 
+- **The mark is a real on-chain CLOB** — on `/pro` (and `/coach`) click the pair (e.g. **`SUI/USDC ↗`**)
+  to open the actual DeepBook v3 pool object on Suiscan and see its live order book. Not a faked feed.
 - **DeepBook v3 mark** the options price against: `npm run check:deepbook` (live mid + σ → BS premium).
 - **Move package** (v4.26, testnet): [`0x1fdf78474…815924` on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924).
 - **553/553 Move tests** (incl. 10k seeded-path conformance vectors, TS↔Move byte-identical, enforced in CI).
