@@ -86,7 +86,9 @@ export function PatternCoachPanel({
           >
             {top.event.label}
           </div>
-          <div className="mt-1 flex items-center gap-2 text-[11px]">
+          {/* flex-wrap so the confidence drops to its own line rather than
+              clipping off the right edge on a narrow (158px) mobile panel. */}
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
             <span
               className="rounded px-1.5 py-0.5 font-semibold tracking-wide"
               style={{
@@ -96,7 +98,7 @@ export function PatternCoachPanel({
             >
               {DIRECTION_STYLE[top.event.direction].tag}
             </span>
-            <span className="text-white/45 capitalize">{top.event.status}</span>
+            <span className="capitalize text-white/45">{top.event.status}</span>
             <span className="ml-auto tabular-nums text-white/70">
               {pct(top.event.confidence)}
             </span>
@@ -122,8 +124,8 @@ export function PatternCoachPanel({
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ background: ds.color }}
                 />
-                <span className="truncate text-white/70">{sig.event.label}</span>
-                <span className="ml-auto shrink-0 tabular-nums text-white/35">
+                <span className="min-w-0 flex-1 truncate text-white/70">{sig.event.label}</span>
+                <span className="shrink-0 tabular-nums text-white/35">
                   {pct(sig.event.confidence)}
                 </span>
               </li>
