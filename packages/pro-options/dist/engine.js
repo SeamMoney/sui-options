@@ -177,10 +177,22 @@ export class RoundEngine {
     housePnl() {
         return -this.playerPnl();
     }
-    /** Reveal the seed and verify the streamed path matched the commit. */
+    /**
+     * Reveal the commit-reveal preimage at settle: the `seed` and the exact
+     * `paramsJson` that were hashed into `commit` before the lobby. Anyone — not
+     * just this engine — can recompute `SHA-256(`${seed}:${paramsJson}`)` and
+     * confirm it equals the published `commit`, proving the price path was fixed
+     * in advance and never adjusted against the player. `verified` is the engine's
+     * own self-check; `paramsJson` is what makes an *independent* check possible.
+     */
     reveal() {
         const recomputed = commitFn(this.cfg.seed, this.paramsJson);
-        return { seed: this.cfg.seed, verified: recomputed === this.commit };
+        return {
+            seed: this.cfg.seed,
+            paramsJson: this.paramsJson,
+            commit: this.commit,
+            verified: recomputed === this.commit,
+        };
     }
 }
 //# sourceMappingURL=engine.js.map
