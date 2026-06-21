@@ -1,0 +1,358 @@
+#!/usr/bin/env tsx
+/**
+ * verify-payout — the "money audit" for a closed v4 ride.
+ *
+ * `scripts/verify-v4.ts` proves the CANDLES and the MARKET HALT were honest and
+ * that the settlement KIND (touch / cashout / expiry) matches the price path.
+ * This tool proves the remaining trust dimension: the chain paid the EXACT right
+ * AMOUNT. Not "you lost" — "you lost precisely the stake you'd accrued for the
+ * segments you held, and not a satoshi more."
+ *
+ * It is INDEPENDENT of the chain's reported numbers where it counts: it
+ * re-derives `stake_paid` from on-chain object state + the segment timestamps
+ * (`stake_paid = min(stake_per_segment × segments_held, escrowed)`,
+ * `segments_held = min(next_segment_index@close − entry, round_duration)`), then
+ * checks the payout identity for the settlement kind, mirroring Move
+ * `decide_settlement` in `segment_market_v4.move`:
+ *
+ *   TOUCH_WIN(1)      payout = stake_paid × multiplier_bps / 10_000 ; forfeit = 0
+ *   CASHOUT(2)        forfeit = stake_paid − payout ; 0 < payout ≤ stake_paid
+ *                     (the exact Bachelier cashout value is computed on-chain;
+ *                      we bound-check it — the path + spot are already proven by
+ *                      verify-v4.ts)
+ *   EXPIRED_LOSS(3)   payout = 0 ; forfeit = stake_paid     (incl. MARKET HALT)
+ *   ABORTED_REFUND(4) payout = 0 ; forfeit = 0              (escrow refunded 1:1)
+ *
+ * For the non-winning kinds (CASHOUT / EXPIRED_LOSS / ABORTED_REFUND) the rider
+ * can never gain, so the conservation identity `payout + forfeit == stake_paid`
+ * must hold. TOUCH_WIN is the exception — the vault TOPS UP the win, so the
+ * payout exceeds stake_paid by exactly the multiplier and forfeit is 0. The
+ * chain's reported `stake_paid` must equal ours in every case.
+ *
+ *   npx tsx scripts/verify-payout.ts --market <SegmentMarketV4 id> --ride <id>
+ *   npm run verify:payout -- --market <id> --ride <id>
+ *
+ * Uses the RideClosedV4 event for the actual paid numbers — a deliberate,
+ * opt-in complement to verify-v4.ts's prune-proof default (events can be pruned
+ * by some RPCs; the Mysten fullnode keeps them). Default RPC: PublicNode.
+ */
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+
+const DEFAULT_RPC = process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com";
+const BPS = 10_000n;
+
+const SETTLEMENT_NAME: Record<number, string> = {
+  0: "OPEN",
+  1: "TOUCH_WIN",
+  2: "CASHOUT",
+  3: "EXPIRED_LOSS",
+  4: "ABORTED_REFUND",
+};
+
+interface Args {
+  market: string;
+  ride: string;
+  rpc: string;
+}
+
+function usage(): never {
+  console.error(
+    "usage: npx tsx scripts/verify-payout.ts --market <SegmentMarketV4 id> --ride <SegmentRidePositionV4 id> [--rpc <url>]",
+  );
+  process.exit(2);
+}
+
+function parseArgs(argv: string[]): Args {
+  const out: Partial<Args> = { rpc: DEFAULT_RPC };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const n = argv[i + 1];
+    if (a === "--market" && n) (out.market = n), i++;
+    else if (a === "--ride" && n) (out.ride = n), i++;
+    else if (a === "--rpc" && n) (out.rpc = n), i++;
+    else if (a === "-h" || a === "--help") usage();
+    else throw new Error(`unknown or incomplete argument: ${a}`);
+  }
+  if (!out.market || !out.ride) usage();
+  return out as Args;
+}
+
+function asObj(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+}
+function asStr(v: unknown): string {
+  return typeof v === "string" ? v : String(v);
+}
+function asBig(v: unknown): bigint {
+  if (typeof v === "bigint") return v;
+  if (typeof v === "number") return BigInt(v);
+  if (typeof v === "string" && v.trim() !== "") return BigInt(v);
+  return 0n;
+}
+function sameId(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+function fmt(v: bigint): string {
+  return v.toString();
+}
+
+interface Ride {
+  entry: bigint;
+  round: bigint;
+  multiplierBps: bigint;
+  stakePerSegment: bigint;
+  escrowed: bigint;
+  closed: boolean;
+  closedAtMs: bigint;
+  settlementKind: number;
+}
+
+/**
+ * Compute the payout identity our way, return null if it holds, or a reason
+ * string if it's violated. `bounty` is vault-paid (not from the rider's stake),
+ * so the rider-side identity is `payout + forfeit == stake_paid`.
+ */
+export function checkPayoutIdentity(
+  kind: number,
+  stakePaid: bigint,
+  payout: bigint,
+  forfeit: bigint,
+  multiplierBps: bigint,
+): string[] {
+  const errs: string[] = [];
+  if (kind === 1) {
+    // TOUCH_WIN — the vault tops up the win, so payout EXCEEDS stake_paid; the
+    // conservation identity does NOT apply. payout = stake_paid × multiplier.
+    const expected = (stakePaid * multiplierBps) / BPS;
+    if (payout !== expected) {
+      errs.push(`TOUCH_WIN payout ${payout} != stake_paid×${multiplierBps}bps = ${expected}`);
+    }
+    if (forfeit !== 0n) errs.push(`TOUCH_WIN forfeit ${forfeit} != 0`);
+    return errs;
+  }
+  // Non-winning kinds: the rider can never gain — stake is conserved.
+  if (payout + forfeit !== stakePaid) {
+    errs.push(`payout(${payout}) + forfeit(${forfeit}) != stake_paid(${stakePaid})`);
+  }
+  if (kind === 3) {
+    // EXPIRED_LOSS (incl. MARKET HALT)
+    if (payout !== 0n) errs.push(`EXPIRED_LOSS payout ${payout} != 0`);
+    if (forfeit !== stakePaid) errs.push(`EXPIRED_LOSS forfeit ${forfeit} != stake_paid ${stakePaid}`);
+  } else if (kind === 2) {
+    // CASHOUT — exact Bachelier value computed on-chain; bound-check it.
+    if (!(payout > 0n)) errs.push(`CASHOUT payout ${payout} must be > 0`);
+    if (payout > stakePaid) errs.push(`CASHOUT payout ${payout} > stake_paid ${stakePaid}`);
+  } else if (kind === 4) {
+    // ABORTED_REFUND — escrow refunded 1:1; no stake consumed.
+    if (payout !== 0n) errs.push(`ABORTED_REFUND payout ${payout} != 0`);
+    if (forfeit !== 0n) errs.push(`ABORTED_REFUND forfeit ${forfeit} != 0`);
+  }
+  return errs;
+}
+
+async function readRide(client: SuiJsonRpcClient, id: string): Promise<{ ride: Ride; marketId: string }> {
+  const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
+  const content = asObj(asObj(o.data).content);
+  if (!/::segment_market_v4::SegmentRidePositionV4$/.test(asStr(content.type))) {
+    throw new Error(`object ${id} is not a SegmentRidePositionV4 (type: ${asStr(content.type)})`);
+  }
+  const f = asObj(content.fields);
+  return {
+    marketId: asStr(f.market_id),
+    ride: {
+      entry: asBig(f.entry_segment_index),
+      round: asBig(f.round_index),
+      multiplierBps: asBig(f.multiplier_bps),
+      stakePerSegment: asBig(f.stake_per_segment),
+      escrowed: asBig(f.escrowed),
+      closed: Boolean(f.closed),
+      closedAtMs: asBig(f.closed_at_ms),
+      settlementKind: Number(asBig(f.settlement_kind)),
+    },
+  };
+}
+
+async function readMarket(
+  client: SuiJsonRpcClient,
+  id: string,
+): Promise<{ packageId: string; tableId: string; roundDuration: bigint; nextSegmentIndex: bigint }> {
+  const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
+  const content = asObj(asObj(o.data).content);
+  const type = asStr(content.type);
+  const m = /::segment_market_v4::SegmentMarketV4<(.+)>$/.exec(type);
+  if (!m) throw new Error(`object ${id} is not a SegmentMarketV4 (type: ${type})`);
+  const f = asObj(content.fields);
+  const tableId = asStr(asObj(asObj(asObj(f.segments).fields).id).id);
+  return {
+    packageId: type.split("::")[0]!,
+    tableId,
+    roundDuration: asBig(f.round_duration_segments),
+    nextSegmentIndex: asBig(f.next_segment_index),
+  };
+}
+
+/** recorded_at_ms of segment k, or null if absent. */
+async function segmentRecordedAt(client: SuiJsonRpcClient, tableId: string, k: bigint): Promise<bigint | null> {
+  const d = asObj(
+    await client.getDynamicFieldObject({ parentId: tableId, name: { type: "u64", value: k.toString() } }),
+  );
+  const data = asObj(d.data);
+  if (!data.content) return null;
+  const sf = asObj(asObj(asObj(asObj(data.content).fields).value).fields);
+  return asBig(sf.recorded_at_ms);
+}
+
+/**
+ * next_segment_index@close = the count of segments recorded at or before the
+ * ride closed. Segments are contiguous, so scan forward from `entry` until one
+ * was recorded after the close (or we run off the recorded tail).
+ */
+async function nextSegmentIndexAtClose(
+  client: SuiJsonRpcClient,
+  tableId: string,
+  entry: bigint,
+  closedAtMs: bigint,
+  nextSegmentIndex: bigint,
+): Promise<bigint> {
+  let k = entry;
+  while (k < nextSegmentIndex) {
+    const at = await segmentRecordedAt(client, tableId, k);
+    if (at === null) break; // pruned/absent — treat as the boundary
+    if (at > closedAtMs) break;
+    k = k + 1n;
+  }
+  return k;
+}
+
+async function findRideClosedEvent(
+  client: SuiJsonRpcClient,
+  packageId: string,
+  marketId: string,
+  rideId: string,
+): Promise<{ stakePaid: bigint; payout: bigint; forfeit: bigint; bounty: bigint; settlementKind: number }> {
+  const eventType = `${packageId}::segment_market_v4::RideClosedV4`;
+  let cursor: { txDigest: string; eventSeq: string } | null = null;
+  for (let p = 0; p < 200; p++) {
+    const page = await client.queryEvents({
+      query: { MoveEventType: eventType },
+      cursor,
+      limit: 50,
+      order: "descending",
+    });
+    for (const ev of page.data) {
+      const j = asObj(ev.parsedJson);
+      if (sameId(asStr(j.ride_id), rideId) && sameId(asStr(j.market_id), marketId)) {
+        return {
+          stakePaid: asBig(j.stake_paid),
+          payout: asBig(j.payout),
+          forfeit: asBig(j.forfeit),
+          bounty: asBig(j.bounty),
+          settlementKind: Number(asBig(j.settlement_kind)),
+        };
+      }
+    }
+    if (!page.hasNextPage || !page.nextCursor) break;
+    cursor = page.nextCursor as { txDigest: string; eventSeq: string };
+  }
+  throw new Error(`RideClosedV4 not found for ride ${rideId} (try --rpc the Mysten fullnode if events were pruned)`);
+}
+
+async function main(): Promise<boolean> {
+  const args = parseArgs(process.argv.slice(2));
+  const client = new SuiJsonRpcClient({ url: args.rpc, network: "testnet" });
+
+  const { ride, marketId } = await readRide(client, args.ride);
+  if (!sameId(marketId, args.market)) {
+    throw new Error(`ride belongs to market ${marketId}, not ${args.market}`);
+  }
+  const market = await readMarket(client, args.market);
+
+  console.log(`market:  ${args.market}`);
+  console.log(`ride:    ${args.ride}`);
+  console.log(`network: ${args.rpc}`);
+
+  if (!ride.closed || ride.settlementKind === 0) {
+    console.log("\nRide is still OPEN — no payout to audit yet.");
+    return true;
+  }
+
+  // Independently re-derive stake_paid from object state + the close window.
+  const nextAtClose = await nextSegmentIndexAtClose(
+    client,
+    market.tableId,
+    ride.entry,
+    ride.closedAtMs,
+    market.nextSegmentIndex,
+  );
+  const rawHeld = nextAtClose > ride.entry ? nextAtClose - ride.entry : 0n;
+  const segmentsHeld = rawHeld > market.roundDuration ? market.roundDuration : rawHeld;
+  const stakePaidDerived =
+    ride.stakePerSegment * segmentsHeld > ride.escrowed
+      ? ride.escrowed
+      : ride.stakePerSegment * segmentsHeld;
+
+  const closed = await findRideClosedEvent(client, market.packageId, args.market, args.ride);
+
+  console.log("");
+  console.log(`settlement:        ${SETTLEMENT_NAME[closed.settlementKind] ?? closed.settlementKind}`);
+  console.log(`segments held:     ${segmentsHeld}  (entry ${ride.entry} → close @ index ${nextAtClose}, round cap ${market.roundDuration})`);
+  console.log(`stake/segment:     ${fmt(ride.stakePerSegment)}   escrow cap: ${fmt(ride.escrowed)}`);
+  console.log(`stake_paid:        ours ${fmt(stakePaidDerived)}  ·  chain ${fmt(closed.stakePaid)}  ${stakePaidDerived === closed.stakePaid ? "✓ match" : "✗ MISMATCH"}`);
+  console.log(`multiplier:        ${fmt(ride.multiplierBps)} bps`);
+  console.log(`payout:            ${fmt(closed.payout)}   forfeit: ${fmt(closed.forfeit)}   bounty: ${fmt(closed.bounty)}`);
+
+  const errs: string[] = [];
+  if (stakePaidDerived !== closed.stakePaid) {
+    errs.push(`re-derived stake_paid ${stakePaidDerived} != chain ${closed.stakePaid}`);
+  }
+  errs.push(
+    ...checkPayoutIdentity(
+      closed.settlementKind,
+      closed.stakePaid,
+      closed.payout,
+      closed.forfeit,
+      ride.multiplierBps,
+    ),
+  );
+
+  console.log("");
+  if (closed.settlementKind === 1) {
+    console.log(`✓ TOUCH_WIN paid stake_paid × ${ride.multiplierBps}bps = ${(closed.stakePaid * ride.multiplierBps) / BPS}`);
+  } else if (closed.settlementKind === 3) {
+    console.log(`✓ EXPIRED_LOSS / MARKET HALT forfeited exactly the held stake (${closed.forfeit}); payout 0 — not a satoshi more was taken`);
+  } else if (closed.settlementKind === 2) {
+    console.log(`✓ CASHOUT: payout ${closed.payout} within (0, stake_paid ${closed.stakePaid}]; forfeit = stake_paid − payout (Bachelier value computed on-chain, path proven by verify-v4)`);
+  } else if (closed.settlementKind === 4) {
+    console.log(`✓ ABORTED_REFUND: escrow refunded 1:1, no stake consumed`);
+  }
+
+  const pass = errs.length === 0;
+  console.log("");
+  if (!pass) {
+    console.log("payout audit FAILED:");
+    for (const e of errs) console.log(`  ✗ ${e}`);
+    console.log("\nFAIL — the chain paid the wrong amount.");
+  } else {
+    console.log("PASS — the chain paid the exact right amount.");
+  }
+  return pass;
+}
+
+// Guard the entrypoint so the module can be imported by tests without running
+// the CLI (which would parse the test runner's argv and exit).
+const isMain =
+  process.argv[1] !== undefined &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (isMain) {
+  main()
+    .then((ok) => {
+      process.exitCode = ok ? 0 : 1;
+    })
+    .catch((err: unknown) => {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+    });
+}
