@@ -4,6 +4,18 @@
 > All links → [SuiScan testnet](https://suiscan.xyz/testnet). Source of truth: `deployments/testnet.json`.
 > Network: **testnet** · ✅ = confirmed on-chain this run.
 
+## Live on-chain state (verified 2026-06-21)
+
+The deployment isn't just published — it's funded and demo-ready right now:
+
+| What | Live balance | Why it matters |
+|---|---|---|
+| **MartingalerVault&lt;TUSD&gt;** collateral | **100,000,077 TUSD** | the loss-recycling LP vault is fully backed — the ride game settles **real** payouts |
+| **Gas sponsor wallet** | **200.04 SUI** | funds v4 sponsored cranking (players crank with no gas of their own) |
+| TUSD total supply (minted) | 1,000,000,340 TUSD | faucet (`/api/faucet-tusd`) mints from the TreasuryCap on demand |
+| MartingalerVault&lt;SUI&gt; collateral | 0.38 SUI | the SUI fallback market |
+| Publisher / deployer | 32.82 SUI | holds the UpgradeCap |
+
 ## Move package (`wick`)
 
 | | Package ID | SuiScan |
