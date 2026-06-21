@@ -486,13 +486,19 @@ export function WickProLive() {
       {/* Live mark + live σ (honest pricing) */}
       <div className="px-4 flex items-baseline gap-2 shrink-0">
         <span
-          className="text-3xl font-bold tabular-nums transition-colors duration-150"
+          className={`text-3xl font-bold tabular-nums transition-colors duration-150 ${
+            spot === null ? "text-white/30 animate-pulse" : ""
+          }`}
           style={{
             color:
-              priceTick === "up" ? "#34d399" : priceTick === "down" ? "#f43f5e" : undefined,
+              spot !== null && priceTick === "up"
+                ? "#34d399"
+                : spot !== null && priceTick === "down"
+                  ? "#f43f5e"
+                  : undefined,
           }}
         >
-          {spot !== null ? fmtPrice(spot) : "—"}
+          {spot !== null ? fmtPrice(spot) : "—.——"}
         </span>
         <a
           href={deepBookPoolExplorerUrl(pool)}
@@ -718,8 +724,9 @@ const MarkChart = memo(function MarkChart(props: {
   const H = 320;
   if (history.length < 2) {
     return (
-      <div className="h-full w-full flex items-center justify-center text-white/25 text-sm">
-        waiting for the DeepBook mark…
+      <div className="h-full w-full flex items-center justify-center gap-2 text-white/30 text-sm">
+        <span className="h-2 w-2 rounded-full bg-emerald-400/70 animate-pulse" />
+        Connecting to the live DeepBook mark…
       </div>
     );
   }
