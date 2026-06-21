@@ -65,7 +65,7 @@ The round structure is shared: everyone sees the **same** barrier grid, the same
 | SegmentMarket V4 — TUSD + rug (1.5 %/seg halt) | [`0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282`](https://suiscan.xyz/testnet/object/0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282) |
 | Upgrade cap | [`0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590`](https://suiscan.xyz/testnet/object/0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590) |
 | Faucet endpoint | `POST https://wick-markets.vercel.app/api/faucet` (SUI gas) · `/api/faucet-tusd` (TUSD stake) |
-| **Every package + object, with SuiScan links** (72/72 verified live) | [`deployments/ADDRESSES.md`](deployments/ADDRESSES.md) |
+| **Every package + object, with SuiScan links** (69/69 verified live) | [`deployments/ADDRESSES.md`](deployments/ADDRESSES.md) |
 | Source of truth (read this if README lags) | [`deployments/testnet.json`](deployments/testnet.json) |
 
 **The whole loop runs on-chain in one command — no wallet, no setup:**
