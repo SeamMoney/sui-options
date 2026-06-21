@@ -17,6 +17,13 @@ The deployment isn't just published — it's funded and demo-ready right now:
 | MartingalerVault&lt;SUI&gt; collateral | 0.38 SUI | the SUI fallback market |
 | Publisher / deployer | 32.82 SUI | holds the UpgradeCap |
 
+**Funding flow verified live this run** — a judge funds a fresh wallet in two requests, no wallet extension needed, then plays the on-chain ride game:
+
+- `POST /api/faucet` → **0.2 SUI** gas — [tx `28PtV8tM…`](https://suiscan.xyz/testnet/tx/28PtV8tM5CjiqmCxdxVvhc8FVniS2gxXZcutaYXQk3ko) ✅ success
+- `POST /api/faucet-tusd` → **10 TUSD** stake — [tx `BpYeDyVN…`](https://suiscan.xyz/testnet/tx/BpYeDyVNf5MuQenzDjbbhrUENfaqZkmrYqoxtCT92Spi) ✅ success
+
+Both landed on-chain; the funded wallet then held 0.2 SUI + 10 TUSD, ready to ride.
+
 ## Move package (`wick`)
 
 | | Package ID | SuiScan |
