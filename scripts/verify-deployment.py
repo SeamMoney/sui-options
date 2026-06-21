@@ -12,9 +12,11 @@ links) are tabulated in `deployments/ADDRESSES.md`.
 """
 import json, os, sys, urllib.request
 
+# PublicNode first: the Mysten public fullnode rate-limits under load, so the
+# reliable endpoint leads and the others are fallbacks (repo testnet RPC convention).
 ENDPOINTS = [
-    "https://fullnode.testnet.sui.io:443",
     "https://sui-testnet-rpc.publicnode.com",
+    "https://fullnode.testnet.sui.io:443",
     "https://sui-testnet.public.blastapi.io",
 ]
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import {
   expandSegment,
   newState,
@@ -85,7 +85,13 @@ interface ReplayRow {
 }
 
 const DEFAULT_INITIAL_VOL_REGIME = 1_000_000n;
-const DEFAULT_RPC = getJsonRpcFullnodeUrl("testnet");
+// Default to PublicNode, not the Mysten public testnet fullnode: the latter
+// rate-limits under sustained load (and a throttled response drops its CORS
+// headers, surfacing as a misleading error). This is the repo-wide testnet RPC
+// convention — judges run `npx tsx scripts/verify.ts ...` cold, so the default
+// must be the reliable endpoint. Override with --rpc or WICK_VERIFY_RPC.
+const DEFAULT_RPC =
+  process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 
 function usage(): never {
   console.error(

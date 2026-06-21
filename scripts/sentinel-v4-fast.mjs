@@ -34,7 +34,7 @@
  * want the on-chain truth visible.
  */
 
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { SUI_CLOCK_OBJECT_ID } from "@mysten/sui/utils";
@@ -124,7 +124,9 @@ if (!keypair) {
 const SENDER = keypair.getPublicKey().toSuiAddress();
 
 // ── Sui client ────────────────────────────────────────────────────────────
-const client = new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl("testnet") });
+const client = new SuiJsonRpcClient({
+  url: process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com",
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 const log = (...args) => console.log(new Date().toISOString().slice(11, 19), ...args);
