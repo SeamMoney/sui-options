@@ -8,9 +8,21 @@ name: CI
 #   - move:  install a pinned Sui CLI and run the full Move test suite, which
 #            includes the seeded_path conformance vectors (Move <-> TS).
 on:
+  # Skip CI for docs-only changes — markdown / docs touch no build, test, or
+  # Move output, and the fleet ships a lot of them. This conserves the private
+  # repo's metered Actions minutes (a day of doc PRs was burning ~6 min each
+  # across the Node + Move jobs for zero signal).
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
 
 # Cancel superseded runs on the same ref to save CI minutes — but NEVER on
 # main. Rapid back-to-back merges were cancelling main's in-progress run on
