@@ -37,10 +37,19 @@
  *        npx tsx scripts/verify-v4.ts --rpc mock://tamper-v4   --ride 0xmock   # FAILs
  *
  * Settlement mirror: `decide_settlement` in `move/sources/segment_market_v4.move`
- * — TOUCH_WIN(1) on either barrier, EXPIRED_LOSS(3) if the round closed first,
- * CASHOUT(2) otherwise; ABORTED_REFUND(4) is taken from the chain. The ride's
- * live window is bounded by `recorded_at_ms <= closed_at_ms` (no event lookup),
- * so the touch scan matches the chain's `[entry, next_segment_index@close)`.
+ * — rug (MARKET HALT) → TOUCH_WIN(1) on either barrier → EXPIRED_LOSS(3) on
+ * round-expiry → CASHOUT(2); ABORTED_REFUND(4) is taken from the chain. The
+ * ride's live window is bounded by `recorded_at_ms <= closed_at_ms` (no event
+ * lookup), so the touch scan matches the chain's `[entry, next_segment_index@close)`.
+ *
+ * Cross-round closes (the ride was held PAST its entry round before closing):
+ * Move reads `rugged_at_segment` for the round the market is in AT CLOSE
+ * (`ensure_round_current` clears it on every round-roll, and the rug roll's
+ * keccak preimage includes the round index). So the scan runs THROUGH close
+ * (not capped at the entry round's end) and the halt is attributed to the CLOSE
+ * round (`= scanEnd / round_duration`). For the common in-round close this
+ * reduces to "entry round, scan to round end" exactly. (Fixed in #299; before
+ * it, late-closed rides false-FAILed "the chain lied".)
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
