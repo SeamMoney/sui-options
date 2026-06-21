@@ -68,11 +68,19 @@ The round structure is shared: everyone sees the **same** barrier grid, the same
 | **Every package + object, with SuiScan links** (72/72 verified live) | [`deployments/ADDRESSES.md`](deployments/ADDRESSES.md) |
 | Source of truth (read this if README lags) | [`deployments/testnet.json`](deployments/testnet.json) |
 
-The 2026-05-23 end-to-end smoke landed clean:
-- `open_segment_ride` → `record_segment ×3` → `close_segment_ride`
-- Settlement: **CASHOUT** (4039 MIST from a 20M MIST escrow — held only 3/20 segments, barrier was far)
-- `npx tsx scripts/verify.ts --market 0x2f74…1e45 --ride 0xe852…1572` → **PASS**: extrema match, verdict match, exit 0
-- Off-chain `expandSegment` reproduced the chain's OHLC for k=0/1/2 **byte-identical**
+**The whole loop runs on-chain in one command — no wallet, no setup:**
+
+```bash
+npm run smoke:ride   # mints a throwaway burner, funds it from the live faucet,
+                     # then open → crank → close → audit, all on testnet
+```
+
+It opens a real `open_segment_ride_v4`, cranks `record_segment_v4`, settles with
+`close_segment_ride_v4`, then audits the closed ride with `scripts/verify-v4.ts` —
+replaying every segment from the chain's own keys and confirming the on-chain
+settlement. A cold run ends with **`PASS — the chain was honest.`** To audit a ride
+that already closed: `npm run verify:fairness:live` (auto-picks a live ride) or
+`npx tsx scripts/verify-v4.ts --market <id> --ride <id>`.
 
 ---
 

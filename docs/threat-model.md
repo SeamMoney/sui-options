@@ -59,9 +59,9 @@ What we claim:
   keys via `seeded_path::expand_segment`.
 - The Move and TypeScript `expandSegment` implementations are conformance-tested
   over 10,000 generated vectors in `move/tests/seeded_path_conformance.move`.
-- Closed rides can be replayed with `npx tsx scripts/verify.ts --market ... --ride ...`;
+- Closed rides can be replayed with `npx tsx scripts/verify-v4.ts --market ... --ride ...`;
   the CLI recomputes candles/extremes from on-chain keys and compares its
-  verdict to the on-chain `RideClosed.settlement_kind`.
+  verdict to the on-chain `RideClosedV4.settlement_kind`.
 
 What we do not claim:
 

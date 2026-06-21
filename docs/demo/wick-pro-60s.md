@@ -59,7 +59,7 @@ npm run check:pro      # (needs Chromium) drives the real /pro flow headless: ma
 Black-Scholes calls/puts, and asserts the **watched** live P&L (`unrealizedPnl`)
 equals the **paid** settlement (`sellToClose`) across a sweep of exit prices ×
 exit times — to `1e-9`, every time. It's the Wick Pro analogue of
-`scripts/verify.ts` (which proves the Ride game's provable fairness). The
+`scripts/verify-v4.ts` (which proves the Ride game's provable fairness). The
 guarantee is also locked deterministically by conformance tests in
 `packages/pro-options` (`npm run test:pro-options`): `settlementPnlAtSpot` and
 `engine.livePnl(atExpiry)` equal the realized settlement at every spot, both
