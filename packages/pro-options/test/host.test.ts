@@ -50,8 +50,16 @@ check("host drives a full round and emits the phase/reveal/settle/seed events", 
   const settled = events.filter((e) => e.type === "settled");
   assert.ok(settled.length >= 1, "the open position should settle");
 
-  const seed = events.find((e) => e.type === "reveal-seed") as { verified: boolean } | undefined;
+  const seed = events.find((e) => e.type === "reveal-seed") as
+    | { verified: boolean; seed: number; commit: string; paramsJson: string }
+    | undefined;
   assert.ok(seed?.verified, "seed reveal should verify against the commit");
+  // The reveal event must carry the full preimage so the UI can show a player
+  // the three values needed to independently re-hash their round.
+  assert.match(seed!.commit, /^[0-9a-f]{64}$/, "reveal-seed should emit the 64-hex SHA-256 commit");
+  assert.equal(typeof seed!.paramsJson, "string", "reveal-seed should emit the revealed paramsJson");
+  const independent = createHash("sha256").update(`${seed!.seed}:${seed!.paramsJson}`).digest("hex");
+  assert.equal(independent, seed!.commit, "the emitted seed+params must hash to the emitted commit");
 });
 
 check("engine.livePnl at expiry equals realized playerPnl (live == settlement)", () => {

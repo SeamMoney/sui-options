@@ -18,7 +18,10 @@ export type HostEvent =
   | { type: "phase"; phase: RoundPhase; prev: RoundPhase | null; nowMs: number }
   | { type: "reveal-step"; revealed: number; spot: number; nowMs: number }
   | { type: "settled"; positions: OptionPosition[]; nowMs: number }
-  | { type: "reveal-seed"; seed: number; verified: boolean; nowMs: number };
+  // commit + paramsJson are the published pre-lobby commit and the revealed
+  // preimage — the three values a player needs to independently re-hash their
+  // round (via `npm run verify:pro-fairness -- --seed <seed>` or POST /api/verify-pro).
+  | { type: "reveal-seed"; seed: number; paramsJson: string; commit: string; verified: boolean; nowMs: number };
 
 export type HostListener = (event: HostEvent) => void;
 
@@ -68,8 +71,8 @@ export class RoundHost {
     if (!this.seedRevealed && (phase === "settle" || phase === "results")) {
       const swept = this.engine.settleAll();
       if (swept.length) this.emit({ type: "settled", positions: swept, nowMs });
-      const { seed, verified } = this.engine.reveal();
-      this.emit({ type: "reveal-seed", seed, verified, nowMs });
+      const { seed, paramsJson, commit, verified } = this.engine.reveal();
+      this.emit({ type: "reveal-seed", seed, paramsJson, commit, verified, nowMs });
       this.seedRevealed = true;
     }
   }
