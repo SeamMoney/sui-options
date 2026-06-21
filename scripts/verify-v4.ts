@@ -758,18 +758,26 @@ async function verify(args: Args): Promise<boolean> {
 
     // Cross-round late close: a ride abandoned past its round end is settled
     // late by `decide_settlement`, which reads the CURRENT round's
-    // `rugged_at_segment` (cleared on every round-roll). So a ride that, IN ITS
-    // OWN ROUND, touched or cashed out can still be force-settled EXPIRED_LOSS by
-    // a LATER round's rug. We bound our scan to the ride's own round, so the only
-    // way the chain shows EXPIRED_LOSS while our own-round derivation shows
-    // something else is exactly this later-round wipe — whose rug we can't
-    // reconstruct (the field is gone). That is NOT "the chain lied": the candles
-    // and the rug-roll honesty are still fully verified; the verdict just isn't
-    // independently re-derivable. (Normal play closes a ride in its own round, so
-    // derived == settlementKind and this never trips; it only affects rides left
-    // open across rounds — bot/crank-expired test traffic.)
+    // `rugged_at_segment` (cleared on every round-roll) and scans for a touch
+    // over `[entry, next_segment_index@close)` — a window that, for a late
+    // close, spills into LATER rounds. We bound OUR scan to the ride's own
+    // round, so the chain's verdict can diverge from ours in exactly two ways,
+    // both unreconstructable-but-honest:
+    //   • chain EXPIRED_LOSS, ours not — a LATER round's rug wiped the ride
+    //     (that rug value is gone from the chain).
+    //   • chain TOUCH_WIN, ours not, and we found NO touch in-round — the price
+    //     touched the barrier in a LATER round, outside our bounded scan.
+    // Neither is "the chain lied": the candles and the rug-roll honesty are
+    // still fully verified; the verdict just isn't independently re-derivable.
+    // Normal play closes a ride in its own round → derived == settlementKind →
+    // this never trips; it only affects rides left open across rounds
+    // (bot/crank-expired test traffic). Adversarial lies are untouched: a
+    // tampered candle is an integrity FAIL, and a chain claiming a touch that
+    // verify CAN reproduce in-round still matches (or FAILs if it can't and the
+    // direction isn't this cross-round signature).
     const crossRoundClose =
-      ride.settlementKind === SETTLEMENT_EXPIRED_LOSS && derived !== SETTLEMENT_EXPIRED_LOSS;
+      (ride.settlementKind === SETTLEMENT_EXPIRED_LOSS && derived !== SETTLEMENT_EXPIRED_LOSS) ||
+      (ride.settlementKind === SETTLEMENT_TOUCH_WIN && derived !== SETTLEMENT_TOUCH_WIN && !touchedInWindow);
     const verdictCheckable = verdictMatch || !crossRoundClose;
     const pass = allIntegrityOk && rugRollOk && (verdictMatch || crossRoundClose);
 
@@ -780,8 +788,12 @@ async function verify(args: Args): Promise<boolean> {
     if (verdictMatch) {
       console.log("verdict:           match");
     } else if (crossRoundClose) {
+      const why =
+        ride.settlementKind === SETTLEMENT_EXPIRED_LOSS
+          ? "the chain force-settled EXPIRED_LOSS against a LATER round's rug"
+          : "the price touched the barrier in a LATER round, outside this ride's round";
       console.log(
-        `verdict:           not independently checkable — ride opened round ${ride.roundIndex}, in-round it was ${SETTLEMENT_NAME[derived] ?? derived}, but it was abandoned past its round end and the chain force-settled EXPIRED_LOSS against a LATER round's rug (cleared on-chain, unrecoverable). Candles + rug roll verified honest.`,
+        `verdict:           not independently checkable — ride opened round ${ride.roundIndex} (in-round: ${SETTLEMENT_NAME[derived] ?? derived}) but was abandoned past its round end; ${why} (later-round state is cleared on-chain, unrecoverable). Candles + rug roll verified honest.`,
       );
     } else {
       console.log("verdict:           MISMATCH");
