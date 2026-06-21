@@ -15,6 +15,9 @@ import assert from "node:assert/strict";
 import {
   ActiveRideCountTracker,
   parseSegmentMarketsEnv,
+  buildRecordSegmentTx,
+  rideOpenedEventType,
+  rideClosedEventType,
 } from "../src/segmentCranker.js";
 
 test("unknown market reads 0 and does not crank", () => {
@@ -124,7 +127,7 @@ test("parseSegmentMarketsEnv empty / undefined / whitespace", () => {
 test("parseSegmentMarketsEnv plain marketId uses defaults", () => {
   const result = parseSegmentMarketsEnv("0xMKT", "0xPKG");
   assert.deepEqual(result, [
-    { marketId: "0xMKT", packageId: "0xPKG", collateralType: "0x2::sui::SUI" },
+    { marketId: "0xMKT", packageId: "0xPKG", collateralType: "0x2::sui::SUI", version: "v3" },
   ]);
 });
 
@@ -148,6 +151,7 @@ test("parseSegmentMarketsEnv with explicit package + collateral", () => {
       marketId: "0xMKT",
       packageId: "0xPKG2",
       collateralType: "0xCustom::token::TOKEN",
+      version: "v3",
     },
   ]);
 });
@@ -155,7 +159,7 @@ test("parseSegmentMarketsEnv with explicit package + collateral", () => {
 test("parseSegmentMarketsEnv with explicit package only", () => {
   const result = parseSegmentMarketsEnv("0xMKT@0xPKG2", "0xDefaultPkg");
   assert.deepEqual(result, [
-    { marketId: "0xMKT", packageId: "0xPKG2", collateralType: "0x2::sui::SUI" },
+    { marketId: "0xMKT", packageId: "0xPKG2", collateralType: "0x2::sui::SUI", version: "v3" },
   ]);
 });
 
@@ -165,8 +169,34 @@ test("parseSegmentMarketsEnv mixed list", () => {
     "0xDefault",
   );
   assert.deepEqual(result, [
-    { marketId: "0xA", packageId: "0xDefault", collateralType: "0x2::sui::SUI" },
-    { marketId: "0xB", packageId: "0xPKG2", collateralType: "0x2::sui::SUI" },
-    { marketId: "0xC", packageId: "0xPKG3", collateralType: "0xColl::c::C" },
+    { marketId: "0xA", packageId: "0xDefault", collateralType: "0x2::sui::SUI", version: "v3" },
+    { marketId: "0xB", packageId: "0xPKG2", collateralType: "0x2::sui::SUI", version: "v3" },
+    { marketId: "0xC", packageId: "0xPKG3", collateralType: "0xColl::c::C", version: "v3" },
   ]);
+});
+
+test("parseSegmentMarketsEnv tags bindings v4 + targets the v4 module", () => {
+  const result = parseSegmentMarketsEnv(
+    "0xMKT@0xPKG:0xtusd::tusd::TUSD",
+    "0xDefault",
+    "0x2::sui::SUI",
+    "v4",
+  );
+  assert.deepEqual(result, [
+    { marketId: "0xMKT", packageId: "0xPKG", collateralType: "0xtusd::tusd::TUSD", version: "v4" },
+  ]);
+  // a v4 binding builds its crank PTB without throwing…
+  assert.doesNotThrow(() => buildRecordSegmentTx(result[0]!, 20_000_000n));
+  // …and the wake/sleep event tracker watches the *_V4 event tags
+  assert.equal(
+    rideOpenedEventType("0xPKG", "v4"),
+    "0xPKG::segment_market_v4::RideOpenedV4",
+  );
+  assert.equal(
+    rideClosedEventType("0xPKG", "v4"),
+    "0xPKG::segment_market_v4::RideClosedV4",
+  );
+  // default (omitted) stays v3 — back-compat
+  assert.equal(rideOpenedEventType("0xPKG"), "0xPKG::segment_market::RideOpened");
+  assert.equal(rideClosedEventType("0xPKG"), "0xPKG::segment_market::RideClosed");
 });
