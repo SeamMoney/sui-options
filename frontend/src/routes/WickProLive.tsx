@@ -76,6 +76,18 @@ function fmtPrice(n: number): string {
   return n.toFixed(5);
 }
 
+/** Tactile feedback on a phone — a no-op where the Vibration API is absent
+ *  (desktop, iOS Safari). Makes the bet/settle land in the hand on Android. */
+function haptic(pattern: number | number[]): void {
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    /* vibrate can throw if called too often — ignore */
+  }
+}
+
 export function WickProLive() {
   const [pool, setPool] = useState<DeepBookPoolName>("SUI_USDC");
   const { mark, status } = useDeepBookMark(pool, 1500);
@@ -255,6 +267,7 @@ export function WickProLive() {
       if (position) return;
       const pos = buildPosition(side);
       if (!pos) return;
+      haptic(12); // confirm tap — the bet landed
       setSettled(null);
       setPosition(pos);
     },
@@ -284,6 +297,7 @@ export function WickProLive() {
     const opp: OptionSide = position.side === "call" ? "put" : "call";
     const next = buildPosition(opp);
     if (!next) return;
+    haptic(12);
     setSettled(null);
     setPosition(next);
   }, [position, spot, buildPosition]);
@@ -343,6 +357,7 @@ export function WickProLive() {
     // Tally the round once (the effect can re-run without a new settle).
     if (settled.id !== lastSettledIdRef.current) {
       lastSettledIdRef.current = settled.id;
+      haptic(won ? [18, 30, 26] : 40); // celebratory rattle on a win, single buzz on a loss
       const net = realizedPnl(settled);
       setSession((s) => ({
         pnl: s.pnl + net,
