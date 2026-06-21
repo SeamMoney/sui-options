@@ -70,6 +70,12 @@ jobs:
       - name: Build frontend (Vite)
         run: npm run build:frontend
 
+      # Static gate on the judge-facing HTML config (no browser): the cold-load
+      # dark paint, the DeepBook-options share card, and the PNG touch icon — all
+      # easy to silently revert when many hands edit index.html.
+      - name: Meta / share-card / cold-load gate
+        run: npm run check:meta
+
   move:
     name: Move — sui move test
     runs-on: ubuntu-latest
