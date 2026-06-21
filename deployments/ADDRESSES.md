@@ -3,6 +3,7 @@
 > **72/72 objects verified live on-chain 2026-06-21** via `fullnode.testnet.sui.io`.
 > All links → [SuiScan testnet](https://suiscan.xyz/testnet). Source of truth: `deployments/testnet.json`.
 > Network: **testnet** · ✅ = confirmed on-chain this run.
+> **Re-verify it yourself** (no wallet/CLI): `python3 scripts/verify-deployment.py` — checks every object is live and the vaults are funded, straight from a public fullnode.
 
 ## Live on-chain state (verified 2026-06-21)
 
