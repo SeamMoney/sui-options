@@ -12,10 +12,12 @@ exotics, and the **ride** streaming-touch primitive — all collateralised by th
   and [`../docs/architecture.md`](../docs/architecture.md).
 - **Entry facade:** [`sources/wick.move`](sources/wick.move).
 
-The package is `wick` (~25 modules under `sources/`). The **collateral
+The package is `wick` (26 modules under `sources/`). The **collateral
 invariant** — `collateral_vault == total_touch_supply == total_no_touch_supply`
-after every transition — is load-bearing and covered by
-[`tests/invariants.move`](tests/invariants.move).
+after every transition — is load-bearing and asserted across the vault/market
+test suites ([`tests/martingaler_vault_tests.move`](tests/martingaler_vault_tests.move),
+[`tests/market_tests.move`](tests/market_tests.move),
+[`tests/segment_market_v4_tests.move`](tests/segment_market_v4_tests.move)).
 
 ```bash
 sui move test                 # invariant + DNT + probability + conformance suites
