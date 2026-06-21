@@ -25,6 +25,7 @@ const Verify = lazy(() => import("@/routes/Verify").then((m) => ({ default: m.Ve
 const RideTest = lazy(() =>
   import("@/routes/RideTest").then((m) => ({ default: m.RideTest })),
 );
+const Coach = lazy(() => import("@/routes/Coach").then((m) => ({ default: m.Coach })));
 
 // Minimal pathname-based routing. Computed once at module load (no hash
 // routing / SPA nav within these pages — the Vercel SPA rewrite in
@@ -38,6 +39,7 @@ const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
 const IS_PRO_ROUTE = PATHNAME === "/pro";
 const IS_CANDLE_VISION_ROUTE = PATHNAME === "/candle-vision";
+const IS_COACH_ROUTE = PATHNAME === "/coach";
 const IS_DEGEN_ROUTE = PATHNAME === "/degen";
 const IS_DOCS_ROUTE = PATHNAME === "/docs" || PATHNAME.startsWith("/docs/");
 const IS_VERIFY_ROUTE = PATHNAME === "/verify";
@@ -79,6 +81,12 @@ export default function App() {
         <RideTest />
       </Suspense>
     );
+  if (IS_COACH_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <Coach />
+      </Suspense>
+    ); // CandleVision pattern-coach panel preview (Wick Pro side panel)
   if (IS_PRO_ROUTE) return <MainApp />; // TEMP placeholder — real Legend panes go here next
   return <Ride />; // default
 }
