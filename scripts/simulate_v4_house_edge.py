@@ -31,7 +31,7 @@ Run:
 from __future__ import annotations
 import argparse
 import os
-import secrets
+import random
 import statistics
 import sys
 
@@ -60,8 +60,11 @@ def simulate_strategy(strategy: str, n_rounds: int, rng_seed: int = 42) -> dict:
       - 'cashout_at_N'   : open at segment 0, release at segment N (if no touch yet)
       - 'wait_then_hold' : skip first 20 segments, then open, hold to expiry
     """
-    rng = secrets.SystemRandom()
-    rng.seed(rng_seed)
+    # random.Random, NOT secrets.SystemRandom: SystemRandom.seed() is a silent
+    # no-op (so the --seed flag never actually made this reproducible) and its
+    # OS-CSPRNG draw per segment is ~100x slower than a PRNG. A Monte Carlo
+    # only needs uniform draws; this is fast AND honors --seed.
+    rng = random.Random(rng_seed)
 
     cashout_at = None
     if strategy.startswith("cashout_at_"):
@@ -88,7 +91,7 @@ def simulate_strategy(strategy: str, n_rounds: int, rng_seed: int = 42) -> dict:
 
         # Pre-roll wait segments (drift before user opens)
         for _ in range(wait_segments):
-            key = secrets.token_bytes(32)
+            key = rng.randbytes(32)
             state, _smin, _smax = expand_segment(state, key)
 
         # User opens here. Cost = stake × (remaining segments in round)
@@ -100,7 +103,7 @@ def simulate_strategy(strategy: str, n_rounds: int, rng_seed: int = 42) -> dict:
         net = 0.0
         # Iterate segments while user holds
         for s_offset in range(ride_duration):
-            key = secrets.token_bytes(32)
+            key = rng.randbytes(32)
             state, seg_min, seg_max = expand_segment(state, key)
             if seg_max >= upper or seg_min <= lower:
                 # TOUCH — jackpot. Round-cap is ignored (max_payout_per_round
