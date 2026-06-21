@@ -4,7 +4,7 @@
 
 > **Now with `MARKET HALT` events (v4.26)** — ~1.5% per second the market freezes and wipes any open ride. Calibrated to a +3.93% house edge so the protocol survives. The roll is deterministic from `keccak256(segment_key)` — anyone can replay and verify the halt was honest. That's how the house wins.
 
-[![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 553/553](https://img.shields.io/badge/move%20tests-553%2F553-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
+[![CI](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml/badge.svg)](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml) [![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 553/553](https://img.shields.io/badge/move%20tests-553%2F553-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
 
 <p align="center">
   <img src="docs/assets/wick-chat.svg" width="600" alt="A chat between a curious dev and a Wick veteran" />
