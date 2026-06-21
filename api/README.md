@@ -283,3 +283,33 @@ Limitations:
 - The happy path requires a deployed `SegmentMarketV3`; until that exists on
   testnet, local smoke should use malformed or non-Wick transactions and expect
   `403`.
+
+---
+
+## Verify Pro — `api/verify-pro.ts` (Vercel serverless function)
+
+Verifies a **Wick Pro** round's commit-reveal from a URL — no clone, no CLI, no
+wallet. Every `/pro` round publishes `commit = SHA-256(`${seed}:${paramsJson}`)`
+before the lobby and reveals `{ seed, paramsJson }` at settle. This endpoint
+recomputes the digest independently (`node:crypto`) and reports whether the
+revealed preimage binds — the same guarantee as `npm run verify:pro-fairness`,
+but over HTTP for a judge who'd rather paste three values than clone the repo.
+
+```
+POST /api/verify-pro
+Content-Type: application/json
+{ "commit": "<64-hex SHA-256>", "seed": 1337, "paramsJson": "<exact revealed params>" }
+```
+
+Responses:
+
+| Status | Body                                                                   | Meaning                              |
+|--------|------------------------------------------------------------------------|--------------------------------------|
+| `200`  | `{ matches: true,  recomputed, commit, verdict: "HONEST — …" }`        | the path was committed before the bet|
+| `200`  | `{ matches: false, recomputed, commit, verdict: "MISMATCH — …" }`      | the reveal doesn't hash to the commit|
+| `400`  | `{ error: "commit must be a 64-char lowercase hex SHA-256 string" }`   | bad/missing input                    |
+| `405`  | `{ error: "method not allowed; use POST" }`                            | wrong HTTP verb                      |
+
+**Pure compute** — no network, no RPC, no key, no rate limit. It cannot time out
+or leak. `handle()` is exported and unit-tested (`api-tests/verify-pro.test.ts`,
+driven by a real pro-options round).
