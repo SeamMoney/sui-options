@@ -1010,18 +1010,13 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
          * no half-tinting. Per doc 25 §3: "candles + two SOLID barrier
          * lines + a glowing laser trace of the spot."
          */
+        // Draws the two full-width barrier LINES. The price pills are drawn
+        // separately by drawBarrierPills() (after the axis ticks) so they sit
+        // on top of the ticks and clear of the bottom-left RugFeed panel.
         const drawBarriers = () => {
           const s = stateRef.current;
           if (!s.round) return;
-          // Re-apply font at the top of every text-drawing fn — defensive
-          // against anything resetting it between frames (v4.17).
-          p.textFont('"Bai Jamjuree", system-ui, sans-serif');
-
-          const drawOne = (
-            price: number,
-            color: [number, number, number],
-            label: string,
-          ) => {
+          const drawLine = (price: number, color: [number, number, number]) => {
             const y = p.map(
               price,
               priceScale.min,
@@ -1034,23 +1029,69 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
             p.strokeWeight(2);
             p.drawingContext.setLineDash([]);
             p.line(chartArea.x, y, chartArea.x + chartArea.width, y);
+          };
+          drawLine(s.round.upperBarrier, [0, 255, 136]);
+          drawLine(s.round.lowerBarrier, [255, 100, 100]);
+        };
 
-            // Label
-            p.noStroke();
-            p.fill(color[0], color[1], color[2], 235);
-            p.textAlign(p.LEFT, p.CENTER);
-            p.textSize(p.width < 768 ? 10 : 12);
-            p.text(
-              `${label}  $${price.toLocaleString(undefined, {
-                maximumFractionDigits: price < 100 ? 2 : 0,
-              })}`,
-              chartArea.x + 8,
-              y - 8,
+        // Right-axis price pills for the upper/lower barriers, mirroring the
+        // orange current-price tag in drawPriceLine. v4.32: moved off the left
+        // edge — the old "▲ upper $…" / "▼ lower $…" labels lived at
+        // chartArea.x + 8 and collided permanently with the bottom-left RugFeed
+        // "MARKET HALTS" panel (the lower barrier is always pinned near the
+        // chart floor). Colour + ▲/▼ glyph keep the direction legible. Each
+        // pill nudges clear of the current-price pill so the level stays
+        // readable even at the touch climax, when price == barrier.
+        const drawBarrierPills = () => {
+          const s = stateRef.current;
+          if (!s.round) return;
+          p.textFont('"Bai Jamjuree", system-ui, sans-serif');
+
+          const labelWidth = p.width < 768 ? 62 : 78;
+          const labelHeight = p.width < 768 ? 18 : 22;
+          const fontSize = p.width < 768 ? 10 : 12;
+          const labelX = p.width - labelWidth - 2;
+
+          const toY = (price: number) =>
+            p.map(
+              price,
+              priceScale.min,
+              priceScale.max,
+              chartArea.y + chartArea.height,
+              chartArea.y,
             );
+
+          const currentY =
+            candles.length > 0 ? toY(candles[candles.length - 1]!.close) : null;
+
+          const drawOne = (
+            price: number,
+            color: [number, number, number],
+            glyph: string,
+            pushUp: boolean,
+          ) => {
+            let y = toY(price);
+            // Dodge the current-price pill (drawn on the same right axis) so
+            // both stay readable when price closes in on the barrier.
+            if (currentY !== null && Math.abs(y - currentY) < labelHeight + 2) {
+              y = currentY + (pushUp ? -(labelHeight + 2) : labelHeight + 2);
+            }
+            p.noStroke();
+            p.fill(color[0], color[1], color[2], 255);
+            p.rect(labelX, y - labelHeight / 2, labelWidth, labelHeight, 4);
+            p.fill(8, 8, 10, 255);
+            p.textAlign(p.CENTER, p.CENTER);
+            p.textSize(fontSize);
+            p.textStyle(p.BOLD);
+            const t = price.toLocaleString(undefined, {
+              maximumFractionDigits: price < 100 ? 2 : 0,
+            });
+            p.text(`${glyph} $${t}`, labelX + labelWidth / 2, y);
+            p.textStyle(p.NORMAL);
           };
 
-          drawOne(s.round.upperBarrier, [0, 255, 136], "▲ upper");
-          drawOne(s.round.lowerBarrier, [255, 100, 100], "▼ lower");
+          drawOne(s.round.upperBarrier, [0, 255, 136], "▲", true);
+          drawOne(s.round.lowerBarrier, [255, 100, 100], "▼", false);
         };
 
         const armedPatternText = (cue: ArmedPatternCue): string => {
@@ -1644,6 +1685,10 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           drawLaserTrace();
           drawPriceLine();
           drawPriceLabels();
+          // Barrier pills last (over the axis ticks + price line) so the
+          // green/red right-axis tags read cleanly. Lines were drawn earlier
+          // (drawBarriers) so candles render on top of them.
+          drawBarrierPills();
           drawPNLLine();
           drawRugOverlay();
           gridAlpha = p.lerp(gridAlpha, 40, 0.1);
