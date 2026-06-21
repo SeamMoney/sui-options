@@ -33,7 +33,12 @@ const DEPLOYMENT = JSON.parse(
   readFileSync(join(REPO_ROOT, "deployments/testnet.json"), "utf8"),
 );
 
-const PKG = DEPLOYMENT.package_id;
+// Event type tags are keyed by the package that *defined* the type (the
+// type-origin package), NOT the latest upgraded `package_id`. After an upgrade
+// `DEPLOYMENT.package_id` points at the newest package, but events emitted by
+// an older module keep their original address — so querying with the latest id
+// silently returns ZERO events. We resolve the correct type-origin package from
+// the market object's own type at startup (see resolveTypePackage below).
 const v4Market = DEPLOYMENT.segment_markets_v4?.at(-1);
 if (!v4Market) {
   console.error("No segment_markets_v4 entry. Bootstrap a market first.");
@@ -59,12 +64,45 @@ const durationArg = args.find((a) => a.startsWith("--duration"));
 const DURATION_SEC = durationArg ? Number(durationArg.split("=").at(-1) ?? args[args.indexOf(durationArg) + 1]) : Infinity;
 const startMs = Date.now();
 
-const types = {
-  segment: `${PKG}::segment_market_v4::SegmentRecordedV4`,
-  rug: `${PKG}::segment_market_v4::RugFiredV4`,
-  opened: `${PKG}::segment_market_v4::RideOpenedV4`,
-  closed: `${PKG}::segment_market_v4::RideClosedV4`,
-};
+// Populated by resolveTypePackage() once we know the market's type-origin pkg.
+let types = null;
+
+async function resolveTypePackage() {
+  const body = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "sui_getObject",
+    params: [MARKET, { showType: true }],
+  };
+  const r = await fetch(RPC, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json();
+  const type = j.result?.data?.type ?? "";
+  const marker = "::segment_market_v4::SegmentMarketV4";
+  const idx = type.indexOf(marker);
+  if (idx < 0) {
+    throw new Error(`object ${MARKET} is not a SegmentMarketV4; type=${type}`);
+  }
+  const pkg = type.slice(0, idx);
+  // Each event type is keyed by the package that FIRST defined it:
+  //   SegmentRecordedV4 / RideOpenedV4 / RideClosedV4 were introduced in the
+  //   v4 (v3-upgrade) publish — that's the market's type-origin package (`pkg`).
+  //   RugFiredV4 was added later, in the v4.26 upgrade — so it is keyed by the
+  //   LATEST `DEPLOYMENT.package_id`, not `pkg`. Routing rug to `pkg` would
+  //   silently observe zero rugs (the exact bug this script exists to avoid).
+  const rugPkg = DEPLOYMENT.package_id;
+  types = {
+    segment: `${pkg}::segment_market_v4::SegmentRecordedV4`,
+    rug: `${rugPkg}::segment_market_v4::RugFiredV4`,
+    opened: `${pkg}::segment_market_v4::RideOpenedV4`,
+    closed: `${pkg}::segment_market_v4::RideClosedV4`,
+  };
+  console.log(`  type-origin package: ${pkg}`);
+  if (rugPkg !== pkg) console.log(`  RugFiredV4 package:  ${rugPkg} (v4.26+)`);
+}
 
 async function queryEvents(eventType, cursor) {
   const body = {
@@ -160,6 +198,7 @@ function printSummary() {
 }
 
 async function main() {
+  await resolveTypePackage();
   while (true) {
     if (Date.now() - startMs > DURATION_SEC * 1000) {
       printSummary();
