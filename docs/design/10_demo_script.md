@@ -1,5 +1,12 @@
 # Wick Markets — 3-Minute Hackathon Demo Script
 
+> ⚠️ **SUPERSEDED — historical v1 script.** The current, maintained demo guide is
+> [`docs/design/v2/10_demo_script_v2.md`](v2/10_demo_script_v2.md), and the
+> 60-second judge path is the repo-root [`DEMO.md`](../../DEMO.md). This v1 script
+> predates the segment-ride / Wick Pro pivot and references retired commands
+> (e.g. `npm run bots:run`, the v1 trade model) and stale market ids — kept for
+> history only. Don't run it cold.
+
 > Sui DeepBook hackathon submission. Live demo with always-on backup. Total runtime: 3:00.
 
 ---
