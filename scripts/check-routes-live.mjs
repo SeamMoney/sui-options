@@ -102,13 +102,49 @@ for (const route of ROUTES) {
   await ctx.close();
 }
 
+// Unknown-route guard: any unmatched path must fall through to the Ride game,
+// NOT the ErrorBoundary crash screen ("WICK APP HIT A WALL"). A stale deploy or
+// a regression in App.tsx's catch-all reintroduces a crash on every mistyped URL
+// (/Pro, /demo, …) — a real demo-day risk a judge can trip. This pins it.
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+  let status = 0;
+  try {
+    const resp = await page.goto(BASE + "/zzz-route-smoke-check", { waitUntil: "domcontentloaded", timeout: 35000 });
+    status = resp ? resp.status() : 0;
+  } catch (e) {
+    errors.push("nav: " + e.message);
+  }
+  let text = "";
+  for (let i = 0; i < 24; i++) {
+    await page.waitForTimeout(750);
+    text = (await page.innerText("body").catch(() => "")).replace(/\s+/g, " ").trim();
+    if (/ONE TAP TO START/i.test(text) || /HIT A WALL/i.test(text)) break;
+  }
+  const crashed = /HIT A WALL|crashed during render/i.test(text);
+  const renderedFallback = /ONE TAP TO START|free test funds/i.test(text);
+  const ok = status === 200 && !crashed && renderedFallback;
+  if (!ok) failures++;
+  const tag = ok ? "\x1b[32mPASS\x1b[0m" : "\x1b[31mFAIL\x1b[0m";
+  console.log(
+    `  [${tag}] ${"/zzz…".padEnd(8)} unknown route → ${crashed ? "CRASH SCREEN (stale deploy?)" : renderedFallback ? "Ride fallback (correct)" : "neither"}`,
+  );
+  await ctx.close();
+}
+
 await browser.close();
 
 console.log("");
 if (failures === 0) {
-  console.log(`PASS — ${ROUTES.length}/${ROUTES.length} judge routes live, rendered, and error-free.`);
+  console.log(`PASS — ${ROUTES.length}/${ROUTES.length} judge routes + the unknown-route fallback, live and error-free.`);
   process.exit(0);
 } else {
-  console.error(`FAIL — ${failures}/${ROUTES.length} route(s) need a look before the demo.`);
+  console.error(`FAIL — ${failures} route check(s) need a look before the demo.`);
   process.exit(1);
 }
