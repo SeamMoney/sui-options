@@ -10,8 +10,12 @@ api/src/
 api/smoke.ts
 api/README.md
 # Test files must never be bundled as serverless functions — they import a test
-# runner and export no handler (api/faucet.test.ts, api/sponsor.test.ts).
-api/*.test.ts
+# runner and export no handler. They now live OUTSIDE api/ (in api-tests/, so
+# Vercel's api/ functions glob can never pick them up), but we belt-and-braces
+# exclude every test file regardless of location.
+api-tests/
+api/**/*.test.ts
+**/*.test.ts
 
 # Non-frontend workspaces are not needed inside the Vercel build sandbox.
 # Note: sdk/ must NOT be excluded — the frontend imports @wick/sdk via
