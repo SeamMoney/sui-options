@@ -309,9 +309,23 @@ export function WickProLive() {
   // resolves, so a win lands with a punch and a loss reads instantly. Keyed on
   // the settled position id so every settle re-triggers it.
   const [flash, setFlash] = useState<null | "win" | "loss">(null);
+  // Running session result — shows the game LOOP working over several rounds.
+  const [session, setSession] = useState({ pnl: 0, wins: 0, losses: 0 });
+  const lastSettledIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!settled) return;
-    setFlash(realizedPnl(settled) >= 0 ? "win" : "loss");
+    const won = realizedPnl(settled) >= 0;
+    setFlash(won ? "win" : "loss");
+    // Tally the round once (the effect can re-run without a new settle).
+    if (settled.id !== lastSettledIdRef.current) {
+      lastSettledIdRef.current = settled.id;
+      const net = realizedPnl(settled);
+      setSession((s) => ({
+        pnl: s.pnl + net,
+        wins: s.wins + (won ? 1 : 0),
+        losses: s.losses + (won ? 0 : 1),
+      }));
+    }
     const id = window.setTimeout(() => setFlash(null), 850);
     return () => window.clearTimeout(id);
   }, [settled]);
@@ -372,6 +386,14 @@ export function WickProLive() {
         <span className="text-xs text-white/40">{poolMeta.base}/{poolMeta.quote}</span>
         {candleStatus === "live" && (
           <span className="text-[10px] text-white/35 tabular-nums">σ {(sigma * 100).toFixed(0)}%</span>
+        )}
+        {session.wins + session.losses > 0 && (
+          <span
+            className={`text-[10px] tabular-nums ${session.pnl >= 0 ? "text-emerald-400/80" : "text-rose-500/80"}`}
+            title="Your running result this session"
+          >
+            sess {fmtSignedUsd(session.pnl)} · {session.wins}W/{session.losses}L
+          </span>
         )}
         <span
           className={`ml-auto text-[10px] uppercase tracking-widest flex items-center gap-1 ${
