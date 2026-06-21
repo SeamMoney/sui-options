@@ -108,6 +108,7 @@ cd move && sui move test seeded_path_conformance && cd ..
 npm run verify:fairness          # honest synthetic v4 market+ride → PASS, exit 0
 npm run verify:fairness:tamper   # one tampered segment extremum → FAIL, exit 1
 npm run verify:fairness:live     # audit a LIVE market (auto-picked from deployments), zero args
+npm run audit:deployment         # audit EVERY live v4 market's candles in one command → PASS
 npm run verify:halt              # prove a real MARKET HALT (rug) ride was an HONEST roll → PASS
 #
 #    …or audit a specific LIVE v4 market (reads the segment Table directly — prune-proof):
