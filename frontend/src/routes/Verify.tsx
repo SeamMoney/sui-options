@@ -191,6 +191,27 @@ function VerifyChart({ rows }: { rows: VerifyRow[] }) {
                   height={Math.max(0.5, Math.abs(cy - oy))}
                   fill={color}
                 />
+                {/* Where the chain misreported an extreme, mark our recomputed
+                    TRUTH in cyan — the gap from the amber wick is the lie. */}
+                {!r.extremaMatch &&
+                  [
+                    num(r.chainHigh) !== num(r.high) ? num(r.high) : null,
+                    num(r.chainLow) !== num(r.low) ? num(r.low) : null,
+                  ]
+                    .filter((v): v is number => v != null)
+                    .map((v, mi) => (
+                      <line
+                        key={mi}
+                        x1={x - bw}
+                        x2={x + bw}
+                        y1={y(v)}
+                        y2={y(v)}
+                        stroke="#22d3ee"
+                        strokeWidth={0.7}
+                        strokeDasharray="1 0.8"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ))}
               </g>
             );
           })}
