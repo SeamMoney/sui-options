@@ -56,7 +56,6 @@ const deployment = JSON.parse(
 );
 
 const PKG = deployment.package_id;
-const VAULT = deployment.vault_sui;
 const BOT_REGISTRY = deployment.bot_registry;
 const PRICE_ORACLE = deployment.usd_price_oracle;
 const WICK_STATE = deployment.wick_token_state;
@@ -68,6 +67,16 @@ if (!v4Market) {
   process.exit(1);
 }
 const MARKET = v4Market.market;
+// v4.24 — markets can be SUI or a non-SUI collateral (e.g. TUSD). The live
+// demo market (segment_markets_v4[-1]) is the rugged TUSD one, so the open
+// PTB must split escrow from a TUSD coin and pass the right type arg —
+// splitting from gas (SUI) on a TUSD market silently produces no ride.
+const COLLATERAL = v4Market.collateral || SUI_COIN_TYPE;
+const IS_SUI_COLLATERAL = COLLATERAL === SUI_COIN_TYPE;
+// open/close take MartingalerVault<C> — must be the MARKET'S vault, not the
+// SUI vault. The TUSD demo market binds the TUSD vault; passing vault_sui
+// fails with a TypeMismatch on the vault arg and no ride is created.
+const VAULT = v4Market.vault || deployment.vault_sui;
 const ROUND_DURATION_SEGMENTS = Number(v4Market.round_duration_segments);
 const MIN_STAKE_PER_SEGMENT = BigInt(v4Market.min_stake_per_segment);
 const STAKE_PER_SEGMENT = MIN_STAKE_PER_SEGMENT;
@@ -132,12 +141,32 @@ const client = new SuiJsonRpcClient({
 const log = (...args) => console.log(new Date().toISOString().slice(11, 19), ...args);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function buildOpenTx() {
+async function buildOpenTx() {
   const tx = new Transaction();
-  const [escrow] = tx.splitCoins(tx.gas, [tx.pure.u64(ESCROW_MIST)]);
+  // Escrow source: gas for SUI markets, a sender-owned coin for non-SUI
+  // (mirrors sdk/src/segmentMarketV4.ts buildOpenSegmentRideV4Tx). Merge the
+  // sender's other coins of that type in first so a single split always has
+  // enough, even if escrow drips have fragmented the balance.
+  let escrow;
+  if (IS_SUI_COLLATERAL) {
+    [escrow] = tx.splitCoins(tx.gas, [tx.pure.u64(ESCROW_MIST)]);
+  } else {
+    const r = await client.getCoins({ owner: SENDER, coinType: COLLATERAL });
+    const coins = (r.data ?? []).slice().sort((a, b) =>
+      BigInt(b.balance) > BigInt(a.balance) ? 1 : -1,
+    );
+    if (coins.length === 0) {
+      throw new Error(`no ${COLLATERAL} coins owned by ${SENDER} to escrow`);
+    }
+    const primary = tx.object(coins[0].coinObjectId);
+    if (coins.length > 1) {
+      tx.mergeCoins(primary, coins.slice(1).map((c) => tx.object(c.coinObjectId)));
+    }
+    [escrow] = tx.splitCoins(primary, [tx.pure.u64(ESCROW_MIST)]);
+  }
   const ride = tx.moveCall({
     target: `${PKG}::wick::open_segment_ride_v4`,
-    typeArguments: [SUI_COIN_TYPE],
+    typeArguments: [COLLATERAL],
     arguments: [
       tx.object(MARKET),
       tx.object(VAULT),
@@ -156,7 +185,7 @@ function buildCrankTx() {
   const tx = new Transaction();
   tx.moveCall({
     target: `${PKG}::wick::record_segment_v4`,
-    typeArguments: [SUI_COIN_TYPE],
+    typeArguments: [COLLATERAL],
     arguments: [
       tx.object(MARKET),
       tx.object(SUI_RANDOM_OBJECT_ID),
@@ -171,7 +200,7 @@ function buildCloseTx(rideId) {
   const tx = new Transaction();
   const payout = tx.moveCall({
     target: `${PKG}::wick::close_segment_ride_v4`,
-    typeArguments: [SUI_COIN_TYPE],
+    typeArguments: [COLLATERAL],
     arguments: [
       tx.object(rideId),
       tx.object(MARKET),
@@ -259,7 +288,7 @@ if (CRANKER_MODE === "always") {
     // 1. OPEN
     let openRes;
     try {
-      openRes = await signAndExecute(buildOpenTx(), `open-${loop}`);
+      openRes = await signAndExecute(await buildOpenTx(), `open-${loop}`);
     } catch (err) {
       log(`[${loop}] open failed: ${err.message?.slice(0, 100)} — sleep 10s`);
       await sleep(10_000);
@@ -382,7 +411,7 @@ async function _legacyOpenCrankCloseCycle() {
 
   let openRes;
   try {
-    openRes = await signAndExecute(buildOpenTx(), `open-${loop}`);
+    openRes = await signAndExecute(await buildOpenTx(), `open-${loop}`);
   } catch (err) {
     log(`[${loop}] open failed — sleep 5s. ${err.message?.slice(0, 120)}`);
     await sleep(5000);
