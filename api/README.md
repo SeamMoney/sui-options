@@ -316,6 +316,10 @@ Responses:
 | `400`  | `{ error: "commit must be a 64-char lowercase hex SHA-256 string" }`   | bad/missing input                    |
 | `405`  | `{ error: "method not allowed; use POST" }`                            | wrong HTTP verb                      |
 
+> **No-server, no-install option:** `scripts/verify-pro.html` is a single self-contained page that
+> runs the same SHA-256 check **client-side** (Web Crypto) — open it in any browser (even offline),
+> paste the three values, get HONEST/MISMATCH. The most trust-minimized form: nothing is sent anywhere.
+
 **Pure compute** — no network, no RPC, no key, no rate limit. It cannot time out
 or leak. `handle()` is exported and unit-tested (`api-tests/verify-pro.test.ts`,
 driven by a real pro-options round).
