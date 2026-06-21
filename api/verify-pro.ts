@@ -22,6 +22,7 @@ import { createHash } from "node:crypto";
 interface ReqLike {
   method?: string;
   body?: unknown;
+  query?: Record<string, string | string[] | undefined>;
   headers?: Record<string, string | string[] | undefined>;
 }
 interface ResLike {
@@ -84,8 +85,24 @@ export default function handler(req: ReqLike, res: ResLike): void {
     res.status(204).end();
     return;
   }
+
+  // GET makes verification a clickable link: /api/verify-pro?commit=…&seed=…&paramsJson=…
+  // (the three values URL-encoded). Read-only, idempotent — safe as a GET.
+  if (req.method === "GET") {
+    const q = req.query ?? {};
+    const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+    const seedStr = one(q.seed);
+    const out = handle({
+      commit: one(q.commit),
+      seed: seedStr === undefined ? undefined : Number(seedStr),
+      paramsJson: one(q.paramsJson),
+    });
+    res.status(out.status).json(out.body);
+    return;
+  }
+
   if (req.method !== "POST") {
-    res.status(405).json({ error: "method not allowed; use POST" });
+    res.status(405).json({ error: "method not allowed; use POST or GET" });
     return;
   }
 

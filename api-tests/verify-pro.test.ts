@@ -77,14 +77,32 @@ function mockRes() {
   return { res, cap };
 }
 
-test("handler: OPTIONS → 204, non-POST → 405, string body parsed", () => {
+test("handler: GET with query params verifies (clickable-link form)", () => {
+  let m = mockRes();
+  handler(
+    { method: "GET", query: { commit: engine.commit, seed: String(revealed.seed), paramsJson: revealed.paramsJson } } as any,
+    m.res,
+  );
+  assert.equal(m.cap.status, 200);
+  assert.equal((m.cap.body as { matches: boolean }).matches, true);
+
+  // a tampered seed in the query is caught
+  m = mockRes();
+  handler(
+    { method: "GET", query: { commit: engine.commit, seed: String(revealed.seed + 1), paramsJson: revealed.paramsJson } } as any,
+    m.res,
+  );
+  assert.equal((m.cap.body as { matches: boolean }).matches, false);
+});
+
+test("handler: OPTIONS → 204, unsupported method → 405, string body parsed", () => {
   let m = mockRes();
   handler({ method: "OPTIONS" } as any, m.res);
   assert.equal(m.cap.status, 204);
   assert.equal(m.cap.headers["Access-Control-Allow-Origin"], "*");
 
   m = mockRes();
-  handler({ method: "GET" } as any, m.res);
+  handler({ method: "PUT" } as any, m.res); // GET/POST are handled; PUT is not
   assert.equal(m.cap.status, 405);
 
   m = mockRes();
