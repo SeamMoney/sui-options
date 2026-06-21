@@ -467,7 +467,15 @@ export function WickProLive() {
       <div className="px-4 shrink-0 text-center min-h-[84px] flex flex-col justify-center">
         {headline ? (
           <>
-            <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">
+            <div
+              className={`text-[11px] uppercase tracking-[0.2em] ${
+                headline.live && secsLeft <= 5
+                  ? "text-rose-400 animate-pulse"
+                  : headline.live && secsLeft <= 10
+                    ? "text-amber-300"
+                    : "text-white/40"
+              }`}
+            >
               {headline.live
                 ? `${headline.pos.side === "call" ? "UP" : "DOWN"} · ${secsLeft}s left`
                 : headline.pnl >= 0
