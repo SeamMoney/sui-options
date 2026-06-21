@@ -33,10 +33,37 @@ function arg(name: string): string | undefined {
 }
 // PublicNode prunes tx bodies; the Mysten fullnode keeps them. Default there.
 const RPC = arg("--rpc") ?? process.env.WICK_API_RPC ?? "https://fullnode.testnet.sui.io";
-// Reference SUI price for the USD line (the SUI figures are the on-chain truth).
-const SUI_USD = Number(arg("--sui-usd") ?? "0.71");
+// USD-per-SUI for the USD line (the SUI figures are the on-chain truth). When
+// not pinned with --sui-usd we use the live DeepBook SUI/USDC mid — the same
+// mark Wick Pro prices against — so the dollar figures track the real market.
+const SUI_USD_OVERRIDE = arg("--sui-usd") ? Number(arg("--sui-usd")) : null;
+const SUI_USD_FALLBACK = 0.71;
+const DEEPBOOK_INDEXER =
+  process.env.DEEPBOOK_INDEXER_URL ?? "https://deepbook-indexer.mainnet.mystenlabs.com";
 
 const MIST_PER_SUI = 1_000_000_000;
+
+// Resolved in main(): override → live DeepBook mid → fallback constant.
+let suiUsd = SUI_USD_FALLBACK;
+let suiUsdSource = "reference";
+
+/** Live SUI/USDC mid from the DeepBook indexer; null if unreachable. */
+async function fetchSuiUsd(): Promise<number | null> {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    const res = await fetch(`${DEEPBOOK_INDEXER}/orderbook/SUI_USDC?level=1`, { signal: ctl.signal });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const j = (await res.json()) as { bids?: [string, string][]; asks?: [string, string][] };
+    const bid = Number(j.bids?.[0]?.[0]);
+    const ask = Number(j.asks?.[0]?.[0]);
+    if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) return null;
+    return (bid + ask) / 2;
+  } catch {
+    return null;
+  }
+}
 
 interface GasLine {
   fn: string;
@@ -91,7 +118,7 @@ function sui(mist: bigint): string {
   return (Number(mist) / MIST_PER_SUI).toFixed(6);
 }
 function usd(mist: bigint): string {
-  return `$${((Number(mist) / MIST_PER_SUI) * SUI_USD).toFixed(5)}`;
+  return `$${((Number(mist) / MIST_PER_SUI) * suiUsd).toFixed(5)}`;
 }
 const dim = (s: string) => `\x1b[90m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -111,8 +138,25 @@ async function main(): Promise<void> {
   const client = new SuiJsonRpcClient({ url: RPC, network: "testnet" });
   const marketId = arg("--market") ?? readBusiestMarket();
 
+  // Resolve USD-per-SUI: an explicit --sui-usd wins; otherwise the live
+  // DeepBook mid (what Wick Pro itself marks against); else a fallback.
+  if (SUI_USD_OVERRIDE !== null && Number.isFinite(SUI_USD_OVERRIDE)) {
+    suiUsd = SUI_USD_OVERRIDE;
+    suiUsdSource = "pinned via --sui-usd";
+  } else {
+    const live = await fetchSuiUsd();
+    if (live !== null) {
+      suiUsd = live;
+      suiUsdSource = "live DeepBook SUI/USDC mid";
+    } else {
+      suiUsdSource = "fallback (DeepBook unreachable)";
+    }
+  }
+
   console.log(`gas report — real on-chain costs @ ${RPC}`);
-  console.log(dim(`market ${marketId} · USD at $${SUI_USD}/SUI (SUI figures are the on-chain truth)`));
+  console.log(
+    dim(`market ${marketId} · USD at $${suiUsd.toFixed(4)}/SUI — ${suiUsdSource} (SUI figures are the on-chain truth)`),
+  );
   console.log("");
 
   const crank = await gasOfPreviousTx(client, marketId);
