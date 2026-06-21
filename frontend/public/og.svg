@@ -31,7 +31,7 @@
 
   <!-- barrier line + the wick that touches it -->
   <line x1="80" y1="250" x2="1120" y2="250" stroke="#47bfff" stroke-width="2" stroke-dasharray="10 8" opacity="0.55"/>
-  <text x="1120" y="240" text-anchor="end" font-family="monospace" font-size="20" fill="#47bfff" opacity="0.85">BARRIER · TOUCH = 1.75×</text>
+  <text x="1120" y="240" text-anchor="end" font-family="monospace" font-size="20" fill="#47bfff" opacity="0.85">LIVE DEEPBOOK MARK</text>
 
   <!-- candles -->
   <g stroke-linecap="round">
@@ -56,7 +56,7 @@
   <text x="178" y="135" font-family="'Bai Jamjuree', sans-serif, monospace" font-size="58" font-weight="700" fill="#ffffff">wick<tspan fill="#8b7aa6">.markets</tspan></text>
 
   <text x="80" y="496" font-family="'Bai Jamjuree', sans-serif" font-size="64" font-weight="700" fill="#ffffff">Options for the next candle.</text>
-  <text x="82" y="548" font-family="'Bai Jamjuree', sans-serif" font-size="29" font-weight="400" fill="#b9a9d6">Tap and hold the chart to ride a barrier, tick by tick.</text>
+  <text x="82" y="548" font-family="'Bai Jamjuree', sans-serif" font-size="29" font-weight="400" fill="#b9a9d6">One-tap BTC, SUI &amp; DEEP options on a live DeepBook mark.</text>
 
   <!-- credibility chips -->
   <g transform="translate(80,576)">
