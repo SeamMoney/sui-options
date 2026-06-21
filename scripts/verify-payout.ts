@@ -251,8 +251,16 @@ async function segmentRecordedAt(client: SuiJsonRpcClient, tableId: string, k: b
 
 /**
  * next_segment_index@close = the count of segments recorded at or before the
- * ride closed. Segments are contiguous, so scan forward from `entry` until one
- * was recorded after the close (or we run off the recorded tail).
+ * ride closed — i.e. the smallest k in [entry, nextSegmentIndex] with
+ * recorded_at_ms > closed_at_ms (or nextSegmentIndex if none).
+ *
+ * `recorded_at_ms` is monotonic non-decreasing in k (segments are recorded in
+ * index order over time), so we BINARY-SEARCH the boundary: ~log2(N) reads
+ * instead of N. This matters for a ride opened early and cranked closed many
+ * rounds later — a linear scan there is thousands of sequential RPC reads
+ * (minutes); the binary search is ~11 reads (seconds). A `null` read (a pruned
+ * segment, not active today) is treated as past the boundary so the search
+ * still terminates safely.
  */
 async function nextSegmentIndexAtClose(
   client: SuiJsonRpcClient,
@@ -261,14 +269,18 @@ async function nextSegmentIndexAtClose(
   closedAtMs: bigint,
   nextSegmentIndex: bigint,
 ): Promise<bigint> {
-  let k = entry;
-  while (k < nextSegmentIndex) {
-    const at = await segmentRecordedAt(client, tableId, k);
-    if (at === null) break; // pruned/absent — treat as the boundary
-    if (at > closedAtMs) break;
-    k = k + 1n;
+  let lo = entry;
+  let hi = nextSegmentIndex; // invariant: answer in [lo, hi]
+  while (lo < hi) {
+    const mid = lo + (hi - lo) / 2n;
+    const at = await segmentRecordedAt(client, tableId, mid);
+    if (at !== null && at <= closedAtMs) {
+      lo = mid + 1n; // mid was recorded before close → boundary is after mid
+    } else {
+      hi = mid; // recorded after close (or missing) → boundary is at/before mid
+    }
   }
-  return k;
+  return lo;
 }
 
 type ClosedEvent = { stakePaid: bigint; payout: bigint; forfeit: bigint; bounty: bigint; settlementKind: number };
