@@ -37,6 +37,7 @@
  * in `deployments/testnet.json` under `segment_markets_v4`. With no v4
  * market the frontend falls back to v3 cleanly.
  */
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 // ── Constants from the V4 Move module ───────────────────────────────────────
 /**
@@ -578,16 +579,40 @@ export function subscribeRugFiredV4(client, marketId, packageId, onEvent, option
     const seenDigests = new Set();
     let cancelled = false;
     let inFlight = false;
+    // Archival fallback. PublicNode (the repo's default testnet RPC) prunes old
+    // tx events and reliably ERRORS the descending RugFiredV4 scan ("Could not
+    // find the referenced transaction events") — so without a fallback the live
+    // MARKET HALT feed silently shows "no rugs" forever even while rugs fire on
+    // chain. The Mysten fullnode retains history; query it when the primary
+    // throws. Pass `archivalRpcUrl: null` to disable. (Same fix recent-rides.ts
+    // and verify-payout.ts already apply.)
+    const archivalUrl = options?.archivalRpcUrl === undefined
+        ? getJsonRpcFullnodeUrl("testnet")
+        : options.archivalRpcUrl;
+    let archival = options?.archivalClient ?? null;
+    const queryRugPage = async () => {
+        const q = {
+            query: { MoveEventType: eventType },
+            limit: 50,
+            order: "descending",
+        };
+        try {
+            return await client.queryEvents(q);
+        }
+        catch (primaryErr) {
+            if (!archival && !archivalUrl)
+                throw primaryErr;
+            if (!archival)
+                archival = new SuiJsonRpcClient({ url: archivalUrl, network: "testnet" });
+            return await archival.queryEvents(q);
+        }
+    };
     const pollOnce = async () => {
         if (cancelled || inFlight)
             return;
         inFlight = true;
         try {
-            const page = await client.queryEvents({
-                query: { MoveEventType: eventType },
-                limit: 50,
-                order: "descending",
-            });
+            const page = await queryRugPage();
             if (cancelled)
                 return;
             // Iterate oldest-first so callbacks fire in chain order even though

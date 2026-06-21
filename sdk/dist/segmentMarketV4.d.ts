@@ -37,7 +37,7 @@
  * in `deployments/testnet.json` under `segment_markets_v4`. With no v4
  * market the frontend falls back to v3 cleanly.
  */
-import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 /**
  * V4 RideClosed event surfaces which side actually touched first (for
@@ -427,5 +427,9 @@ export declare const DEFAULT_RUG_POLL_MS = 350;
  */
 export declare function subscribeRugFiredV4(client: SuiJsonRpcClient, marketId: string, packageId: string, onEvent: (event: RugFiredV4Event) => void, options?: {
     pollIntervalMs?: number;
+    archivalRpcUrl?: string | null;
+    /** Inject a pre-built archival client (tests / custom transports). Takes
+     *  precedence over `archivalRpcUrl`. */
+    archivalClient?: SuiJsonRpcClient;
 }): () => void;
 //# sourceMappingURL=segmentMarketV4.d.ts.map
