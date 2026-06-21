@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   MARKET_PRESETS,
   RoundEngine,
@@ -74,6 +75,30 @@ check("engine.livePnl at expiry equals realized playerPnl (live == settlement)",
     `livePnl(${live}) != playerPnl(${realized}) at expiry`,
   );
   assert.ok(engine.premiumAtRisk() > 0, "premium denominator should be positive");
+});
+
+check("reveal() exposes the preimage so a THIRD PARTY can verify the commit", () => {
+  const preset = presetById("trending")!;
+  const cfg = roundConfigFromPreset({ preset, seed: 42, startedAtMs: 0 });
+  const engine = new RoundEngine(cfg);
+
+  const published = engine.commit; // published before the lobby
+  const r = engine.reveal(); // preimage revealed at settle
+
+  // The fairness guarantee is that the reveal carries the FULL preimage, not
+  // just the engine's own boolean — anyone can recompute SHA-256 and bind it.
+  assert.equal(r.seed, 42);
+  assert.equal(typeof r.paramsJson, "string");
+  assert.equal(r.commit, published);
+  assert.ok(r.verified, "engine self-check must pass");
+
+  // INDEPENDENT recomputation — must not call any pro-options code.
+  const independent = createHash("sha256").update(`${r.seed}:${r.paramsJson}`).digest("hex");
+  assert.equal(independent, published, "independent SHA-256 must equal the published commit");
+
+  // Binding: the wrong seed must not reproduce the commit.
+  const tampered = createHash("sha256").update(`${r.seed + 1}:${r.paramsJson}`).digest("hex");
+  assert.notEqual(tampered, published, "a tampered seed must not reproduce the commit");
 });
 
 check("host.on returns a working unsubscribe", () => {
