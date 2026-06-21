@@ -17,7 +17,14 @@
  * per recipient with the same 90s cooldown as /api/faucet.
  */
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+
+// Default to PublicNode, not the Mysten public fullnode — the TUSD faucet is
+// tapped right alongside the SUI faucet on every cold start, and the Mysten
+// testnet endpoint throttles under concurrent load (v4.29 finding; the
+// frontend/keeper/bots already moved off it). Override with WICK_API_RPC.
+const TESTNET_RPC_URL =
+  process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 import { Transaction } from "@mysten/sui/transactions";
 import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
 
@@ -42,7 +49,7 @@ function getClient(): SuiJsonRpcClient {
   if (cachedClient) return cachedClient;
   cachedClient = new SuiJsonRpcClient({
     network: "testnet",
-    url: getJsonRpcFullnodeUrl("testnet"),
+    url: TESTNET_RPC_URL,
   });
   return cachedClient;
 }
