@@ -37,12 +37,18 @@ This is the runbook for the demo. It is verified green on production.
 
 ```bash
 npm run smoke:demo     # routes 200 · faucets alive · DeepBook mark reachable
+npm run verify:pro     # proves "what you watch == what you're paid" on LIVE data
 ```
 
-The live==settlement guarantee is locked by conformance tests in
+`verify:pro` pulls the **real DeepBook mark + realized σ**, opens real
+Black-Scholes calls/puts, and asserts the **watched** live P&L (`unrealizedPnl`)
+equals the **paid** settlement (`sellToClose`) across a sweep of exit prices ×
+exit times — to `1e-9`, every time. It's the Wick Pro analogue of
+`scripts/verify.ts` (which proves the Ride game's provable fairness). The
+guarantee is also locked deterministically by conformance tests in
 `packages/pro-options` (`npm run test:pro-options`): `settlementPnlAtSpot` and
-`engine.livePnl(atExpiry)` are asserted equal to the realized settlement at
-every spot, both sides, ITM/OTM.
+`engine.livePnl(atExpiry)` equal the realized settlement at every spot, both
+sides, ITM/OTM.
 
 ## Notes
 
