@@ -13,8 +13,46 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { checkPayoutIdentity } from "./verify-payout.js";
+import {
+  isqrtU64,
+  bachelierCashoutFactor,
+  cashoutPayout,
+  FACTOR_SCALE,
+} from "./bachelier.js";
 
 const MULT = 17_500n;
+
+// ── Bachelier port — bit-identical to Move wick::ride_pricing ────────────────
+test("isqrtU64 matches Move isqrt_u64 known values", () => {
+  for (const [n, r] of [[0n, 0n], [1n, 1n], [4n, 2n], [9n, 3n], [100n, 10n], [99n, 9n], [101n, 10n]] as const) {
+    assert.equal(isqrtU64(n), r, `isqrt(${n})`);
+  }
+});
+
+test("bachelier factor = 1.0 at the barrier, 0 at zero seconds off-barrier", () => {
+  assert.equal(bachelierCashoutFactor(100_000n, 100_000n, 50n, 300n), FACTOR_SCALE);
+  assert.equal(bachelierCashoutFactor(95_000n, 100_000n, 50n, 0n), 0n);
+});
+
+test("bachelier factor decreases with distance and is ~symmetric", () => {
+  const b = 100_000n, s = 50n, t = 300n;
+  const atb = bachelierCashoutFactor(100_000n, b, s, t);
+  const close = bachelierCashoutFactor(99_500n, b, s, t);
+  const far = bachelierCashoutFactor(95_000n, b, s, t);
+  assert.ok(atb >= close && close >= far && far < FACTOR_SCALE);
+  const above = bachelierCashoutFactor(102_000n, b, s, t);
+  const below = bachelierCashoutFactor(98_000n, b, s, t);
+  const d = above > below ? above - below : below - above;
+  assert.ok(d <= 100n, `symmetry within 100ppb, got ${d}`);
+});
+
+test("cashoutPayout reproduces the live on-chain CASHOUT (golden: 6970)", () => {
+  // Real ride 0xbbfc31… on market 0x54e915…: stake 150000, spot = seg456
+  // state_after.price 996352353, barriers [906435985, 1107866203], σ=100bps,
+  // spread=200bps, 27s remaining → chain paid exactly 6970.
+  const p = cashoutPayout(150_000n, 996_352_353n, 1_107_866_203n, 906_435_985n, 100n, 200n, 27n);
+  assert.equal(p, 6_970n);
+});
 
 test("TOUCH_WIN: payout = stake_paid × multiplier, forfeit 0 (vault tops up, no conservation)", () => {
   assert.deepEqual(checkPayoutIdentity(1, 150_000n, 262_500n, 0n, MULT), []);
