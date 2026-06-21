@@ -405,11 +405,8 @@ function FundCta(props: {
       >
         Get free test funds
       </div>
-      <div className="text-xs text-white/60 mb-5 leading-relaxed">
-        You have {fmtSui(props.balanceMist)} SUI. One tap drips 0.2 SUI (for
-        network fees) + 10 TUSD (the stake currency). Free testnet only — no
-        wallet required. Heads up: ~1.5% per second the market may HALT and
-        wipe your ride. That's the house's edge.
+      <div className="text-xs text-white/55 mb-5">
+        Free testnet — SUI for gas, TUSD to bet. No wallet needed.
       </div>
       <div className="flex flex-col items-center gap-3">
         <FaucetButton
