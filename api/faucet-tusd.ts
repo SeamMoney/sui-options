@@ -149,6 +149,26 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
   // SUI + TUSD faucets back to back). executeWithRetry rebuilds the tx each
   // attempt so a retry re-resolves the advanced gas coin. Shared with
   // api/faucet.ts.
+  // Gas-coin pool (anti-contention): pin each request/retry to a distinct SUI
+  // coin so concurrent drips don't collide on one coin version. Strict no-op
+  // until the wallet has ≥2 usable coins (then it dodges the equivocation 500s).
+  // A mint spends no SUI, so a coin only needs to cover gas (GAS_BUFFER_MIST).
+  let gasPool: { objectId: string; version: string; digest: string }[] = [];
+  try {
+    const coins = await client.getCoins({
+      owner: signer.sender,
+      coinType: "0x2::sui::SUI",
+      limit: 50,
+    });
+    gasPool = coins.data
+      .filter((c) => BigInt(c.balance) >= GAS_BUFFER_MIST)
+      .map((c) => ({ objectId: c.coinObjectId, version: c.version, digest: c.digest }));
+  } catch (err) {
+    console.error("[api/faucet-tusd] getCoins failed; using auto gas", { error: String(err) });
+  }
+  const poolStart = gasPool.length > 0 ? Math.floor(Math.random() * gasPool.length) : 0;
+
+  let attemptIdx = 0;
   const outcome = await executeWithRetry(
     () => {
       // wick_tusd::tusd::mint(treasury_cap, amount, recipient). The TreasuryCap
@@ -163,6 +183,10 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
         ],
       });
       tx.setSender(signer.sender);
+      if (gasPool.length >= 2) {
+        tx.setGasPayment([gasPool[(poolStart + attemptIdx) % gasPool.length]!]);
+      }
+      attemptIdx += 1;
       return client.signAndExecuteTransaction({
         transaction: tx,
         signer: signer.keypair,
