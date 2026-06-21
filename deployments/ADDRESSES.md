@@ -55,6 +55,14 @@ package exposes the full Wick protocol ABI (`sui_getNormalizedMoveModulesByPacka
 - **WICK token & staking** — `wick` · `wick_token` · `wick_staking`
 - **Gas sponsorship** — `sponsor`
 
+### Source correctness
+
+The deployed source compiles clean and passes **571 / 571 Move tests** (0 failed,
+`npm run test:move`) — including the `seeded_path_conformance` provable-fairness
+vectors (the TypeScript port reproduces the on-chain candle math bit-for-bit) and
+the collateral-invariant suite (`collateral_vault == total_touch_supply ==
+total_no_touch_supply` after every state transition).
+
 ## Core protocol objects (shared)
 
 | Object | ID | SuiScan |
