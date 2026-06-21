@@ -21,6 +21,9 @@ import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import {
   rideClosedV4EventType,
   parseRideClosedV4Event,
+  rugFiredV4EventType,
+  parseRugFiredV4EventJson,
+  fetchSegmentRidePositionV4,
   TOUCHED_UPPER,
   TOUCHED_LOWER,
 } from "../sdk/src/segmentMarketV4.js";
@@ -43,12 +46,14 @@ const PER_OUTCOME = (() => {
 
 const scan = (k: string, id: string) => `https://suiscan.xyz/testnet/${k}/${id}`;
 
-// v4 settlement kinds (segment_market_v4.move SETTLEMENT_*).
+// v4 settlement kinds (segment_market_v4.move SETTLEMENT_*). Code 5 is a
+// synthetic local label: an EXPIRED_LOSS (3) whose round had a MARKET HALT.
 const KIND = {
   1: { name: "TOUCH_WIN", blurb: "rider touched a barrier — jackpot paid by the vault" },
   2: { name: "CASHOUT", blurb: "rider released early — Bachelier cashout" },
-  3: { name: "EXPIRED_LOSS", blurb: "round ended / MARKET HALT — escrow to the vault" },
+  3: { name: "EXPIRED_LOSS", blurb: "round ran out with no touch — escrow to the vault" },
   4: { name: "ABORTED_REFUND", blurb: "market aborted — 1:1 refund" },
+  5: { name: "MARKET HALT", blurb: "the v4.26 rug froze the round and wiped the ride (the headline)" },
 } as const;
 
 function client(url: string) {
@@ -95,7 +100,48 @@ async function main() {
   const marker = "::segment_market_v4::SegmentMarketV4<";
   const pkg = t.includes(marker) ? t.slice(0, t.indexOf(marker)) : D.package_id;
 
-  // Scan recent RideClosedV4 events, bucket by settlement kind.
+  // Which (market, round) pairs had a MARKET HALT? RugFiredV4 events are
+  // permanent (rugged_at_segment on the market clears each round-roll), so an
+  // EXPIRED_LOSS in a halted round is almost certainly a halt-wipe — label it
+  // distinctly so a judge can pick the headline outcome. verify-v4 confirms.
+  // round key → the segment the rug fired at (the FIRST qualifying segment in
+  // that round; RugFiredV4 fires once per round).
+  const rugSegByRound = new Map<string, bigint>();
+  {
+    // RugFiredV4 was ADDED in the v4.26 upgrade, so its event type is tagged
+    // with the CURRENT package id — not the market's original defining package
+    // (which tags RideOpened/Closed/SegmentRecorded). Query the right one.
+    const rugType = rugFiredV4EventType(D.package_id as string);
+    let c: unknown = null;
+    for (let page = 0; page < 20; page++) {
+      const res = await queryResilient(primary, archival, {
+        query: { MoveEventType: rugType },
+        cursor: c,
+        limit: 25,
+        order: "descending",
+      });
+      for (const ev of res.data) {
+        const r = parseRugFiredV4EventJson(ev.parsedJson as Record<string, unknown>);
+        rugSegByRound.set(`${r.marketId}:${r.roundIndex}`, r.segmentIndex);
+      }
+      if (!res.hasNextPage || !res.nextCursor) break;
+      c = res.nextCursor;
+    }
+  }
+
+  // An EXPIRED_LOSS is a true MARKET HALT only if the ride was OPEN when the rug
+  // fired — i.e. its entry segment ≤ the rug segment. A ride that entered after
+  // the rug bet into an already-halted round and just time-expired. Read the
+  // (persisted) ride object's entry to decide precisely.
+  async function wasHalted(rideId: string, marketId: string, round: bigint): Promise<boolean> {
+    const rugSeg = rugSegByRound.get(`${marketId}:${round}`);
+    if (rugSeg == null) return false;
+    const pos = await fetchSegmentRidePositionV4(primary, rideId).catch(() => null);
+    if (!pos) return false;
+    return pos.entrySegmentIndex <= rugSeg;
+  }
+
+  // Scan recent RideClosedV4 events, bucket by settlement kind (3 → 5 if halted).
   const buckets = new Map<number, Row[]>();
   const wantedMarkets = new Set(markets.map((m) => m.market));
   let cursor: unknown = null;
@@ -109,25 +155,29 @@ async function main() {
     for (const ev of res.data) {
       const e = parseRideClosedV4Event(ev.parsedJson);
       if (!wantedMarkets.has(e.marketId)) continue;
-      const bucket = buckets.get(e.settlementKind) ?? [];
+      const localKind =
+        e.settlementKind === 3 && (await wasHalted(e.rideId, e.marketId, e.roundIndex))
+          ? 5
+          : e.settlementKind;
+      const bucket = buckets.get(localKind) ?? [];
       if (bucket.length >= PER_OUTCOME) continue;
       bucket.push({
         rideId: e.rideId,
         marketId: e.marketId,
         marketName: nameById.get(e.marketId) ?? "?",
-        kind: e.settlementKind,
+        kind: localKind,
         payout: e.payout,
         touchedSide: e.touchedSide,
         txDigest: ev.id?.txDigest ?? "",
       });
-      buckets.set(e.settlementKind, bucket);
+      buckets.set(localKind, bucket);
     }
-    const enough = [1, 2, 3].every((k) => (buckets.get(k)?.length ?? 0) >= PER_OUTCOME);
+    const enough = [1, 2, 3, 5].every((k) => (buckets.get(k)?.length ?? 0) >= PER_OUTCOME);
     if (enough || !res.hasNextPage || !res.nextCursor) break;
     cursor = res.nextCursor;
   }
 
-  const order = [1, 2, 3, 4];
+  const order = [1, 2, 5, 3, 4];
   let total = 0;
   for (const k of order) {
     const rows = buckets.get(k);
