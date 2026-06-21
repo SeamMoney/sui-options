@@ -24,7 +24,6 @@ api/**/*.test.ts
 move/
 keeper/
 bots/
-scripts/
 docs/
 research/
 deployments/archive/
