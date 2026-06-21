@@ -34,6 +34,30 @@ test("bachelier factor = 1.0 at the barrier, 0 at zero seconds off-barrier", () 
   assert.equal(bachelierCashoutFactor(95_000n, 100_000n, 50n, 0n), 0n);
 });
 
+test("bachelier factor matches Move ride_pricing EXACTLY (golden vectors, TS↔Move)", () => {
+  // The CASHOUT payout = stake × this factor, so the TS port (scripts/bachelier.ts)
+  // must reproduce Move `bachelier_cashout_factor` bit-for-bit, or verify-payout
+  // mis-derives the hardest-to-verify payout. These are the EXACT integers Move's
+  // move/tests/ride_pricing_tests.move asserts (B=100_000, SIG=100, SEC=100 →
+  // z = |barrier−spot|/10_000), so a drift in the TS Φ-table or interpolation —
+  // which the property tests above would NOT catch — fails here. factor = 2·Φ(−z).
+  const B = 100_000n, SIG = 100n, SEC = 100n;
+  const golden: Array<[bigint, bigint]> = [
+    [95_000n, 617_075_100n], // z = 0.5
+    [90_000n, 317_310_500n], // z = 1.0
+    [80_000n, 45_500_300n],  // z = 2.0
+    [92_500n, 453_828_300n], // z = 0.75 (interpolated)
+    [94_500n, 582_790_600n], // z = 0.55 (interpolated)
+  ];
+  for (const [spot, expected] of golden) {
+    assert.equal(
+      bachelierCashoutFactor(spot, B, SIG, SEC),
+      expected,
+      `factor at spot ${spot} must match Move`,
+    );
+  }
+});
+
 test("bachelier factor decreases with distance and is ~symmetric", () => {
   const b = 100_000n, s = 50n, t = 300n;
   const atb = bachelierCashoutFactor(100_000n, b, s, t);
