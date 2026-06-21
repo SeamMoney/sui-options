@@ -110,6 +110,7 @@ npm run verify:fairness:tamper   # one tampered segment extremum → FAIL, exit 
 npm run verify:fairness:live     # audit a LIVE market (auto-picked from deployments), zero args
 npm run audit:deployment         # audit EVERY live v4 market's candles in one command → PASS
 npm run verify:halt              # prove a real MARKET HALT (rug) ride was an HONEST roll → PASS
+npm run gas:report               # real on-chain gas: a candle tick ≈ $0.004, settle ≈ $0.002 (Sui storage-rebated)
 #
 #    …or audit a specific LIVE v4 market (reads the segment Table directly — prune-proof):
 npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>            # audit recent segments
