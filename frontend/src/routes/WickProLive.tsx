@@ -354,6 +354,15 @@ export function WickProLive() {
     return () => window.clearTimeout(id);
   }, [settled]);
 
+  // Auto-clear the round result back to the clean "pick a side" invite after a
+  // few seconds — the running total stays in the session chip. If the player
+  // opens a new position first, openPosition already cleared it.
+  useEffect(() => {
+    if (!settled) return;
+    const id = window.setTimeout(() => setSettled(null), 4500);
+    return () => window.clearTimeout(id);
+  }, [settled]);
+
   const secsLeft = position ? Math.max(0, Math.ceil((position.expiryMs - nowMs) / 1000)) : 0;
   const poolMeta = DEEPBOOK_POOLS[pool];
 
