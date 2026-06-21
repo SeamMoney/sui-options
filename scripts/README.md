@@ -36,8 +36,13 @@ Operator-facing bash + node scripts. All scripts read live IDs from
   **Provable Fairness** page headless and asserts the headline differentiator
   works BOTH ways: the honest replay matches every chain-reported candle (all
   ✓, PASS verdict), and ticking "Simulate a dishonest house" makes the tampered
-  segment get caught (✗, FAIL verdict). Screenshots both states. (`npm run e2e`
-  runs the pro + verify flows back to back.)
+  segment get caught (✗, FAIL verdict). Screenshots both states.
+- `e2e-coach-smoke.mjs` (`npm run e2e:coach`) — drives the `/coach` **DeepBook
+  Desk** headless: live SUI/USDC mark, CandleVision pattern coach, the live
+  Black-Scholes quote (CALL + PUT + σ + Δ + break-even), the payoff diagram, and
+  the BTC asset re-mark — fails on any console error. Backs the "the mark is a
+  real on-chain CLOB" claim. (`npm run e2e` runs the pro + verify + coach flows
+  back to back.)
 - `judge-ride-smoke.ts` (`npm run smoke:ride`) — **the one-command on-chain
   proof a judge runs cold.** Mints a throwaway burner, funds it from the live
   faucet, then `open_segment_ride_v4 → record_segment_v4 → close_segment_ride_v4`
