@@ -12,8 +12,12 @@ Operator-facing bash + node scripts. All scripts read live IDs from
 
 - `deploy-testnet.sh` — upgrade (or first-publish) the Wick Move package on
   testnet, atomically patching `deployments/testnet.json`.
-- `bootstrap-segment-market.sh` — create a fresh `SegmentMarket<SUI>` with
-  doc 19 §4 B7-calibrated defaults.
+- `bootstrap-segment-market-v4.sh` — create a fresh `SegmentMarketV4<SUI>`
+  (touch-either, always-open per doc 25) — **the live arcade module.**
+- `bootstrap-tusd-market-rugged.sh` — the v4.26 rugged TUSD market
+  (`rug_chance_bps` MARKET HALT per doc 26).
+- `bootstrap-segment-market.sh` *(legacy v3)* — fresh `SegmentMarket<SUI>`
+  with doc 19 §4 B7-calibrated defaults.
 - `bootstrap-ride-caps.sh` — bootstrap a `RideMarketCaps` for an existing
   arcade market.
 - `seed-arcade-markets.sh` — vault + N random-walk touch markets (refresh
@@ -34,11 +38,23 @@ Operator-facing bash + node scripts. All scripts read live IDs from
   ✓, PASS verdict), and ticking "Simulate a dishonest house" makes the tampered
   segment get caught (✗, FAIL verdict). Screenshots both states. (`npm run e2e`
   runs the pro + verify flows back to back.)
-- `segment-smoke.sh` — end-to-end open / record / close on the most-recent
-  segment market, then run `verify.ts`.
+- `judge-ride-smoke.ts` (`npm run smoke:ride`) — **the one-command on-chain
+  proof a judge runs cold.** Mints a throwaway burner, funds it from the live
+  faucet, then `open_segment_ride_v4 → record_segment_v4 → close_segment_ride_v4`
+  and audits the closed ride with `verify-v4.ts`. Ends "PASS — the chain was
+  honest." No wallet, no setup.
+- `verify-v4.ts` — the **current** provable-fairness CLI. Replays a closed
+  **v4** ride (or a live market's recent segments) against the deterministic
+  walk and asserts extrema + verdict match; rug-aware (re-derives the keccak
+  MARKET HALT roll), prune-proof (reads the on-chain segment Table). Drives
+  `npm run verify:fairness{,:tamper,:live}`.
+- `autoplay-v4.26-rugged.mjs` — stress harness: runs N full v4 rides
+  (`--rides N`) against the rugged TUSD market to generate on-chain activity
+  + RugFeed events.
+- `segment-smoke.sh` *(legacy v3)* — open/record/close on a v3 `SegmentMarket`;
+  v3 `open_segment_ride` aborts on the live package — use `npm run smoke:ride`.
+- `verify.ts` *(legacy v3)* — replays a v3 ride; superseded by `verify-v4.ts`.
 - `smoke.sh` — original touch-market smoke.
-- `verify.ts` — replay any closed ride against a deterministic walk and
-  assert extrema + verdict match.
 - `verify_record_segment_shape.py` — schema check for `record_segment` events.
 - `prune-proto-smoke.sh` — **empirically validates the storage-rebate
   economic claim** in `docs/design/v2/23_storage_rebate_pruning_v3.md` §3.3
@@ -58,12 +74,17 @@ Operator-facing bash + node scripts. All scripts read live IDs from
 - `faucet.sh` — request testnet SUI for the active CLI wallet.
 - `predict-spike.sh` — staged-load probe for the Predict route.
 
-## Sentinel (tonight-demo bridge — retires with v3.6 sponsored cranking)
+## Sentinel — keep the on-chain chart alive between human plays
 
-- `sentinel-runner.sh` — laptop-side loop that opens + closes a small
-  sentinel ride against `segment_markets[-1]` continuously, so the
-  `record_segment` wake gate (`active_ride_count > 0`) stays satisfied
-  and the chart keeps producing candles between human plays.
+- `sentinel-v4-fast.mjs` — **the v4 cranker.** In-process `@mysten/sui`
+  loop that pumps `record_segment_v4` (~150–200ms/crank) so a
+  `SegmentMarketV4` chart keeps producing candles (and rugs keep firing into
+  the RugFeed). Poll mode by default (cheap, ~0 SUI idle); `CRANKER_MODE=always`
+  cranks unconditionally. `node scripts/sentinel-v4-fast.mjs`.
+- `sentinel-runner.sh` *(legacy v3)* — laptop-side loop that opens + closes a
+  small sentinel ride against `segment_markets[-1]` continuously, so the v3
+  `record_segment` wake gate (`active_ride_count > 0`) stays satisfied and the
+  chart keeps producing candles between human plays.
 
   - Funded from `sui client active-address` (NOT the user's burner —
     switch wallets BEFORE running).
