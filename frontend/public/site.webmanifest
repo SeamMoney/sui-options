@@ -1,0 +1,19 @@
+{
+  "name": "Wick Markets — options for the next candle",
+  "short_name": "Wick",
+  "description": "Touch / no-touch options on Sui. Tap and hold the chart to ride a barrier tick-by-tick. Provably fair from on-chain randomness.",
+  "start_url": "/ride",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0612",
+  "theme_color": "#863bff",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}
