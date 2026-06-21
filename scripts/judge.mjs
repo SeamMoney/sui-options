@@ -39,6 +39,7 @@ const steps = [
   { script: "smoke:demo", title: "The live demo is up", proves: "every route + the faucet API answer on testnet, and the DeepBook mid is live" },
   { script: "verify:fairness", title: "Provable fairness — honest path", proves: "the in-browser/CLI replay reproduces the chain's candles bit-for-bit → PASS" },
   { script: "verify:fairness:tamper", title: "Provable fairness — tamper caught", proves: "flip one reported extremum and the verifier exits non-zero → the house can't cheat", expectFail: true },
+  { script: "verify:fairness:rug", title: "Provable house edge — honest MARKET HALT", proves: "the v4.26 rug only fires on an honest keccak roll (roll < rug_chance_bps); the verifier re-derives it and routes the wiped ride to EXPIRED_LOSS → the house can't fake or hide a halt" },
   { script: "verify:pro", title: "Live P&L == settlement", proves: "the number you watch on /pro equals the number you're paid, to 1e-9, off the real DeepBook mark" },
 ];
 
