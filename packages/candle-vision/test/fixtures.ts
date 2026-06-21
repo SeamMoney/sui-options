@@ -28,6 +28,13 @@ export const patternFixtures: Record<string, CandleInput[]> = {
     { time: 5, open: 96, high: 101, low: 95, close: 100, volume: 120 },
     { time: 6, open: 101, high: 102, low: 92, close: 94, volume: 160 },
   ],
+  // Textbook bullish Marubozu: a large directional body with both shadows nearly
+  // absent (open≈low, close≈high). This is the pattern the live coach surfaces in
+  // the /pro demo ("Bullish Marubozu"), so it gets its own regression.
+  marubozu: [
+    ...baseCandles(4),
+    { time: 5, open: 99.0, high: 105.05, low: 98.95, close: 105.0, volume: 170 },
+  ],
   'morning-star': [
     ...baseCandles(4, 112),
     { time: 5, open: 111, high: 112, low: 99, close: 100, volume: 140 },
