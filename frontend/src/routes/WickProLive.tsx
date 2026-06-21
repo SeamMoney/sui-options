@@ -459,7 +459,7 @@ export function WickProLive() {
         />
         {/* CandleVision coach — real DeepBook bars. Visible on every viewport. */}
         {coachEl && (
-          <div className="absolute bottom-1 right-1 w-[158px] sm:w-[220px]">{coachEl}</div>
+          <div className="absolute bottom-1 left-1 w-[158px] sm:w-[220px]">{coachEl}</div>
         )}
       </div>
 
