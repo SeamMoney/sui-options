@@ -34,7 +34,18 @@ A provably-fair touch-binary arcade. Three things are simultaneously true:
 2. **Real Sui randomness.** Every candle is derived from a `sui::random::Random` 32-byte draw committed inside `record_segment`. The draw is gated by Sui's **PTB-Random structural rule** (the verifier rejects any PTB that places attacker code after a `Random`-consuming MoveCall), so the standard "test-and-abort grinder" doesn't work. See [`docs/design/v2/17a_sui_randomness_spike.md`](docs/design/v2/17a_sui_randomness_spike.md).
 3. **Real auditability.** The same `seeded_path::expand_segment` that the chain runs to produce a candle has a **byte-identical TypeScript port** (`sdk/src/seededPath.ts`). 10k random vectors are checked via a rolling blake2b digest in CI on every commit. The `/verify` CLI lets any user replay any closed ride's on-chain `segment_keys` and confirm the settlement.
 
-If a candle in your loss looks wrong, replay it. The math is reproducible bit-for-bit.
+And it isn't only the candles. **Every output traces back to the chain's `sui::random` keys, end to end** — and `npm run audit:ride -- --market <id> --ride <id>` proves the whole chain for any real ride in one command:
+
+```
+keys ⟸ sui::random   (verify:randomness — un-grindable, gated by Sui's PTB-Random rule)
+  ├─ round barriers  ⟸ the walk price at round-roll (verify-barriers — not cherry-picked)
+  ├─ candles         ⟸ expand_segment(key)          (verify-v4 — bit-identical replay)
+  ├─ MARKET HALT     ⟸ keccak256(key‖market‖round)  (check:rugs — honest roll, none suppressed)
+  ├─ verdict         ⟸ the candles + barriers       (verify-v4 — touch/cashout/expiry)
+  └─ payout          ⟸ the verdict                  (verify-payout — exact, to the unit)
+```
+
+The house chooses nothing: not the keys, not the barriers, not the candles, not the verdict, not the money. If a candle in your loss looks wrong, replay it. The whole ride is reproducible bit-for-bit.
 
 ---
 
