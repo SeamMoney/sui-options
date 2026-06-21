@@ -135,22 +135,12 @@ try {
     }
     check("P&L is live (multiple distinct values)", new Set(pnls.filter(Boolean)).size >= 2, pnls.join(" "));
 
-    // 5. FLIP reverses direction.
-    const flip = page.locator('button:has-text("FLIP")').first();
-    if ((await flip.count()) > 0) {
-      await flip.click();
-      await page.waitForTimeout(1000);
-      body = await page.evaluate(() => document.body.innerText);
-      const dirAfter = /UP\s*·/i.test(body) ? "UP" : /DOWN\s*·/i.test(body) ? "DOWN" : "?";
-      check("FLIP reverses the position", dirBefore !== "?" && dirAfter !== "?" && dirAfter !== dirBefore && /CLOSE/i.test(body), `${dirBefore}→${dirAfter}`);
-    } else {
-      check("FLIP reverses the position", false, "no FLIP button");
-    }
-
-    // 6. CLOSE settles == the number shown ON the CLOSE button at the click
-    // instant. Capture-and-click in one sync eval so there's no read→click gap
-    // (the price keeps moving; comparing to a stale earlier read would false-
-    // fail on a fast tick even though the app settles at the painted value).
+    // 5. CLOSE settles == the number shown ON the CLOSE button at the click
+    // instant. Capture-and-click in one sync eval so there's no read→click gap.
+    // Done on the CLEAN opened leg (before any FLIP) — FLIP banks the prior
+    // leg's P&L, so closing after a flip yields the cumulative total, which
+    // legitimately differs from the current-leg button.
+    const num = (s) => (s ? Number(s.replace(/[+$]/g, "").replace("−", "-")) : NaN);
     const liveAtClick = await page.evaluate(() => {
       const btn = [...document.querySelectorAll("button")].find((b) => /CLOSE/i.test(b.innerText));
       if (!btn) return null;
@@ -161,9 +151,33 @@ try {
     await page.waitForTimeout(1200);
     const after = await page.evaluate(() => document.body.innerText);
     const settled = after.match(CENTS)?.[0] ?? null;
-    const num = (s) => (s ? Number(s.replace(/[+$]/g, "").replace("−", "-")) : NaN);
     const diff = Math.abs(num(liveAtClick) - num(settled));
     check("CLOSE settles == the number on the button (≤ $0.05)", Number.isFinite(diff) && diff <= 0.05, `button ${liveAtClick} → settled ${settled}`);
+
+    // 6. FLIP reverses direction — on a FRESH position (the close above settled
+    // the first leg).
+    await page.waitForTimeout(800);
+    const up2 = page.locator('button:has-text("UP")').first();
+    if ((await up2.count()) > 0 && !(await up2.isDisabled().catch(() => true))) {
+      await up2.click();
+      await page.waitForTimeout(700);
+      let fbody = await page.evaluate(() => document.body.innerText);
+      const fBefore = /UP\s*·/i.test(fbody) ? "UP" : /DOWN\s*·/i.test(fbody) ? "DOWN" : "?";
+      const flip = page.locator('button:has-text("FLIP")').first();
+      if ((await flip.count()) > 0) {
+        await flip.click();
+        await page.waitForTimeout(1000);
+        fbody = await page.evaluate(() => document.body.innerText);
+        const fAfter = /UP\s*·/i.test(fbody) ? "UP" : /DOWN\s*·/i.test(fbody) ? "DOWN" : "?";
+        check("FLIP reverses the position", fBefore !== "?" && fAfter !== "?" && fAfter !== fBefore && /CLOSE/i.test(fbody), `${fBefore}→${fAfter}`);
+        await page.locator('button:has-text("CLOSE")').first().click().catch(() => {});
+        await page.waitForTimeout(400);
+      } else {
+        check("FLIP reverses the position", false, "no FLIP button");
+      }
+    } else {
+      check("FLIP reverses the position", false, "could not reopen position");
+    }
   }
 
   // 7. No console errors.
