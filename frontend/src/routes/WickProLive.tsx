@@ -395,13 +395,17 @@ export function WickProLive() {
                   : "Settled — you lost"}
             </div>
             <div
-              key={headline.live ? "live" : `settled-${settled?.id ?? ""}`}
+              // Keyed by position/settled id so the number POPS on mount —
+              // once when a bet is placed (instant "it's on" feedback) and once
+              // when it settles. 60fps text updates keep the same key, so they
+              // don't re-trigger the pop.
+              key={headline.live ? `live-${position?.id ?? ""}` : `settled-${settled?.id ?? ""}`}
               className={`text-6xl font-black tabular-nums leading-none ${
                 headline.pnl >= 0 ? "text-emerald-400" : "text-rose-500"
               }`}
               style={{
                 textShadow: "0 2px 32px rgba(0,0,0,0.6)",
-                animation: headline.live ? undefined : "wpPop 380ms ease-out",
+                animation: "wpPop 320ms ease-out",
               }}
             >
               {fmtSignedUsd(headline.pnl)}
