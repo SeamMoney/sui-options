@@ -68,10 +68,14 @@ const WICK_TOKEN = DEPLOYMENT.wick_token_state;
 const STAKING_POOL = DEPLOYMENT.wick_staking_pool;
 
 const args = process.argv.slice(2);
-const ridesArg = args.find((a) => a.startsWith("--rides"));
-const N_RIDES = ridesArg
-  ? Number(ridesArg.split("=").at(-1) ?? args[args.indexOf(ridesArg) + 1])
-  : 20;
+// Accept BOTH `--rides=N` and `--rides N` (the form the usage block shows).
+const N_RIDES = (() => {
+  const i = args.findIndex((a) => a === "--rides" || a.startsWith("--rides="));
+  if (i === -1) return 20;
+  const raw = args[i].includes("=") ? args[i].split("=")[1] : args[i + 1];
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 20;
+})();
 
 const HOLD_SEGMENTS = 5; // crank ~5 segments per ride before closing
 
@@ -130,7 +134,10 @@ async function runOneRide(idx) {
     const tx = new Transaction();
     tx.setSender(sender);
     const [escrow] = tx.splitCoins(tx.object(tusdCoin.coinObjectId), [tx.pure.u64(ESCROW)]);
-    tx.moveCall({
+    // open_segment_ride_v4 RETURNS the SegmentRidePositionV4 — the caller
+    // must transfer it, else the PTB aborts with UnusedValueWithoutDrop.
+    // Mirrors sdk/src/segmentMarketV4.ts:buildOpenSegmentRideV4Tx.
+    const ride = tx.moveCall({
       target: `${PKG}::wick::open_segment_ride_v4`,
       typeArguments: [COLL],
       arguments: [
@@ -142,6 +149,7 @@ async function runOneRide(idx) {
         tx.object.clock(),
       ],
     });
+    tx.transferObjects([ride], tx.pure.address(sender));
     const res = await client.signAndExecuteTransaction({
       signer: keypair,
       transaction: tx,
@@ -186,7 +194,9 @@ async function runOneRide(idx) {
   try {
     const tx = new Transaction();
     tx.setSender(sender);
-    tx.moveCall({
+    // close_segment_ride_v4 RETURNS the payout coin — transfer it to the
+    // player, else UnusedValueWithoutDrop. Mirrors the SDK close builder.
+    const payout = tx.moveCall({
       target: `${PKG}::wick::close_segment_ride_v4`,
       typeArguments: [COLL],
       arguments: [
@@ -199,6 +209,7 @@ async function runOneRide(idx) {
         tx.object.clock(),
       ],
     });
+    tx.transferObjects([payout], tx.pure.address(sender));
     const res = await client.signAndExecuteTransaction({
       signer: keypair,
       transaction: tx,
