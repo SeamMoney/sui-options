@@ -183,9 +183,10 @@ export function Coach() {
           ))}
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_300px]">
-          {/* Chart */}
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+        <div className="mt-6 grid items-stretch gap-4 sm:grid-cols-[1fr_300px]">
+          {/* Chart — fills the cell height on desktop so it matches the stacked
+              right rail instead of floating small in a tall empty box. */}
+          <div className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:h-full">
             <div className="mb-2 flex items-baseline justify-between">
               <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-white/35">
                 <span
@@ -200,7 +201,7 @@ export function Coach() {
                 {last ? last.close.toFixed(isLive ? 4 : 2) : "…"}
               </span>
             </div>
-            <div className="h-[220px] sm:h-[300px] w-full">
+            <div className="min-h-[240px] w-full flex-1">
               <MiniCandles candles={candles} />
             </div>
           </div>
