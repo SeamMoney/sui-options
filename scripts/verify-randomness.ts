@@ -19,7 +19,7 @@
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -32,7 +32,7 @@ function arg(name: string): string | undefined {
 const RPC = arg("--rpc") ?? process.env.WICK_API_RPC ?? "https://fullnode.testnet.sui.io";
 const N = Math.max(1, Number(arg("--n") ?? "6"));
 
-const RANDOM_OBJECT = "0x0000000000000000000000000000000000000000000000000000000000000008";
+export const RANDOM_OBJECT = "0x0000000000000000000000000000000000000000000000000000000000000008";
 
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
@@ -48,7 +48,7 @@ function busiestMarket(): string {
   return first;
 }
 
-function norm(id: unknown): string | null {
+export function norm(id: unknown): string | null {
   if (typeof id !== "string") return null;
   const hex = id.startsWith("0x") ? id.slice(2) : id;
   if (!/^[0-9a-fA-F]+$/.test(hex)) return null;
@@ -56,7 +56,7 @@ function norm(id: unknown): string | null {
 }
 
 /** Extract input object ids from a tx's programmable inputs (several shapes). */
-function inputObjectIds(tx: Record<string, unknown> | undefined): string[] {
+export function inputObjectIds(tx: Record<string, unknown> | undefined): string[] {
   const inputs = (tx?.inputs as Array<Record<string, unknown>>) ?? [];
   const out: string[] = [];
   for (const i of inputs) {
@@ -151,7 +151,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exitCode = 1;
-});
+// Run only when invoked directly (not when imported by the test).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  });
+}
