@@ -16,10 +16,10 @@
  * `decide_settlement` in `segment_market_v4.move`:
  *
  *   TOUCH_WIN(1)      payout = stake_paid × multiplier_bps / 10_000 ; forfeit = 0
- *   CASHOUT(2)        forfeit = stake_paid − payout ; 0 < payout ≤ stake_paid
- *                     (the exact Bachelier cashout value is computed on-chain;
- *                      we bound-check it — the path + spot are already proven by
- *                      verify-v4.ts)
+ *   CASHOUT(2)        payout re-derived EXACTLY via the Bachelier factor
+ *                     (scripts/bachelier.ts, bit-identical to Move ride_pricing)
+ *                     from the close spot (last segment's state_after), σ, spread
+ *                     and seconds-to-round-end; forfeit = stake_paid − payout
  *   EXPIRED_LOSS(3)   payout = 0 ; forfeit = stake_paid     (incl. MARKET HALT)
  *   ABORTED_REFUND(4) payout = 0 ; forfeit = 0              (escrow refunded 1:1)
  *
@@ -39,6 +39,9 @@
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { cashoutPayout } from "./bachelier.js";
+
+const DEFAULT_SEGMENT_MS = 400n; // segment_market_v4::DEFAULT_SEGMENT_MS
 
 const DEFAULT_RPC = process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 const BPS = 10_000n;
@@ -104,6 +107,8 @@ interface Ride {
   multiplierBps: bigint;
   stakePerSegment: bigint;
   escrowed: bigint;
+  upperBarrier: bigint;
+  lowerBarrier: bigint;
   closed: boolean;
   closedAtMs: bigint;
   settlementKind: number;
@@ -151,7 +156,8 @@ export function checkPayoutIdentity(
       errs.push(`EXPIRED_LOSS forfeit ${forfeit} + bounty ${bounty} != stake_paid ${stakePaid}`);
     }
   } else if (kind === 2) {
-    // CASHOUT — exact Bachelier value computed on-chain; bound-check it.
+    // CASHOUT — sanity bounds here; the EXACT Bachelier payout is re-derived
+    // and compared against the chain in main() (needs the close spot via RPC).
     if (!(payout > 0n)) errs.push(`CASHOUT payout ${payout} must be > 0`);
     if (payout > stakePaid) errs.push(`CASHOUT payout ${payout} > stake_paid ${stakePaid}`);
   } else if (kind === 4) {
@@ -177,6 +183,8 @@ async function readRide(client: SuiJsonRpcClient, id: string): Promise<{ ride: R
       multiplierBps: asBig(f.multiplier_bps),
       stakePerSegment: asBig(f.stake_per_segment),
       escrowed: asBig(f.escrowed),
+      upperBarrier: asBig(f.upper_barrier_price),
+      lowerBarrier: asBig(f.lower_barrier_price),
       closed: Boolean(f.closed),
       closedAtMs: asBig(f.closed_at_ms),
       settlementKind: Number(asBig(f.settlement_kind)),
@@ -187,7 +195,14 @@ async function readRide(client: SuiJsonRpcClient, id: string): Promise<{ ride: R
 async function readMarket(
   client: SuiJsonRpcClient,
   id: string,
-): Promise<{ packageId: string; tableId: string; roundDuration: bigint; nextSegmentIndex: bigint }> {
+): Promise<{
+  packageId: string;
+  tableId: string;
+  roundDuration: bigint;
+  nextSegmentIndex: bigint;
+  sigmaBpsPerSqrtSec: bigint;
+  cashoutSpreadBps: bigint;
+}> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
   const content = asObj(asObj(o.data).content);
   const type = asStr(content.type);
@@ -200,18 +215,31 @@ async function readMarket(
     tableId,
     roundDuration: asBig(f.round_duration_segments),
     nextSegmentIndex: asBig(f.next_segment_index),
+    sigmaBpsPerSqrtSec: asBig(f.sigma_bps_per_sqrt_sec),
+    cashoutSpreadBps: asBig(f.cashout_spread_bps),
   };
 }
 
-/** recorded_at_ms of segment k, or null if absent. */
-async function segmentRecordedAt(client: SuiJsonRpcClient, tableId: string, k: bigint): Promise<bigint | null> {
+/** Read a segment record's fields (recorded_at_ms + state_after.price), or null. */
+async function readSegmentFields(
+  client: SuiJsonRpcClient,
+  tableId: string,
+  k: bigint,
+): Promise<{ recordedAtMs: bigint; stateAfterPrice: bigint } | null> {
   const d = asObj(
     await client.getDynamicFieldObject({ parentId: tableId, name: { type: "u64", value: k.toString() } }),
   );
   const data = asObj(d.data);
   if (!data.content) return null;
   const sf = asObj(asObj(asObj(asObj(data.content).fields).value).fields);
-  return asBig(sf.recorded_at_ms);
+  const stateAfter = asObj(asObj(sf.state_after).fields);
+  return { recordedAtMs: asBig(sf.recorded_at_ms), stateAfterPrice: asBig(stateAfter.price) };
+}
+
+/** recorded_at_ms of segment k, or null if absent. */
+async function segmentRecordedAt(client: SuiJsonRpcClient, tableId: string, k: bigint): Promise<bigint | null> {
+  const r = await readSegmentFields(client, tableId, k);
+  return r ? r.recordedAtMs : null;
 }
 
 /**
@@ -328,6 +356,31 @@ async function main(): Promise<boolean> {
     ),
   );
 
+  // CASHOUT: reproduce the EXACT Bachelier payout the chain computed. The spot is
+  // the walk price at close = state_after.price of the last in-window segment
+  // (nextAtClose−1); seconds_remaining = segments-to-round-end × 400ms.
+  let cashoutExact: bigint | null = null;
+  if (closed.settlementKind === 2) {
+    const last = nextAtClose > 0n ? await readSegmentFields(client, market.tableId, nextAtClose - 1n) : null;
+    if (last) {
+      const rideRoundEnd = (ride.round + 1n) * market.roundDuration;
+      const segsRemaining = rideRoundEnd > nextAtClose ? rideRoundEnd - nextAtClose : 0n;
+      const secondsRemaining = (segsRemaining * DEFAULT_SEGMENT_MS) / 1000n;
+      cashoutExact = cashoutPayout(
+        closed.stakePaid,
+        last.stateAfterPrice,
+        ride.upperBarrier,
+        ride.lowerBarrier,
+        market.sigmaBpsPerSqrtSec,
+        market.cashoutSpreadBps,
+        secondsRemaining,
+      );
+      if (cashoutExact !== closed.payout) {
+        errs.push(`CASHOUT payout ${closed.payout} != re-derived Bachelier ${cashoutExact}`);
+      }
+    }
+  }
+
   console.log("");
   if (closed.settlementKind === 1) {
     console.log(`✓ TOUCH_WIN paid stake_paid × ${ride.multiplierBps}bps = ${(closed.stakePaid * ride.multiplierBps) / BPS}`);
@@ -335,7 +388,11 @@ async function main(): Promise<boolean> {
     const bountyNote = closed.bounty > 0n ? ` (− ${closed.bounty} crank bounty to the keeper)` : "";
     console.log(`✓ EXPIRED_LOSS / MARKET HALT forfeited exactly the held stake: forfeit ${closed.forfeit}${bountyNote} = stake_paid ${closed.stakePaid}; payout 0 — not a satoshi more was taken`);
   } else if (closed.settlementKind === 2) {
-    console.log(`✓ CASHOUT: payout ${closed.payout} within (0, stake_paid ${closed.stakePaid}]; forfeit = stake_paid − payout (Bachelier value computed on-chain, path proven by verify-v4)`);
+    if (cashoutExact !== null) {
+      console.log(`✓ CASHOUT: re-derived the EXACT Bachelier payout ${cashoutExact} == chain ${closed.payout} (spot/σ/time → factor → ×stake −spread); forfeit = stake_paid − payout`);
+    } else {
+      console.log(`✓ CASHOUT: payout ${closed.payout} within (0, stake_paid ${closed.stakePaid}]; forfeit = stake_paid − payout (segment state_after unavailable — bound-checked only)`);
+    }
   } else if (closed.settlementKind === 4) {
     console.log(`✓ ABORTED_REFUND: escrow refunded 1:1, no stake consumed`);
   }
