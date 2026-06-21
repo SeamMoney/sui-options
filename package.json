@@ -34,6 +34,8 @@
     "smoke:demo": "bash scripts/demo-smoke.sh",
     "smoke:ride": "tsx scripts/judge-ride-smoke.ts",
     "e2e:pro": "node scripts/e2e-pro-smoke.mjs",
+    "e2e:verify": "node scripts/e2e-verify-smoke.mjs",
+    "e2e": "npm run e2e:pro && npm run e2e:verify",
     "check:candle-vision:browser": "node scripts/candle-vision-browser-check.mjs",
     "check:candle-vision:lightcone": "BROWSER_BACKEND=lightcone CANDLE_VISION_URL=https://wick-markets.vercel.app/candle-vision node scripts/candle-vision-browser-check.mjs",
     "build:candle-vision-react": "npm -w @sui-options/candle-vision-react run build",
