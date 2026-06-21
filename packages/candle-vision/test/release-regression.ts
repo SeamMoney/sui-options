@@ -35,6 +35,7 @@ function assertFixtureDetects(name: keyof typeof patternFixtures, expectedKind: 
 assertFixtureDetects('doji', 'doji');
 assertFixtureDetects('hammer', 'hammer');
 assertFixtureDetects('engulfing', 'engulfing');
+assertFixtureDetects('marubozu', 'marubozu');
 assertFixtureDetects('morning-star', 'morning-star');
 assertFixtureDetects('vision-momentum', 'vision-momentum');
 
