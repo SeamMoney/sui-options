@@ -242,7 +242,7 @@ export function Coach() {
     <div className="min-h-full w-full bg-black text-white">
       <div className="mx-auto w-full max-w-[920px] px-4 py-6 sm:px-6 sm:py-10">
         <a
-          href="/pro"
+          href={`/pro?asset=${pool}`}
           className="text-[11px] text-white/40 hover:text-white/70 transition-colors"
         >
           ← back to Wick Pro
