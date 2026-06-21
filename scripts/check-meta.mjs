@@ -45,6 +45,16 @@ assert(/rel="apple-touch-icon"[^>]*href="[^"]*\.png"/.test(html), "index.html: a
 // Manifest description matches the share card.
 assert(/"description"\s*:\s*"[^"]*deepbook/i.test(manifest), "site.webmanifest: description names DeepBook");
 
+// No phantom commands: every `npm run X` a judge copy-pastes from README/DEMO must
+// be a real script. #276 reverted `rides:recent` but left a dangling ref (#280) —
+// this guard makes that class of "command not found" impossible to ship again.
+const scripts = new Set(Object.keys(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).scripts || {}));
+const docText = ["README.md", "DEMO.md"].map((f) => readFileSync(join(root, f), "utf8")).join("\n");
+const referenced = [...new Set([...docText.matchAll(/\bnpm run ([a-z0-9:_-]+)/g)].map((m) => m[1]))]
+  .filter((s) => s !== "-w"); // `npm run -w <workspace>` is a flag, not a script name
+const phantom = referenced.filter((s) => !scripts.has(s));
+assert(phantom.length === 0, `README/DEMO npm scripts all exist${phantom.length ? ` (phantom: ${phantom.join(", ")})` : ""}`);
+
 for (const o of ok) console.log(`  ✓ ${o}`);
 for (const f of fails) console.error(`  ✗ ${f}`);
 if (fails.length) {
