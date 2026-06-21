@@ -24,7 +24,27 @@
  * pre-flight. Requires Chromium (playwright); install with
  * `npx playwright install chromium` if missing.
  */
-import { chromium, devices } from "playwright";
+// Playwright drives a real browser; it isn't a repo dependency (it pulls
+// ~100MB of browser binaries we don't want in every install / CI run). Resolve
+// it at runtime — `playwright` or the lighter `playwright-core` — and if it's
+// absent, print exactly how to enable this gate instead of a raw stack trace.
+let chromium, devices;
+try {
+  ({ chromium, devices } = await import("playwright"));
+} catch {
+  try {
+    ({ chromium, devices } = await import("playwright-core"));
+  } catch {
+    console.error(
+      "check:pro needs Playwright (it drives a real browser), which isn't bundled.\n" +
+        "Enable it once:\n" +
+        "    npm i -D playwright && npx playwright install chromium\n" +
+        "then re-run:  npm run check:pro\n" +
+        "(Or use the no-browser gates: `npm run smoke:demo` and `npm run verify:pro`.)",
+    );
+    process.exit(2);
+  }
+}
 
 const BASE = (process.argv[2] || process.env.PRO_URL || "https://wick-markets.vercel.app").replace(/\/$/, "");
 const CENTS = /[+\-−]\$[0-9][0-9.,]*/; // matches +$1.23 / -$0.04 / −$0.04
