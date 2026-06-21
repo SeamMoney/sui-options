@@ -248,13 +248,13 @@ export function Coach() {
           ← back to Wick Pro
         </a>
         <h1 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight">
-          Pattern Coach
+          DeepBook Desk
         </h1>
-        <p className="mt-2 max-w-[640px] text-sm leading-relaxed text-white/55">
-          The CandleVision detector reads the tape and calls out the strongest
-          candlestick setups as they form — the same panel that layers onto the
-          Wick Pro chart, here reading the {isLive ? "live" : ""} {poolLabel}/USDC
-          DeepBook mark.
+        <p className="mt-2 max-w-[680px] text-sm leading-relaxed text-white/55">
+          Everything Wick Pro reads off the {isLive ? "live " : ""}
+          {poolLabel}/USDC DeepBook mark, in one view: real candles with the
+          CandleVision pattern coach calling setups, a live Black-Scholes option
+          quote, and the on-chain order book. Toggle SUI / BTC / DEEP below.
         </p>
 
         {/* Asset toggle — same live DeepBook marks Wick Pro prices against. */}
