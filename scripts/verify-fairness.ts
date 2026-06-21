@@ -28,12 +28,22 @@ function independentCommit(seed: number, paramsJson: string): string {
   return createHash("sha256").update(`${seed}:${paramsJson}`).digest("hex");
 }
 
+// `--tamper` flips the demo: a dishonest house publishes an honest commit, then
+// tries to swap a DIFFERENT path under it at reveal. The independent verifier
+// must CATCH every forgery. Mirrors `verify:fairness:tamper` for the /ride chain.
+const TAMPER = process.argv.includes("--tamper");
+
 let failures = 0;
+let caught = 0;
 const startedAtMs = 1_000_000; // fixed clock — script is fully deterministic
 
-console.log("\nWick Pro — commit-reveal fairness proof");
+console.log(`\nWick Pro — commit-reveal fairness proof${TAMPER ? "  [TAMPER: dishonest house]" : ""}`);
 console.log("=".repeat(56));
-console.log("publish commit (pre-lobby) → reveal seed (settle) → recompute\n");
+console.log(
+  TAMPER
+    ? "publish honest commit → forge the reveal → verifier must CATCH it\n"
+    : "publish commit (pre-lobby) → reveal seed (settle) → recompute\n",
+);
 
 for (let i = 0; i < MARKET_PRESETS.length; i++) {
   const preset = MARKET_PRESETS[i];
@@ -44,29 +54,45 @@ for (let i = 0; i < MARKET_PRESETS.length; i++) {
   const published = engine.commit;
 
   // (2) the player rides the round; (3) at settle the engine reveals the preimage.
-  const r = engine.reveal();
+  const honest = engine.reveal();
+  // In tamper mode the house lies about which seed drove the path (a different,
+  // more house-favourable walk) but is stuck with the commit it already published.
+  const revealedSeed = TAMPER ? honest.seed + 1 : honest.seed;
 
   // (4) INDEPENDENT recomputation — this is the trust-minimizing step.
-  const recomputed = independentCommit(r.seed, r.paramsJson);
+  const recomputed = independentCommit(revealedSeed, honest.paramsJson);
   const binds = recomputed === published;
 
-  // (5) tamper check: the wrong seed must NOT reproduce the commit.
-  const tampered = independentCommit(r.seed + 1, r.paramsJson);
+  if (TAMPER) {
+    // The forged reveal must NOT bind — the verifier catches the lie.
+    const detected = !binds;
+    if (detected) caught++;
+    else failures++;
+    console.log(
+      `${detected ? "CAUGHT" : "MISSED"}  ${preset.label.padEnd(18)} ` +
+        `commit=${published.slice(0, 12)}…  forged-seed=${revealedSeed}  ` +
+        `binds=${binds ? "yes (LEAK!)" : "no"}`,
+    );
+    continue;
+  }
+
+  // honest mode — (5) tamper check: the wrong seed must NOT reproduce the commit.
+  const tampered = independentCommit(honest.seed + 1, honest.paramsJson);
   const tamperRejected = tampered !== published;
 
-  const ok = binds && tamperRejected && r.verified && /^[0-9a-f]{64}$/.test(published);
+  const ok = binds && tamperRejected && honest.verified && /^[0-9a-f]{64}$/.test(published);
   if (!ok) failures++;
 
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${preset.label.padEnd(18)} ` +
-      `commit=${published.slice(0, 12)}…  seed=${r.seed}  ` +
+      `commit=${published.slice(0, 12)}…  seed=${honest.seed}  ` +
       `bound=${binds ? "yes" : "NO"}  tamper-rejected=${tamperRejected ? "yes" : "NO"}`,
   );
 
   try {
     assert.equal(recomputed, published, `${preset.label}: independent SHA-256 must equal published commit`);
     assert.ok(tamperRejected, `${preset.label}: a tampered seed must not reproduce the commit`);
-    assert.ok(r.verified, `${preset.label}: engine self-check must pass`);
+    assert.ok(honest.verified, `${preset.label}: engine self-check must pass`);
     assert.match(published, /^[0-9a-f]{64}$/, `${preset.label}: commit must be 64 hex chars (SHA-256)`);
   } catch (e) {
     console.error(`  ↳ ${(e as Error).message}`);
@@ -74,6 +100,20 @@ for (let i = 0; i < MARKET_PRESETS.length; i++) {
 }
 
 console.log("");
+if (TAMPER) {
+  // Success of the tamper demo = every forgery was caught. Exit 1 (like the
+  // /ride tamper demo) to signal "a dishonest reveal was detected".
+  if (failures === 0) {
+    console.error(
+      `CAUGHT — ${caught}/${MARKET_PRESETS.length} forged reveals rejected by independent SHA-256.\n` +
+        "A dishonest house can't move the path after committing. Exit 1 = the cheat was detected.",
+    );
+    process.exit(1);
+  }
+  console.error(`LEAK — ${failures} forged reveal(s) bound to the published commit. This must never happen.`);
+  process.exit(2);
+}
+
 if (failures === 0) {
   console.log(
     `PASS — ${MARKET_PRESETS.length}/${MARKET_PRESETS.length} presets: the published commit is genuine\n` +
