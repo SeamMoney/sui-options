@@ -54,17 +54,22 @@ function DynamicConnectButtonInner() {
   const { primaryWallet, handleLogOut, setShowAuthFlow, sdkHasLoaded } =
     useDynamicContext();
 
-  const openConnect = useCallback(() => {
-    // Guard against a dead click — opening the auth flow before the SDK has
-    // loaded does nothing (and on a CORS-blocked origin it never loads). The
-    // button is disabled until ready, but double-check here too.
-    if (sdkHasLoaded) setShowAuthFlow(true);
-  }, [setShowAuthFlow, sdkHasLoaded]);
+  // ALWAYS open the auth flow on click. Dynamic handles a not-yet-ready SDK
+  // gracefully (it shows its own loading/error inside the modal), so we must
+  // never block the click — a CORS-blocked origin means the SDK never flips
+  // sdkHasLoaded, and a button that's hidden or permanently disabled there
+  // reads as "login is gone". Keep it visible and tappable; surface the state
+  // only as a label.
+  const openConnect = useCallback(() => setShowAuthFlow(true), [setShowAuthFlow]);
 
   if (!primaryWallet) {
     return (
-      <Button onClick={openConnect} size="sm" disabled={!sdkHasLoaded}>
-        {sdkHasLoaded ? "Sign in" : "Loading…"}
+      <Button
+        onClick={openConnect}
+        size="sm"
+        title={sdkHasLoaded ? "Sign in" : "Connecting to sign-in…"}
+      >
+        {sdkHasLoaded ? "Sign in" : "Connecting…"}
       </Button>
     );
   }
