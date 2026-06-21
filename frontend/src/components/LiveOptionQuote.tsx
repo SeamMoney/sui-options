@@ -19,6 +19,7 @@ import {
   deepBookPoolExplorerUrl,
   type DeepBookPoolName,
 } from "@/lib/deepbook";
+import { PayoffDiagram } from "@/components/PayoffDiagram";
 
 export interface LiveOptionQuoteProps {
   readonly pool?: DeepBookPoolName;
@@ -128,6 +129,21 @@ export function LiveOptionQuote({
         <span className="font-mono tabular-nums text-white/65">
           {live && call ? `±${((call.premium / spot) * 100).toFixed(2)}%` : "—"}
         </span>
+      </div>
+
+      {/* Payoff at expiry — the iconic options hockey-stick (defined max loss
+          = premium, asymmetric upside). The thing a coin-flip doesn't have. */}
+      {live && call && put ? (
+        <PayoffDiagram
+          spot={spot}
+          callPremium={call.premium}
+          putPremium={put.premium}
+        />
+      ) : null}
+      <div className="flex items-center justify-between px-0.5 text-[9px] uppercase tracking-wider text-white/30">
+        <span className="text-emerald-400/60">▲ call payoff</span>
+        <span>payoff at expiry vs spot</span>
+        <span className="text-rose-400/60">put payoff ▼</span>
       </div>
 
       <p className="mt-3 text-[10px] leading-snug text-white/30">
