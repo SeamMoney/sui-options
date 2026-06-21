@@ -79,18 +79,18 @@ Responses:
 
 | Status | Body                                                       | Meaning                                |
 |--------|------------------------------------------------------------|----------------------------------------|
-| `200`  | `{ digest, amount_mist: "50000000", recipient }`           | Drip successful, tx confirmed onchain  |
+| `200`  | `{ digest, amount_mist: "200000000", recipient }`          | Drip successful, tx confirmed onchain  |
 | `400`  | `{ error: "recipient is not a valid Sui address" }`        | Validation failed                      |
 | `405`  | `{ error: "method not allowed; use POST" }`                | Wrong HTTP verb                        |
-| `429`  | `{ error: "rate-limited", retry_after_ms, cooldown_ms }`   | Per-recipient 5-min cooldown hit       |
+| `429`  | `{ error: "rate-limited", retry_after_ms, cooldown_ms }`   | Per-recipient 90s cooldown hit         |
 | `502`  | `{ error: "transaction did not succeed on-chain", digest }`| Tx submitted but Move-aborted          |
 | `503`  | `{ error: "faucet wallet is drained …", sender }`          | Source wallet below `DRIP + GAS_BUFFER`|
 
 Fixed parameters (edit them in `api/faucet.ts`, not here):
 
-- Drip amount: `50_000_000` MIST = **0.05 SUI** per request
+- Drip amount: `200_000_000` MIST = **0.2 SUI** per request
 - Gas buffer: `20_000_000` MIST (must remain in the source wallet)
-- Per-recipient cooldown: **5 minutes** (in-process map; see *Limitations*)
+- Per-recipient cooldown: **90 seconds** (in-process map; see *Limitations*)
 
 ### Required env var
 
@@ -175,7 +175,7 @@ Once funded, the next call to `/api/faucet` succeeds without a redeploy
 curl -X POST http://localhost:3000/api/faucet \
   -H 'Content-Type: application/json' \
   -d '{"recipient":"0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455"}'
-# → 200 {"digest":"…","amount_mist":"50000000","recipient":"0xfad7…"}
+# → 200 {"digest":"…","amount_mist":"200000000","recipient":"0xfad7…"}
 
 # bad address
 curl -X POST http://localhost:3000/api/faucet \
@@ -183,9 +183,47 @@ curl -X POST http://localhost:3000/api/faucet \
   -d '{"recipient":"not-an-address"}'
 # → 400 {"error":"recipient is not a valid Sui address"}
 
-# repeat within 5 minutes
-# → 429 {"error":"rate-limited","retry_after_ms":…,"cooldown_ms":300000}
+# repeat within 90 seconds
+# → 429 {"error":"rate-limited","retry_after_ms":…,"cooldown_ms":90000}
 ```
+
+---
+
+## TUSD faucet — `api/faucet-tusd.ts` (Vercel serverless function)
+
+The companion to `/api/faucet`. The SUI faucet hands out gas; this one mints
+**TUSD** (the Wick testnet stablecoin) so a fresh wallet has something to *bet*.
+Together they're the no-wallet cold-start a judge runs: `/api/faucet` for gas,
+`/api/faucet-tusd` for stake, then play the on-chain ride.
+
+The TUSD `TreasuryCap` is owned by the same wallet that drips SUI, so the
+**same `WICK_FAUCET_PRIVATE_KEY`** signs both. The cap object id is read from
+`deployments/testnet.json` at build time and embedded in the bundle.
+
+```
+POST /api/faucet-tusd
+Content-Type: application/json
+{ "recipient": "0x<64-hex Sui address>" }
+```
+
+Responses:
+
+| Status | Body                                              | Meaning                              |
+|--------|---------------------------------------------------|--------------------------------------|
+| `200`  | `{ digest, amount_raw: "10000000", recipient }`   | Minted 10 TUSD, tx confirmed onchain |
+| `400`  | `{ error: "recipient is not a valid Sui address" }`| Validation failed                    |
+| `429`  | `{ error: "rate-limited", retry_after_ms }`        | Per-recipient 90s cooldown hit       |
+| `500`  | `{ error: … }`                                     | Mint build/sign error                |
+| `503`  | `{ error: … }`                                     | RPC/treasury unavailable             |
+
+Fixed parameters (edit them in `api/faucet-tusd.ts`, not here):
+
+- Drip amount: `10_000_000` raw = **10 TUSD** (6 decimals) — ~66 rides at $0.15 max stake
+- Per-recipient cooldown: **90 seconds** (in-process map)
+
+Same `WICK_FAUCET_PRIVATE_KEY` env var as the SUI faucet — see above. Defaults to
+the PublicNode RPC, since both faucets are tapped together on every cold start and
+the Mysten public fullnode throttles under that concurrent load.
 
 ---
 
