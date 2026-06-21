@@ -94,6 +94,22 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function main() {
+  // Last-resort safety net so a single stray async error can't silently kill
+  // the keeper mid-demo. The crank scheduler and event poller fire promises
+  // fire-and-forget (segmentCranker.ts) and run on setInterval timers; a
+  // rejection that escapes their own `.catch` would, under Node ≥15, crash the
+  // whole process by default — stopping all cranking and stalling live rides.
+  // We log it and keep going. An `uncaughtException` (synchronous, process may
+  // be in a bad state) we log and exit non-zero so a supervisor restarts a
+  // clean keeper rather than limping on corrupt state.
+  process.on("unhandledRejection", (reason) => {
+    log("error", "unhandled-rejection", { error: String(reason) });
+  });
+  process.on("uncaughtException", (err) => {
+    log("error", "uncaught-exception", { error: String(err) });
+    process.exit(1);
+  });
+
   const cfg = loadConfig();
   const signer = loadKeeperSigner(cfg);
   const client = makeClient(cfg);
