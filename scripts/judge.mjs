@@ -93,6 +93,16 @@ if (withChain) {
   const ok = run("smoke:ride");
   results.push({ script: "smoke:ride", title: "On-chain ride loop", ok });
   console.log(ok ? C.green("   ✓ smoke:ride PASS") : C.red("   ✗ smoke:ride FAIL"));
+
+  // The LIVE counterpart to the synthetic `verify:fairness:rug` in the default
+  // run: re-derive the keccak roll of EVERY MARKET HALT this market ever fired
+  // and prove the house could neither fake one nor suppress one — against the
+  // real chain history, not a mock. The house edge, audited end-to-end.
+  console.log(C.cyan(`\n[+] Every on-chain MARKET HALT is honest (real history)`));
+  console.log(C.dim(`      proves: re-derive the keccak roll for every rug the market ever fired → all honest (none faked, none suppressed)`));
+  const rugsOk = run("check:rugs");
+  results.push({ script: "check:rugs", title: "On-chain halt audit", ok: rugsOk });
+  console.log(rugsOk ? C.green("   ✓ check:rugs PASS") : C.red("   ✗ check:rugs FAIL"));
 }
 
 const failed = results.filter((r) => !r.ok);
