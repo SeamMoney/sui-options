@@ -121,6 +121,15 @@ export function LiveOptionQuote({
         />
       </div>
 
+      {/* Break-even move — the plain-English bit: how far spot must move to
+          profit (ATM ⇒ ±premium/spot). Makes the bps premium intuitive. */}
+      <div className="mt-2 flex items-baseline justify-between px-0.5 text-[10px] text-white/40">
+        <span className="uppercase tracking-wide">break-even move</span>
+        <span className="font-mono tabular-nums text-white/65">
+          {live && call ? `±${((call.premium / spot) * 100).toFixed(2)}%` : "—"}
+        </span>
+      </div>
+
       <p className="mt-3 text-[10px] leading-snug text-white/30">
         Black-Scholes premium off the live DeepBook mid, σ from the live tape —
         the same engine Wick Pro settles against.{" "}
