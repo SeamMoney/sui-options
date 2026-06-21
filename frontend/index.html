@@ -2,6 +2,11 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <!-- Warm DNS+TLS to the live data hosts during HTML parse so the first
+         DeepBook mark/candle fetch (the /pro chart) and Sui RPC calls don't
+         pay connection setup on the critical path — the chart/data show sooner. -->
+    <link rel="preconnect" href="https://deepbook-indexer.mainnet.mystenlabs.com" crossorigin />
+    <link rel="preconnect" href="https://sui-testnet-rpc.publicnode.com" crossorigin />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <link rel="manifest" href="/site.webmanifest" />
