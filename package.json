@@ -37,7 +37,7 @@
     "test:verify-payout": "tsx --test scripts/verify-payout.test.ts",
     "test:audit-rugs": "tsx --test scripts/audit-rugs.test.ts",
     "test:rug-roll": "tsx --test scripts/rugRoll.test.ts",
-    "verify:offline": "npm run verify:pro-fairness && npm run verify:fairness && npm -w @wick/sdk test && npm run test:pro-options && npm run test:candle-vision && npm run test:verify-v4 && npm run test:audit-rugs && npm run test:rug-roll && npm run test:verify-payout",
+    "verify:offline": "npm run verify:pro-fairness && npm run verify:fairness && npm -w @wick/sdk test && npm -w @wick/api test && npm -w wick-keeper test && npm -w wick-bots test && npm run test:pro-options && npm run test:candle-vision && npm run test:verify-v4 && npm run test:audit-rugs && npm run test:rug-roll && npm run test:verify-payout",
     "check:treasury": "tsx scripts/treasury-health.ts",
     "check:rugs": "tsx scripts/audit-rugs.ts",
     "check:meta": "node scripts/check-meta.mjs",
