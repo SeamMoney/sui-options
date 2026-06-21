@@ -1,0 +1,52 @@
+import type { CandleDirection, CandleInput, CandlePatternEvent, CandlePatternKind } from '../../types';
+export * from './indicators';
+export type TaDetectorOptions = {
+    minConfidence?: number;
+    includeWeak?: boolean;
+    fastPeriod?: number;
+    slowPeriod?: number;
+    rsiPeriod?: number;
+    rsiOverbought?: number;
+    rsiOversold?: number;
+    macdFastPeriod?: number;
+    macdSlowPeriod?: number;
+    macdSignalPeriod?: number;
+    bollingerPeriod?: number;
+    bollingerMultiplier?: number;
+    bollingerSqueezeLookback?: number;
+    bollingerBreakoutLookback?: number;
+    atrPeriod?: number;
+    atrBaselinePeriod?: number;
+    atrExpansionRatio?: number;
+    vwapPeriod?: number;
+    volumePeriod?: number;
+    volumeClimaxRatio?: number;
+};
+export type TaDetectorDefinition = {
+    id: string;
+    label: string;
+    minCandles: number;
+    kinds: CandlePatternKind[];
+    detect: (candles: CandleInput[], options?: TaDetectorOptions) => CandlePatternEvent[];
+};
+export type RsiDivergenceSignal = {
+    direction: Extract<CandleDirection, 'bullish' | 'bearish'>;
+    startIndex: number;
+    endIndex: number;
+    priceDelta: number;
+    rsiDelta: number;
+    confidence: number;
+};
+export declare const DEFAULT_TA_DETECTOR_OPTIONS: Required<TaDetectorOptions>;
+export declare function detectSmaCrosses(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+export declare function detectEmaCrosses(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+export declare function detectRsiSetups(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+export declare function detectRsiDivergences(candles: CandleInput[], options?: TaDetectorOptions): RsiDivergenceSignal[];
+export declare function detectMacdCrosses(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+export declare function detectBollingerSetups(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+export declare function detectAtrExpansion(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+export declare function detectVwapSetups(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+export declare function detectVolumeClimax(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+export declare const TA_PATTERN_DETECTORS: TaDetectorDefinition[];
+export declare function detectTaPatterns(candles: CandleInput[], options?: TaDetectorOptions): CandlePatternEvent[];
+//# sourceMappingURL=index.d.ts.map

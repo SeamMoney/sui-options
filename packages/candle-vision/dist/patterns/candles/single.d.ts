@@ -1,0 +1,53 @@
+import type { CandleDirection, CandleFeature } from '../../types';
+type ScoreParts = Record<string, number>;
+export type SingleCandleTaPatternKind = 'doji' | 'dragonfly-doji' | 'gravestone-doji' | 'long-legged-doji' | 'rickshaw-man' | 'takuri' | 'marubozu' | 'opening-marubozu' | 'closing-marubozu' | 'belt-hold' | 'long-line' | 'short-line';
+export type SingleCandleTaLibCode = 'CDLDOJI' | 'CDLDRAGONFLYDOJI' | 'CDLGRAVESTONEDOJI' | 'CDLLONGLEGGEDDOJI' | 'CDLRICKSHAWMAN' | 'CDLTAKURI' | 'CDLMARUBOZU' | 'CDLOPENINGMARUBOZU' | 'CDLCLOSINGMARUBOZU' | 'CDLBELTHOLD' | 'CDLLONGLINE' | 'CDLSHORTLINE';
+export type SingleCandleTaPatternMatch = {
+    kind: SingleCandleTaPatternKind;
+    family: 'candlestick';
+    scope: 'single-candle';
+    source: 'ta-lib-style';
+    taLibCode: SingleCandleTaLibCode;
+    direction: CandleDirection;
+    confidence: number;
+    strength: number;
+    label: string;
+    description: string;
+    scoreBreakdown: ScoreParts;
+};
+export type SingleCandleTaPatternDefinition = {
+    id: SingleCandleTaPatternKind;
+    kind: SingleCandleTaPatternKind;
+    family: 'candlestick';
+    scope: 'single-candle';
+    source: 'ta-lib-style';
+    taLibCode: SingleCandleTaLibCode;
+    span: 1;
+    label: string;
+    description: string;
+    direction: CandleDirection | 'dynamic';
+    priority: number;
+    minConfidence: number;
+    tags: readonly string[];
+    detect: (bar: CandleFeature) => SingleCandleTaPatternMatch | null;
+};
+export type SingleCandleTaDetectionOptions = {
+    minConfidence?: number;
+    includeWeak?: boolean;
+};
+export declare const DOJI_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const DRAGONFLY_DOJI_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const GRAVESTONE_DOJI_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const LONG_LEGGED_DOJI_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const RICKSHAW_MAN_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const TAKURI_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const MARUBOZU_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const OPENING_MARUBOZU_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const CLOSING_MARUBOZU_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const BELT_HOLD_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const LONG_LINE_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const SHORT_LINE_PATTERN_DEFINITION: SingleCandleTaPatternDefinition;
+export declare const SINGLE_CANDLE_TA_PATTERN_DEFINITIONS: readonly SingleCandleTaPatternDefinition[];
+export declare function detectSingleCandleTaPatterns(bar: CandleFeature, options?: SingleCandleTaDetectionOptions): SingleCandleTaPatternMatch[];
+export {};
+//# sourceMappingURL=single.d.ts.map
