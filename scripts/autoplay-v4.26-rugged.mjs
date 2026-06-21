@@ -203,12 +203,17 @@ async function runOneRide(idx) {
     await new Promise((r) => setTimeout(r, 200));
   }
 
-  // 4. CLOSE
-  try {
+  // 4. CLOSE — retry transient gas-coin contention so the ride doesn't leak.
+  // The payer's single gas coin is shared (faucet + any concurrent runner), so
+  // back-to-back txs occasionally race its version ("needs to be rebuilt",
+  // "rejected as invalid by >1/3"). A dropped close leaks an unclosed ride
+  // toward the per-user cap (10) and eventually aborts opens. Rebuild the tx
+  // each attempt (re-resolving gas); real aborts still fail fast.
+  // close_segment_ride_v4 RETURNS the payout coin — transfer it, else
+  // UnusedValueWithoutDrop. Mirrors the SDK close builder.
+  const buildCloseTx = () => {
     const tx = new Transaction();
     tx.setSender(sender);
-    // close_segment_ride_v4 RETURNS the payout coin — transfer it to the
-    // player, else UnusedValueWithoutDrop. Mirrors the SDK close builder.
     const payout = tx.moveCall({
       target: `${PKG}::wick::close_segment_ride_v4`,
       typeArguments: [COLL],
@@ -223,29 +228,39 @@ async function runOneRide(idx) {
       ],
     });
     tx.transferObjects([payout], tx.pure.address(sender));
-    const res = await client.signAndExecuteTransaction({
-      signer: keypair,
-      transaction: tx,
-      options: { showEvents: true, showEffects: true },
-    });
-    const ev = (res.events ?? []).find((e) => (e.type ?? "").includes("::segment_market_v4::RideClosedV4"));
-    if (ev?.parsedJson) {
-      const kind = Number(ev.parsedJson.settlement_kind ?? -1);
-      const payout = BigInt(ev.parsedJson.payout ?? 0);
-      stats.totalTUSDOut += payout;
-      if (kind === 1) { stats.touchWins += 1; console.log(`  [${idx}] TOUCH WIN  payout=${payout}`); }
-      else if (kind === 2) { stats.cashouts += 1; console.log(`  [${idx}] CASHOUT   payout=${payout}`); }
-      else if (kind === 3) {
-        // distinguish rug vs expire by checking for a RugFiredV4 in the same round
-        // (we'd need to query — for simplicity tag all kind=3 as 'expired_or_rugged')
-        stats.expiredLoss += 1;
-        console.log(`  [${idx}] EXPIRED/RUG  payout=${payout}`);
+    return tx;
+  };
+  let res = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      res = await client.signAndExecuteTransaction({
+        signer: keypair,
+        transaction: buildCloseTx(),
+        options: { showEvents: true, showEffects: true },
+      });
+      break;
+    } catch (err) {
+      const transient = /needs to be rebuilt|unavailable for consumption|rejected as invalid|equivocat|reserved for another/i.test(String(err));
+      if (attempt === 3 || !transient) {
+        console.log(`  [${idx}] close failed: ${String(err).slice(0, 120)}`);
+        stats.errors += 1;
+        return;
       }
-      else { console.log(`  [${idx}] kind=${kind}  payout=${payout}`); }
+      await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
     }
-  } catch (err) {
-    console.log(`  [${idx}] close failed: ${String(err).slice(0, 120)}`);
-    stats.errors += 1;
+  }
+  const ev = (res.events ?? []).find((e) => (e.type ?? "").includes("::segment_market_v4::RideClosedV4"));
+  if (ev?.parsedJson) {
+    const kind = Number(ev.parsedJson.settlement_kind ?? -1);
+    const payout = BigInt(ev.parsedJson.payout ?? 0);
+    stats.totalTUSDOut += payout;
+    if (kind === 1) { stats.touchWins += 1; console.log(`  [${idx}] TOUCH WIN  payout=${payout}`); }
+    else if (kind === 2) { stats.cashouts += 1; console.log(`  [${idx}] CASHOUT   payout=${payout}`); }
+    else if (kind === 3) {
+      stats.expiredLoss += 1;
+      console.log(`  [${idx}] EXPIRED/RUG  payout=${payout}`);
+    }
+    else { console.log(`  [${idx}] kind=${kind}  payout=${payout}`); }
   }
 }
 
