@@ -16,7 +16,8 @@ Wick asks whether BTC WICKS into a level —
        and lets you ride that question tick by tick.
 ```
 
-→ **Live frontend**: [wick-markets.vercel.app/ride](https://wick-markets.vercel.app/ride)
+→ **▶ Wick Pro — the options game** (start here): [wick-markets.vercel.app/pro](https://wick-markets.vercel.app/pro) — real Black-Scholes calls & puts on a round-based market. Tap **UP** or **DOWN**, watch **one big live P&L**, close (or let it settle) — the result equals the live number you watched (settlement-consistent pricing). A CandleVision pattern-coach reads the same tape. Mobile-first, provably fair (commit–reveal).
+→ **Live frontend (tap-hold Ride game)**: [wick-markets.vercel.app/ride](https://wick-markets.vercel.app/ride)
 → **Verify any closed ride** (one command): `npx tsx scripts/verify.ts --market <id> --ride <id>`
 → **Verify in your browser** (no wallet, no CLI): [wick-markets.vercel.app/verify](https://wick-markets.vercel.app/verify) — replays a sample ride live from its on-chain keys; toggle "dishonest house" to watch the verifier catch a tampered candle
 → **Explorer**: [package `0x1fdf78474…815924` v4.26 on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924)
