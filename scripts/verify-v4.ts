@@ -153,6 +153,22 @@ interface RpcClient {
     parentId: string;
     name: { type: string; value: string };
   }): Promise<unknown>;
+  /**
+   * Optional — only the real `SuiJsonRpcClient` supplies it. Used solely for the
+   * one rug-record lookup in `fetchRugOutcome` (segment integrity stays
+   * event-free); the mock client omits it, which downgrades rug verdicts to the
+   * safe "not asserted" path.
+   */
+  queryEvents?(args: {
+    query: { MoveEventType: string };
+    cursor?: { txDigest: string; eventSeq: string } | null;
+    limit?: number;
+    order?: "ascending" | "descending";
+  }): Promise<{
+    data: Array<{ parsedJson?: unknown }>;
+    hasNextPage: boolean;
+    nextCursor?: { txDigest: string; eventSeq: string } | null;
+  }>;
 }
 
 function asObject(v: unknown): Record<string, unknown> {
@@ -342,6 +358,90 @@ async function readRugEnabled(client: RpcClient, marketId: string): Promise<bool
     return Boolean(asObject(d.data).content);
   } catch {
     return false;
+  }
+}
+
+/**
+ * The latest deployed package id from `deployments/testnet.json`. `RugFiredV4`
+ * was introduced in the v4.26 upgrade, so its event type is keyed by the LATEST
+ * package id — not the market's type-origin package (the same gotcha #179 fixed
+ * for the rug observer). Returns null if the file can't be read.
+ */
+function latestDeployedPackageId(): string | null {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const dep = JSON.parse(
+      readFileSync(join(here, "..", "deployments", "testnet.json"), "utf8"),
+    ) as { package_id?: unknown };
+    return typeof dep.package_id === "string" ? dep.package_id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the rug outcome for `(marketId, roundIndex)` from the durable
+ * `RugFiredV4` event. This is the ONE event lookup in this otherwise event-free
+ * verifier — used only to UPGRADE a rug-market verdict from "not asserted" to a
+ * full proof. It degrades safely:
+ *   - `{ kind: "fired", segment }` — the round rugged at `segment` (authoritative)
+ *   - `{ kind: "none" }`           — a query SUCCEEDED and no rug fired this round
+ *   - `{ kind: "unknown" }`        — every RPC errored (e.g. events pruned and the
+ *                                     fallback also failed); caller keeps the safe
+ *                                     non-assertion so a pruned rug never FALSE-FAILs
+ *
+ * PublicNode (the repo-default RPC) prunes old tx events and throws mid-scan, so
+ * we fall back to the archival Mysten fullnode — a settled ride must stay
+ * verifiable long after its events age out.
+ */
+type RugOutcome =
+  | { kind: "fired"; segment: bigint }
+  | { kind: "none" }
+  | { kind: "unknown" };
+
+async function fetchRugOutcome(
+  client: RpcClient,
+  marketId: string,
+  roundIndex: bigint,
+): Promise<RugOutcome> {
+  if (!client.queryEvents) return { kind: "unknown" };
+  const pkg = latestDeployedPackageId();
+  if (!pkg) return { kind: "unknown" };
+  const eventType = `${pkg}::segment_market_v4::RugFiredV4`;
+
+  const scan = async (rpc: RpcClient): Promise<RugOutcome> => {
+    let cursor: { txDigest: string; eventSeq: string } | null = null;
+    for (let page = 0; page < 50; page++) {
+      const res = await rpc.queryEvents!({
+        query: { MoveEventType: eventType },
+        cursor,
+        limit: 50,
+        order: "ascending",
+      });
+      for (const ev of res.data) {
+        const j = asObject(ev.parsedJson);
+        if (asString(j.market_id) === marketId && asBig(j.round_index) === roundIndex) {
+          return { kind: "fired", segment: asBig(j.segment_index) };
+        }
+      }
+      if (!res.hasNextPage || !res.nextCursor) break;
+      cursor = res.nextCursor;
+    }
+    return { kind: "none" };
+  };
+
+  try {
+    return await scan(client);
+  } catch {
+    try {
+      const archival = new SuiJsonRpcClient({
+        url: "https://fullnode.testnet.sui.io:443",
+        network: "testnet",
+      }) as unknown as RpcClient;
+      return await scan(archival);
+    } catch {
+      return { kind: "unknown" };
+    }
   }
 }
 
@@ -629,13 +729,42 @@ async function verify(args: Args): Promise<boolean> {
         `touch check:       ${touchedInWindow ? "barrier touched in-window ✓ (consistent with TOUCH_WIN)" : "NO touch found — TOUCH_WIN is unjustified"}`,
       );
     } else if (rugEnabled) {
-      // CASHOUT / EXPIRED_LOSS on a rug market: don't assert the kind. Integrity
-      // is the binding proof; the verdict can hinge on a rug we can't replay.
-      verdictOk = true;
-      console.log(
-        `verdict:           ${SETTLEMENT_NAME[ride.settlementKind] ?? ride.settlementKind} on a rug-enabled market — not asserted ` +
-          "(needs the round's RugFiredV4 event; integrity is the binding proof here)",
-      );
+      // CASHOUT / EXPIRED_LOSS on a rug market: the rug roll (checked BEFORE the
+      // touch scan) can override the path-derived verdict. Upgrade to a full
+      // proof when the durable RugFiredV4 record for this round is retrievable;
+      // otherwise fall back to integrity-only so a pruned rug never FALSE-FAILs.
+      const rug = await fetchRugOutcome(client, marketId, ride.roundIndex);
+      if (rug.kind === "unknown") {
+        verdictOk = true;
+        console.log(
+          `verdict:           ${SETTLEMENT_NAME[ride.settlementKind] ?? ride.settlementKind} on a rug-enabled market — not asserted ` +
+            "(round's RugFiredV4 event unavailable; integrity is the binding proof here)",
+        );
+      } else {
+        const rugCaught =
+          rug.kind === "fired" && ride.entrySegmentIndex <= rug.segment;
+        if (rug.kind === "fired") {
+          console.log(
+            `rug:               fired at segment ${rug.segment} of round ${ride.roundIndex} — ` +
+              (rugCaught
+                ? "this ride was caught (routes to EXPIRED_LOSS)"
+                : "after this ride's entry (no effect)"),
+          );
+        } else {
+          console.log(`rug:               no rug fired in round ${ride.roundIndex}`);
+        }
+        const derived = rugCaught
+          ? SETTLEMENT_EXPIRED_LOSS
+          : deriveSettlementKind(
+              touchedInWindow,
+              maxInWindowK,
+              ride,
+              market.roundDurationSegments,
+            );
+        verdictOk = derived === ride.settlementKind;
+        console.log(`off-chain verdict: ${SETTLEMENT_NAME[derived] ?? derived}`);
+        console.log(verdictOk ? "verdict:           match" : "verdict:           MISMATCH");
+      }
     } else {
       const derived = deriveSettlementKind(
         touchedInWindow,

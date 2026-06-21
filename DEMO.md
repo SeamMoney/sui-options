@@ -50,10 +50,20 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
     `npm run verify:fairness:live`
   - audit a specific market's recorded segments: `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>`
   - verify one closed ride's settlement: `npx tsx scripts/verify-v4.ts --market <id> --ride <id>`
+  - prove a **real rug-caught ride** (the v4.26 house edge) — the verifier rebuilds the round's rug and
+    confirms the EXPIRED_LOSS was legitimate, not the house cheating:
+    ```bash
+    npx tsx scripts/verify-v4.ts \
+      --market 0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282 \
+      --ride   0x5f36a27445e7d7ac90c841cc934a945b7b3209f6809d850a4164293aa854c3b0
+    # → rug fired at segment 458 · ride entered 457 → EXPIRED_LOSS · verdict match · PASS
+    ```
 
   It re-runs the byte-identical seeded walk from each segment's on-chain key + carried state and
   confirms the chain's published high/low/verdict — prune-proof (reads the segment Table directly, no
-  event replay). Tamper any key or extremum and it exits non-zero.
+  event replay). The one exception is the v4.26 rug roll, whose per-round fire is read from the durable
+  `RugFiredV4` record (per-round state the Table can't carry); when that record has aged out the verifier
+  degrades to integrity-only rather than risk a false accusation. Tamper any key or extremum and it exits non-zero.
 
 ## Proof points
 
