@@ -224,6 +224,29 @@ async function signAndExecute(tx, label) {
   });
 }
 
+// Retry transient gas-coin / validator contention. The operator wallet has a
+// single gas coin shared with the faucet, so back-to-back txs occasionally
+// race its version ("needs to be rebuilt", "unavailable for consumption",
+// "rejected as invalid by >1/3 of validators"). REBUILD the tx each attempt
+// (so gas re-resolves to the now-advanced coin) instead of resubmitting a
+// stale one. Non-contention errors (e.g. a real abort) fail fast. `buildTx`
+// may be sync or async. Without this, a transient close failure leaks an
+// unclosed ride toward the per-user cap and eventually stalls the chart.
+const RETRYABLE = /needs to be rebuilt|unavailable for consumption|rejected as invalid|equivocat|reserved for another|not available for consumption/i;
+async function execWithRetry(buildTx, label, attempts = 4) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await signAndExecute(await buildTx(), label);
+    } catch (err) {
+      lastErr = err;
+      if (!RETRYABLE.test(String(err?.message ?? err))) throw err;
+      await sleep(700 * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
 // ── Banner ────────────────────────────────────────────────────────────────
 log("─────────────────────────────────────────────────────");
 log("Wick v4 FAST sentinel (Node + @mysten/sui)");
@@ -288,7 +311,7 @@ if (CRANKER_MODE === "always") {
     // 1. OPEN
     let openRes;
     try {
-      openRes = await signAndExecute(await buildOpenTx(), `open-${loop}`);
+      openRes = await execWithRetry(() => buildOpenTx(), `open-${loop}`);
     } catch (err) {
       log(`[${loop}] open failed: ${err.message?.slice(0, 100)} — sleep 10s`);
       await sleep(10_000);
@@ -325,9 +348,10 @@ if (CRANKER_MODE === "always") {
       await sleep(CRANK_INTERVAL_MS);
     }
 
-    // 3. CLOSE
+    // 3. CLOSE (retry transient contention so the ride doesn't leak)
     try {
-      await signAndExecute(buildCloseTx(activeSentinelRideId), `close-${loop}`);
+      const rideId = activeSentinelRideId;
+      await execWithRetry(() => buildCloseTx(rideId), `close-${loop}`);
       log(`[${loop}] CLOSE in ${((Date.now() - tStart) / 1000).toFixed(1)}s`);
     } catch (err) {
       log(`[${loop}] close failed: ${err.message?.slice(0, 100)}`);
