@@ -21,7 +21,7 @@
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -47,7 +47,19 @@ const MIST_PER_SUI = 1_000_000_000;
 let suiUsd = SUI_USD_FALLBACK;
 let suiUsdSource = "reference";
 
-/** Live SUI/USDC mid from the DeepBook indexer; null if unreachable. */
+/**
+ * Mid = (best bid + best ask) / 2 from a DeepBook level-1 orderbook payload.
+ * Returns null on a missing/empty book or non-positive prices. Pure so the
+ * parse that sets the report's USD figures is unit-testable.
+ */
+export function midFromOrderbook(j: unknown): number | null {
+  const o = (j ?? {}) as { bids?: [string, string][]; asks?: [string, string][] };
+  const bid = Number(o.bids?.[0]?.[0]);
+  const ask = Number(o.asks?.[0]?.[0]);
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) return null;
+  return (bid + ask) / 2;
+}
+
 async function fetchSuiUsd(): Promise<number | null> {
   try {
     const ctl = new AbortController();
@@ -55,11 +67,7 @@ async function fetchSuiUsd(): Promise<number | null> {
     const res = await fetch(`${DEEPBOOK_INDEXER}/orderbook/SUI_USDC?level=1`, { signal: ctl.signal });
     clearTimeout(t);
     if (!res.ok) return null;
-    const j = (await res.json()) as { bids?: [string, string][]; asks?: [string, string][] };
-    const bid = Number(j.bids?.[0]?.[0]);
-    const ask = Number(j.asks?.[0]?.[0]);
-    if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) return null;
-    return (bid + ask) / 2;
+    return midFromOrderbook(await res.json());
   } catch {
     return null;
   }
@@ -114,7 +122,7 @@ async function gasOfPreviousTx(
   };
 }
 
-function sui(mist: bigint): string {
+export function sui(mist: bigint): string {
   return (Number(mist) / MIST_PER_SUI).toFixed(6);
 }
 function usd(mist: bigint): string {
@@ -198,7 +206,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exitCode = 1;
-});
+// Run only when invoked directly (not when imported by the test).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  });
+}
