@@ -264,12 +264,17 @@ async function nextSegmentIndexAtClose(
   return k;
 }
 
-async function findRideClosedEvent(
+type ClosedEvent = { stakePaid: bigint; payout: bigint; forfeit: bigint; bounty: bigint; settlementKind: number };
+
+/** Archival fallback RPC: keeps historic events that PublicNode prunes. */
+const ARCHIVAL_RPC = "https://fullnode.testnet.sui.io:443";
+
+async function queryRideClosed(
   client: SuiJsonRpcClient,
   packageId: string,
   marketId: string,
   rideId: string,
-): Promise<{ stakePaid: bigint; payout: bigint; forfeit: bigint; bounty: bigint; settlementKind: number }> {
+): Promise<ClosedEvent | null> {
   const eventType = `${packageId}::segment_market_v4::RideClosedV4`;
   let cursor: { txDigest: string; eventSeq: string } | null = null;
   for (let p = 0; p < 200; p++) {
@@ -294,7 +299,36 @@ async function findRideClosedEvent(
     if (!page.hasNextPage || !page.nextCursor) break;
     cursor = page.nextCursor as { txDigest: string; eventSeq: string };
   }
-  throw new Error(`RideClosedV4 not found for ride ${rideId} (try --rpc the Mysten fullnode if events were pruned)`);
+  return null;
+}
+
+/**
+ * Fetch the ride's RideClosedV4. The default RPC (PublicNode) prunes historic
+ * tx events, so a judge running the documented command cold on an older ride
+ * would otherwise hit "Could not find the referenced transaction events". We
+ * transparently fall back to the archival Mysten fullnode (events retained) on
+ * any failure / miss — so the command always works without a manual --rpc.
+ */
+async function findRideClosedEvent(
+  primary: SuiJsonRpcClient,
+  primaryUrl: string,
+  packageId: string,
+  marketId: string,
+  rideId: string,
+): Promise<ClosedEvent> {
+  try {
+    const hit = await queryRideClosed(primary, packageId, marketId, rideId);
+    if (hit) return hit;
+  } catch {
+    /* fall through to archival */
+  }
+  if (primaryUrl !== ARCHIVAL_RPC) {
+    console.log(`note: events not on ${primaryUrl} (pruned) — retrying on the archival fullnode…`);
+    const fallback = new SuiJsonRpcClient({ url: ARCHIVAL_RPC, network: "testnet" });
+    const hit = await queryRideClosed(fallback, packageId, marketId, rideId);
+    if (hit) return hit;
+  }
+  throw new Error(`RideClosedV4 not found for ride ${rideId} on any RPC (is the ride closed?)`);
 }
 
 async function main(): Promise<boolean> {
@@ -331,7 +365,7 @@ async function main(): Promise<boolean> {
       ? ride.escrowed
       : ride.stakePerSegment * segmentsHeld;
 
-  const closed = await findRideClosedEvent(client, market.packageId, args.market, args.ride);
+  const closed = await findRideClosedEvent(client, args.rpc, market.packageId, args.market, args.ride);
 
   console.log("");
   console.log(`settlement:        ${SETTLEMENT_NAME[closed.settlementKind] ?? closed.settlementKind}`);
