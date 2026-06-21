@@ -154,6 +154,19 @@ try {
     check("/pro loads (run check:pro for the full flow)", up && errors.length === 0, `up=${up} errors=${errors.length}`);
     await ctx.close();
   }
+
+  // ── /pro-sim — the provably-fair synthetic mode the docs + /verify cite ──
+  {
+    const { page, ctx, errors } = await newPage();
+    await page.goto(`${BASE}/pro-sim`, { waitUntil: "domcontentloaded", timeout: 40000 });
+    await page.waitForTimeout(7000);
+    const txt = await page.evaluate(() => document.body.innerText);
+    const fair = /PROVABLY FAIR/i.test(txt);
+    const trade = (await page.locator('button:has-text("UP")').count()) > 0 && (await page.locator('button:has-text("DOWN")').count()) > 0;
+    const chart = await page.evaluate(() => document.querySelectorAll("svg").length > 0);
+    check("/pro-sim runs the provably-fair synthetic game (chart + UP/DOWN)", fair && trade && chart && errors.length === 0, `fair=${fair} trade=${trade} chart=${chart} errors=${errors.length}`);
+    await ctx.close();
+  }
 } catch (err) {
   check("ran the smoke without throwing", false, String(err).slice(0, 120));
 } finally {
