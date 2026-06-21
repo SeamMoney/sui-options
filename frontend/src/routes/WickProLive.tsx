@@ -677,6 +677,12 @@ export function WickProLive() {
             </button>
           </div>
         )}
+
+        {/* Keyboard hint — desktop only, where keys matter; makes the laptop
+            shortcuts discoverable without cluttering the phone. Context-aware. */}
+        <div className="hidden sm:block text-center text-[10px] tracking-wider text-white/25 select-none">
+          {position ? "keys · C close · F flip" : "keys · U up · D down"}
+        </div>
       </div>
       </div>
     </div>
