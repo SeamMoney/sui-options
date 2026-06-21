@@ -625,6 +625,16 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
          */}
 
         <div className="pointer-events-auto flex items-center gap-2">
+          {/* The submission lives at /pro — surface it from the landing so a
+              judge who opens the bare domain can reach Wick Pro (the live
+              DeepBook options game), not just the Ride. */}
+          <a
+            href="/pro"
+            title="Wick Pro — one-tap options on a live DeepBook mark"
+            className="flex items-center gap-1 rounded-lg border border-[#863bff]/45 bg-[#863bff]/15 px-2.5 py-1.5 text-[11px] font-semibold text-[#c8b1ff] hover:bg-[#863bff]/25 transition-colors whitespace-nowrap"
+          >
+            Wick Pro <span className="opacity-70">↗</span>
+          </a>
           {/* v4.31g — Dynamic Sign-in button. Renders nothing unless
               VITE_DYNAMIC_ENVIRONMENT_ID is configured (see
               DynamicProvider.tsx). When wired up, this is the
