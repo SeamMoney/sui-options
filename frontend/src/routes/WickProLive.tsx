@@ -437,6 +437,16 @@ export function WickProLive() {
 
   return (
     <div className="fixed inset-0 bg-[#0b0b0c] text-white overflow-hidden">
+      {/* bloxwap "+" grid watermark — a faint tiled cross texture behind
+          everything, matching the reference's subtle plus-grid. Decoration. */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M22 17v10M17 22h10' stroke='%23ffffff' stroke-opacity='0.05' stroke-width='1'/%3E%3C/svg%3E\")",
+          backgroundSize: "44px 44px",
+        }}
+      />
       <style>{`
         @keyframes wpFlash { 0% { opacity: 0.9 } 100% { opacity: 0 } }
         @keyframes wpPop { 0% { transform: scale(0.7); opacity: 0 } 45% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }
@@ -462,7 +472,7 @@ export function WickProLive() {
       )}
       {/* Phone-width column, centered — full-bleed on phones (< max-w), a tidy
           centered frame on tablet/desktop instead of a stretched layout. */}
-      <div className="mx-auto flex h-full w-full max-w-[480px] flex-col">
+      <div className="relative z-10 mx-auto flex h-full w-full max-w-[480px] flex-col">
       {/* Header */}
       <header className="flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 shrink-0">
         <div className="flex items-center gap-2">
