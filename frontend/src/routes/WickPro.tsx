@@ -311,10 +311,13 @@ export function WickPro() {
             )}
           </div>
 
-          {/* Coach panel — bottom-right, hidden on the smallest phones to keep the P&L hero clean */}
+          {/* Coach panel — floats bottom-right over the chart. Visible on every
+              viewport (the CandleVision read is part of the pitch); it sits
+              below the centered P&L hero so it never covers the headline number.
+              Narrower + fewer rows on phones so it stays out of the way. */}
           {coachCandles.length > 0 && (
-            <div className="absolute bottom-1 right-0 hidden w-[220px] sm:block">
-              <PatternCoachPanel candles={coachCandles} maxItems={3} />
+            <div className="absolute bottom-1 right-0 w-[158px] sm:w-[220px]">
+              <PatternCoachPanel candles={coachCandles} maxItems={3} className="!p-3 sm:!p-4" />
             </div>
           )}
         </div>
