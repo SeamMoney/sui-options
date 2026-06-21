@@ -143,7 +143,13 @@ export interface Config {
 function rpcFor(n: Network): string {
   switch (n) {
     case "mainnet": return "https://fullnode.mainnet.sui.io:443";
-    case "testnet": return "https://fullnode.testnet.sui.io:443";
+    // testnet defaults to PublicNode, not the Mysten public fullnode. The
+    // keeper is the heaviest RPC user in the system (a record_segment crank
+    // ~1 tx/sec plus event polling), and the Mysten testnet endpoint throttles
+    // under exactly that load — the same v4.29 finding that moved the frontend
+    // off it (see frontend/src/lib/sui.ts). PublicNode sustains ~10× the rate.
+    // Override with WICK_KEEPER_RPC to point at your own infra.
+    case "testnet": return "https://sui-testnet-rpc.publicnode.com";
     case "devnet":  return "https://fullnode.devnet.sui.io:443";
     case "localnet":return "http://127.0.0.1:9000";
   }
