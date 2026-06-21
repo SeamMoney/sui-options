@@ -45,6 +45,7 @@
     "judge": "node scripts/judge.mjs",
     "smoke:demo": "bash scripts/demo-smoke.sh",
     "smoke:ride": "tsx scripts/judge-ride-smoke.ts",
+    "chart:keep": "bash scripts/chart-keeper.sh",
     "smoke:halt": "tsx scripts/judge-halt-smoke.ts",
     "e2e:pro": "node scripts/e2e-pro-smoke.mjs",
     "e2e:verify": "node scripts/e2e-verify-smoke.mjs",

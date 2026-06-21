@@ -87,6 +87,12 @@ Operator-facing bash + node scripts. All scripts read live IDs from
 
 ## Sentinel — keep the on-chain chart alive between human plays
 
+- `chart-keeper.sh` (`npm run chart:keep`) — **resilient supervisor** for a
+  live demo: runs `sentinel-v4-fast.mjs` in `CRANKER_MODE=always` and restarts
+  it ~5s later if the process dies (RPC outage / OOM / network drop), so the
+  chart never freezes mid-judging. Ctrl+C stops it (the sentinel closes its
+  in-flight ride first). ~30 SUI/hr. Tunables (`CRANK_INTERVAL_MS`,
+  `HOLD_SEGMENTS`) pass through.
 - `sentinel-v4-fast.mjs` — **the v4 cranker.** In-process `@mysten/sui`
   loop that pumps `record_segment_v4` (~150–200ms/crank) so a
   `SegmentMarketV4` chart keeps producing candles (and rugs keep firing into
