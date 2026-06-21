@@ -24,12 +24,19 @@ const C = {
 };
 
 // Each proof: an npm script + the one-line claim it establishes on live state.
+// Ordered as the fairness chain of custody: random keys → honest candles → solvent vault.
 const steps = [
+  {
+    script: "verify:randomness",
+    title: "The keys are drawn from sui::random",
+    proves:
+      "every record_segment crank consumes the system Random object (0x…08) — the segment key isn't house-chosen or grindable",
+  },
   {
     script: "audit:deployment",
     title: "Every live market is provably fair",
     proves:
-      "each deployed v4 market's recorded candles reproduce from its own on-chain segment keys — the house can't fake or alter a candle",
+      "each deployed v4 market's recorded candles reproduce from those on-chain keys — the house can't fake or alter a candle",
   },
   {
     script: "vault:solvency",
