@@ -18,7 +18,7 @@ Wick asks whether BTC WICKS into a level —
 
 → **▶ Wick Pro — the options game** (start here): [wick-markets.vercel.app/pro](https://wick-markets.vercel.app/pro) — one-tap Black-Scholes calls & puts priced off a **live DeepBook mark** — toggle **SUI**, **BTC** (XBTC/USDC ~$64k), or **DEEP**: a real on-chain CLOB mid with σ from the live trade tape. Tap **UP** or **DOWN**, watch **one big live P&L** tick off the real mid, close (or let it auto-settle in 60s) — the result equals the live number you watched (settlement-consistent). A CandleVision pattern-coach reads the same live tape. No wallet, mobile-first. The full live DeepBook desk — order book, depth, 24h volume, recent fills, and the option payoff diagram — is at **[/coach](https://wick-markets.vercel.app/coach)**.
 → **Live frontend (tap-hold Ride game)**: [wick-markets.vercel.app/ride](https://wick-markets.vercel.app/ride)
-→ **Verify any closed ride** (one command): `npx tsx scripts/verify.ts --market <id> --ride <id>`
+→ **Verify the live chain from a terminal** (no wallet, no indexer): `npm run verify:fairness` (instant offline PASS) · `npm run verify:fairness:tamper` (watch it catch a tampered segment) · audit the real v4 chain with `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id> [--ride <id>]`
 → **Verify in your browser** (no wallet, no CLI): [wick-markets.vercel.app/verify](https://wick-markets.vercel.app/verify) — replays a sample ride live from its on-chain keys; toggle "dishonest house" to watch the verifier catch a tampered candle
 → **Explorer**: [package `0x1fdf78474…815924` v4.26 on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924)
 
@@ -95,10 +95,13 @@ npm run test:move   # just `sui move test` (needs the Sui CLI)
 #    (10k vectors, Move↔TS rolling digest must match exactly)
 cd move && sui move test seeded_path_conformance && cd ..
 
-# 4. verify a ride that already closed on live testnet
-npx tsx scripts/verify.ts \
-  --market 0x2f74fbdb20560206617c711a454dc29d4d6b000cc9ab2e4537400d80f88d1e45 \
-  --ride   0xe85201be6b8276bf7cf2f94c3ef54775292a004266f6779373d81b13a1f81572
+# 4. prove provable fairness — instant, offline, no wallet:
+npm run verify:fairness          # honest synthetic v4 market+ride → PASS, exit 0
+npm run verify:fairness:tamper   # one tampered segment extremum → FAIL, exit 1
+#
+#    …or audit the LIVE v4 chain (reads the segment Table directly — prune-proof):
+npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>            # audit recent segments
+npx tsx scripts/verify-v4.ts --market <id> --ride <SegmentRidePositionV4 id>  # verify one closed ride
 
 # 5. open the live frontend
 open https://wick-markets.vercel.app/ride
