@@ -80,6 +80,10 @@ export function WickProLive() {
   const [history, setHistory] = useState<MarkPoint[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const nowMsRef = useRef(nowMs); // latest frame time, for exact close-at-display
+  // The exact (spot, nowMs) the headline P&L was last PAINTED with — CLOSE
+  // settles from these so the banked result is byte-for-byte the number that
+  // was on screen when you tapped (not a fresh frame that may have glided on).
+  const paintedRef = useRef<{ spot: number | null; nowMs: number }>({ spot: null, nowMs });
   // Smoothed spot: eased toward the latest mark every animation frame so the
   // price line + P&L glide at ~60fps instead of stepping each 1.5s poll.
   const [spotSmooth, setSpotSmooth] = useState<number | null>(null);
@@ -224,13 +228,16 @@ export function WickProLive() {
   // the unrealizedPnl shown in the headline at the same `now`, so the result the
   // player banks equals the live number they were watching.
   const closeNow = useCallback(() => {
-    if (!position || spot === null) return;
-    // Settle at the SAME (spot, frame-time) the headline last rendered, so the
-    // banked result is exactly the number on screen when you tapped.
-    const done = sellToClose(position, spot, nowMsRef.current, sigma, SPREAD_BPS);
+    if (!position) return;
+    // Settle from the EXACT (spot, nowMs) the headline was last painted with,
+    // so the banked result equals the number on screen when you tapped — even
+    // if a 60fps frame glided it in between perception and click.
+    const { spot: s, nowMs: t } = paintedRef.current;
+    if (s === null) return;
+    const done = sellToClose(position, s, t, sigma, SPREAD_BPS);
     setSettled(done);
     setPosition(null);
-  }, [position, spot, sigma]);
+  }, [position, sigma]);
 
   // FLIP = reverse the bet: cash out the current leg and open the opposite side
   // at the live mark with the same stake, in one tap. Never leaves you with no
@@ -268,6 +275,10 @@ export function WickProLive() {
     }
     return null;
   }, [position, settled, spot, nowMs, sigma]);
+
+  // Record the inputs this render painted the live P&L with, so CLOSE can
+  // settle from exactly them (see closeNow).
+  paintedRef.current = { spot, nowMs };
 
   // Memoized so the 60fps P&L loop doesn't re-run the CandleVision scan — the
   // coach only recomputes when the candle window actually changes (~5s).
