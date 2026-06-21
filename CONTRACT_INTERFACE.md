@@ -18,7 +18,9 @@ Short-dated, oracle-observed **barrier options on Sui**:
   barriers (`STATUS_DNT_HELD`), loses if either is broken (`STATUS_DNT_BROKEN`).
 - **Ride** — a streaming-touch primitive that lives only while you hold the
   screen: stake accrues per-second; a barrier touch wins, cash-out or expiry
-  ends it.
+  ends it. The **live demo arcade** is the always-open **segment-market v4**
+  ride: touch *either* barrier, cranked segment-by-segment, with an optional
+  `enable_rug` house edge (v4.26).
 
 Counterparty is the **MartingalerVault** (a loss-recycling LP vault), not a
 peer pool. "Touch" means **the oracle's** buffered + deadbanded observation
@@ -35,10 +37,18 @@ crossed the barrier — not any off-chain tick.
 | Coin type `C` | `0x2::sui::SUI` (markets/vault are generic over collateral `C`) |
 | Clock | `0x6` |
 
-Arcade markets (`arcade_markets[]`) ship as random-walk markets, each with its
-own `market` / `oracle` / `path` / `random_walk` object IDs, e.g. `WICK-RNG-25`
-(barrier 26000000, dir 0), `WICK-RNG-100` (95000000, dir 1), `WICK-RNG-1000`
-(1030000000, dir 0, has `ride_caps`). Read the file for the live set.
+Two market families in `testnet.json`:
+
+- `segment_markets[]` — the **live v4 segment-market arcade** (added in the
+  2026-05-24 upgrade; v4.26 adds the rug edge). This is the **active demo
+  path** — a recently-traded market is
+  `0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282`
+  (`home_price 1e9`, `round_duration_segments 75`, `open_window_segments 13`).
+  The `wick::sponsor` module is also live.
+- `arcade_markets[]` — discrete random-walk touch markets (`market` / `oracle` /
+  `path` / `random_walk` IDs), e.g. `WICK-RNG-25/100/1000`.
+
+Always read `deployments/testnet.json` for the current set.
 
 ## Object model (see `docs/architecture.md` for full structs)
 
@@ -66,7 +76,10 @@ bootstrap_random_walk_market | bootstrap_pull_market   // per market
   → (keeper ticks the oracle into PathObservation)
   → lock_and_settle             (permissionless, atomic)
   → redeem                      (winner burns Position; vault pays)
-Rides:  open_ride → (close_ride | crank_expired_ride)
+Rides (legacy):   open_ride → (close_ride | crank_expired_ride)
+Live arcade (v4): bootstrap_segment_market_v4 → open_segment_ride_v4
+                  → record_segment_v4   (permissionless crank, advances segments)
+                  → (close_segment_ride_v4 | crank_expired_segment_ride_v4 | abort_segment_ride_v4)
 ```
 
 ## Entry functions — `wick::wick` facade (exact signatures)
@@ -110,20 +123,45 @@ Sides: `market::side_touch()`, `market::side_no_touch()` (=1),
 `market::vault_side_none()` (=255, allow both sides). `direction` selects which
 crossing of `barrier` counts as a touch.
 
-**Segment-market arcade + v3/v4:** the facade also exposes
-`bootstrap_segment_market[_v3|_v4]`, `open/close/crank/abort_segment_ride[_v3|_v4]`,
-`record_segment*`, and (design-only, **not yet on testnet**)
-`record_walrus_archive_*` / `prune_settled_segments_*` / `harvest_to_sponsor`.
-Per AGENTS.md, the **shipped v2 surface is the list above**; treat v3 sponsor /
-Walrus / pruning as roadmap.
+### Segment-market arcade v4 — the live demo path
+
+The always-open, **touch-either-barrier** streaming arcade (deployed in the
+2026-05-24 upgrade; v4.26 adds an opt-in rug house edge). It's cranked
+permissionlessly segment-by-segment and is what the live demo trades.
+
+```move
+public entry fun bootstrap_segment_market_v4<C>(home_price, vol_regime_init,
+  round_duration_segments, barrier_offset_bps, multiplier_bps, max_payout_per_round,
+  deadband_bps, sigma_bps_per_sqrt_sec, cashout_spread_bps, abort_segment_deadline_ms,
+  min_stake_per_segment, max_stake_per_segment, max_concurrent_rides,
+  max_rides_per_user, vault, clock, ctx)
+public entry fun record_segment_v4<C>(market, r: &Random, clock, ctx)  // permissionless cranker
+public entry fun enable_rug<C>(market, rug_chance_bps)                 // v4.26 house edge (opt-in)
+public fun open_segment_ride_v4<C>(market, vault, bot_registry,
+  stake_per_segment, escrow: Coin<C>, clock, ctx): SegmentRidePositionV4  // touch EITHER barrier
+public fun close_segment_ride_v4<C>(ride, market, vault, price_oracle,
+  token_state, staking_pool, clock, ctx): Coin<C>                      // cash out
+public fun crank_expired_segment_ride_v4<C>(/* same tail */): Coin<C>  // settle expired
+public fun abort_segment_ride_v4<C>(ride, market, vault, clock, ctx): Coin<C>  // 1:1 refund
+```
+
+**Roadmap (not in the live demo path):** `segment_market_v3` (stashed to
+`move/sources-stash/`); the off-chain sponsored-cranking service
+(`harvest_to_sponsor`); and the Walrus archive + storage-rebate pruning
+(`record_walrus_archive_v4` / `prune_settled_segments_v4`).
 
 ## Events (subscribe for the live feed / `/verify`)
 
-`MarketCreated`, `PositionOpened`, `BarrierTouched`, `OracleSettled`,
-`MarketSettled`, `PositionRedeemed`, `RideOpened`, `RideClosed`,
+Discrete / legacy: `MarketCreated`, `PositionOpened`, `BarrierTouched`,
+`OracleSettled`, `MarketSettled`, `PositionRedeemed`, `RideOpened`, `RideClosed`,
 `LockInitialized`, `PathSettlementLocked`, `SettlementLockReserved`,
 `SettlementLockReleased`, `AbortRefundPoolFunded`, `AbortRefundClaimed`,
-`SegmentMarketCreated` — all `copy, drop`.
+`SegmentMarketCreated`.
+
+Live **v4 arcade**: `SegmentMarketV4Created`, `RoundStartedV4`,
+`SegmentRecordedV4`, `RideOpenedV4`, `RideClosedV4`, `RugFiredV4` (+
+`RoundArchivedV4` / `SegmentsPrunedV4` for the archive/prune roadmap). All
+events are `copy, drop`.
 
 ## Settlement & payout
 
