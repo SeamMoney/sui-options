@@ -191,6 +191,18 @@ Why it exists: without it, the touch-either market is too generous to the player
 
 Why it's provably-fair: the rug roll is **deterministic from `(segment_key, market_id, round_index)`** — `roll = keccak256(segment_key ‖ market_id ‖ round)[0..8] mod 10_000`, fires iff `roll < rug_chance_bps`. The segment_key comes from `sui::random::generate_bytes(32)` gated by Sui's PTB-Random structural rule (attackers can't grind it), and `npx tsx scripts/verify-v4.ts --market <id> --ride <id>` **re-derives the keccak roll for every segment in the ride's round** straight from the on-chain keys. It reports the firing segment and its roll, cross-checks against the chain's `rugged_at_segment`, and confirms the rugged ride settled `EXPIRED_LOSS`. If a `kind=3 / rugged` settlement ever fired without a passing roll — or a passing roll were ignored — the verdict diverges and the verifier exits non-zero. Same standard as the candle math itself; the TS↔Move roll is pinned by golden vectors in `npm run test:verify-v4`.
 
+Stronger still — audit the **entire halt history** of the market in one command:
+
+```text
+$ npm run check:rugs
+round   0 · halt @ segment    35 · roll     1 < 150  ✓ HONEST
+round   5 · halt @ segment   447 · roll   124 < 150  ✓ HONEST
+round   6 · halt @ segment   458 · roll    78 < 150  ✓ HONEST
+PASS — all 7 on-chain MARKET HALTs are cryptographically honest
+```
+
+`scripts/audit-rugs.ts` reads every `RugFiredV4` the market ever emitted, re-derives each halt's keccak roll from the on-chain segment keys, and proves the house could neither **fake** a halt (every halt rolled `< rug_chance_bps`) **nor suppress** one (no *earlier* segment in the round also qualified — `roll_rug` fires on the first hit, so a held-back rug would mean a winning ride was illegitimately kept alive). Both directions, every round. The house edge isn't asserted; it's audited.
+
 Why the player can't avoid it: six adversarial heuristics tested at 50k rounds each (`scripts/simulate_v4.27_strategies.py`) — `hold_full`, `cashout_on_drawdown`, `chase_touch`, `cashout_on_profit`, `early_exit_5`, `mid_hold`. Every one lands in the **+3.93% to +11.71% house-edge band** with 95% confidence. No strategy in the tested family achieves negative house edge. Reactive cashouts make things WORSE because the 2% cashout spread bleeds segments the player didn't need to abandon.
 
 Vault solvency under the rug: at the live 100M TUSD seed with a 500 TUSD per-round payout cap, the worst observed drawdown across 10k-round Monte Carlo simulations (1, 5, 10, and 50 concurrent rides) is **615 TUSD = 0.001% of seed**. The vault grows monotonically in expectation. Full derivation + strategy sweep + LP yield projection in [`docs/design/v2/26_rug_pull_house_edge_v4.md`](docs/design/v2/26_rug_pull_house_edge_v4.md) and [`docs/design/v2/27_economic_model_v4.md`](docs/design/v2/27_economic_model_v4.md).

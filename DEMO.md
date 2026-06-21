@@ -60,6 +60,9 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
       --ride   0x7b3df97e608bda202efd096bca652be8a846dc2a286abfd5d94a1ca3b9c4a5ea
     ```
     → `MARKET HALT: rug fired @ segment 458 — keccak roll=78 < rug_chance_bps=150 (HONEST)` → **PASS**
+  - **audit EVERY halt the market ever fired** — `npm run check:rugs` re-derives the keccak roll for
+    all 7 on-chain `MARKET HALT`s and proves the house could neither fake nor suppress a single one
+    (`✓ HONEST` per round → **PASS**). The house edge isn't asserted; it's audited.
 
   It re-runs the byte-identical seeded walk from each segment's on-chain key + carried state and
   confirms the chain's published high/low/verdict — prune-proof (reads the segment Table directly, no
