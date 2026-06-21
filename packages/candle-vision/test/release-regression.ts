@@ -37,6 +37,8 @@ assertFixtureDetects('hammer', 'hammer');
 assertFixtureDetects('engulfing', 'engulfing');
 assertFixtureDetects('marubozu', 'marubozu');
 assertFixtureDetects('harami', 'harami');
+assertFixtureDetects('shooting-star', 'shooting-star');
+assertFixtureDetects('three-white-soldiers', 'three-white-soldiers');
 assertFixtureDetects('morning-star', 'morning-star');
 assertFixtureDetects('vision-momentum', 'vision-momentum');
 

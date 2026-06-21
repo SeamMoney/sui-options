@@ -42,6 +42,22 @@ export const patternFixtures: Record<string, CandleInput[]> = {
     { time: 5, open: 101, high: 101.5, low: 93.5, close: 94, volume: 160 },
     { time: 6, open: 96, high: 97, low: 95.5, close: 96.8, volume: 90 },
   ],
+  // Shooting Star: small body near the low with a long upper shadow, after a push
+  // up. One of the on-chain "hero shapers" the segment walk can arm, so it is
+  // guaranteed to appear in the demo.
+  'shooting-star': [
+    ...baseCandles(4),
+    { time: 5, open: 99, high: 99.5, low: 98.8, close: 99.4, volume: 100 },
+    { time: 6, open: 99.5, high: 103.5, low: 99.3, close: 99.7, volume: 130 },
+  ],
+  // Three White Soldiers: three consecutive strong bullish candles, each opening
+  // within the prior body and closing near its high. Also a hero shaper.
+  'three-white-soldiers': [
+    ...baseCandles(4),
+    { time: 5, open: 99, high: 101.2, low: 98.8, close: 101, volume: 140 },
+    { time: 6, open: 100.8, high: 103.2, low: 100.6, close: 103, volume: 150 },
+    { time: 7, open: 102.8, high: 105.2, low: 102.6, close: 105, volume: 160 },
+  ],
   'morning-star': [
     ...baseCandles(4, 112),
     { time: 5, open: 111, high: 112, low: 99, close: 100, volume: 140 },
