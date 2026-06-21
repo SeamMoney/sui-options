@@ -5,6 +5,18 @@ build/
 coverage/
 *.tsbuildinfo
 
+# Committed workspace-lib build artifacts (exception to dist/ above).
+# Vercel deploys the frontend with Root Directory = frontend and runs only a
+# frontend-scoped install + build, so it never builds the sibling workspace
+# libs. Vite then fails to resolve @wick/sdk and the candle-vision / pro-options
+# packages (they resolve through their dist/). Committing these dist/ trees makes
+# the deploy self-sufficient. Rebuild after changing lib source:
+#   npm run build:frontend-deps
+!sdk/dist/
+!packages/candle-vision/dist/
+!packages/candle-vision-react/dist/
+!packages/pro-options/dist/
+
 # Env / secrets — never commit these
 .env
 .env.*
