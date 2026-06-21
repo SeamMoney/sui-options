@@ -301,6 +301,12 @@ Content-Type: application/json
 { "commit": "<64-hex SHA-256>", "seed": 1337, "paramsJson": "<exact revealed params>" }
 ```
 
+Or as a **clickable link** (GET, the same three values URL-encoded — read-only):
+
+```
+GET /api/verify-pro?commit=<64-hex>&seed=1337&paramsJson=%7B...%7D
+```
+
 Responses:
 
 | Status | Body                                                                   | Meaning                              |
