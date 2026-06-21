@@ -60,6 +60,7 @@
     "build:pro-options": "npm -w @sui-options/pro-options run build",
     "typecheck:pro-options": "npm -w @sui-options/pro-options run typecheck",
     "test:pro-options": "npm -w @sui-options/pro-options run test",
+    "play": "npm -w @sui-options/pro-options run play",
     "build:sdk": "npm -w @wick/sdk run build",
     "build:api": "npm -w @wick/api run build",
     "build:frontend-deps": "npm run build:sdk && npm run build:candle-vision && npm run build:candle-vision-react && npm run build:pro-options",
