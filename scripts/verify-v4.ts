@@ -42,6 +42,9 @@
  * live window is bounded by `recorded_at_ms <= closed_at_ms` (no event lookup),
  * so the touch scan matches the chain's `[entry, next_segment_index@close)`.
  */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import {
   expandSegment,
@@ -129,9 +132,14 @@ function parseArgs(argv: string[]): Args {
       throw new Error(`unknown or incomplete argument: ${arg}`);
     }
   }
-  // Synthetic modes synthesize a market id, so --market is optional there.
+  // Synthetic modes synthesize a market id; market-audit mode can auto-discover
+  // a live market from deployments. Only ride mode strictly needs --market (the
+  // market must match the ride).
   const synthetic = (out.rpc ?? "").startsWith("mock://");
-  if (!synthetic && !out.market) usage();
+  if (!synthetic && out.ride && !out.market) {
+    console.error("--ride requires --market (the market the ride belongs to)");
+    usage();
+  }
   return out as Args;
 }
 
@@ -221,6 +229,51 @@ interface RideInfo {
   closed: boolean;
   closedAtMs: bigint;
   settlementKind: number;
+}
+
+/**
+ * Zero-arg convenience: pick a live v4 market to audit from
+ * `deployments/testnet.json`. Probes each `segment_markets_v4` entry and
+ * returns the one with the most segments recorded (the busiest = best demo),
+ * so `npx tsx scripts/verify-v4.ts` with no `--market` audits the live chain.
+ */
+async function discoverLiveMarket(client: RpcClient): Promise<string> {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const path = join(here, "..", "deployments", "testnet.json");
+  let markets: string[];
+  try {
+    const dep = JSON.parse(readFileSync(path, "utf8")) as {
+      segment_markets_v4?: Array<{ market?: string }>;
+    };
+    markets = (dep.segment_markets_v4 ?? [])
+      .map((m) => m.market)
+      .filter((m): m is string => typeof m === "string");
+  } catch (e) {
+    throw new Error(
+      `pass --market <SegmentMarketV4 id> (could not read ${path}: ${
+        e instanceof Error ? e.message : String(e)
+      })`,
+    );
+  }
+  if (markets.length === 0) {
+    throw new Error("no segment_markets_v4 in deployments/testnet.json — pass --market <id>");
+  }
+  let best: { id: string; segs: bigint } | null = null;
+  for (const id of markets) {
+    try {
+      const m = await readMarket(client, id);
+      if (!best || m.nextSegmentIndex > best.segs) {
+        best = { id, segs: m.nextSegmentIndex };
+      }
+    } catch {
+      // skip unreachable / wrong-type entries
+    }
+  }
+  if (!best || best.segs < 2n) {
+    throw new Error("no live v4 market with recorded segments found — pass --market <id>");
+  }
+  console.log(`(auto-selected live market with ${best.segs} segments from deployments/testnet.json)`);
+  return best.id;
 }
 
 async function readMarket(client: RpcClient, marketId: string): Promise<MarketInfo> {
@@ -553,7 +606,9 @@ async function verify(args: Args): Promise<boolean> {
     ? buildSyntheticClient(args.rpc.includes("tamper"))
     : (new SuiJsonRpcClient({ url: args.rpc, network: "testnet" }) as unknown as RpcClient);
 
-  const marketId = synthetic ? SYNTH_MARKET : args.market!;
+  const marketId = synthetic
+    ? SYNTH_MARKET
+    : (args.market ?? (await discoverLiveMarket(client)));
   const market = await readMarket(client, marketId);
 
   console.log(`network:  ${synthetic ? "synthetic (offline)" : args.rpc}`);
@@ -616,9 +671,10 @@ async function verify(args: Args): Promise<boolean> {
 
     // ── v4.26 MARKET HALT (rug) ──────────────────────────────────────────────
     // The chain routes a rugged ride to EXPIRED_LOSS by reading
-    // `rugged_at_segment` at close — independent of any RugFiredV4 event (which
-    // some markets never emit). We RE-DERIVE the halt from segment keys so the
-    // verdict is provable, not event-trusted.
+    // `rugged_at_segment` BEFORE the touch scan (a rug beats a later touch) —
+    // independent of any RugFiredV4 event (which some markets never emit). Rather
+    // than skip the verdict on rug markets, we RE-DERIVE the halt from the
+    // on-chain segment keys, so even the house edge is provable, not trusted.
     const scanEnd = maxInWindowK === null ? ride.entrySegmentIndex : maxInWindowK + 1n;
     const rug = await readRugConfig(client, marketId);
     let rugRollOk = true;
