@@ -86,6 +86,7 @@ export function WickProLive() {
   const spotSmoothRef = useRef<number | null>(null);
   const targetSpotRef = useRef<number | null>(null);
   const idRef = useRef(0);
+  const seededRef = useRef(false); // chart pre-seeded from candle history?
 
   // Live realized vol once candles arrive; sane fallback while connecting.
   const sigma = candleStatus === "live" && liveSigma > 0 ? liveSigma : FALLBACK_SIGMA;
@@ -145,7 +146,23 @@ export function WickProLive() {
     spotSmoothRef.current = null;
     targetSpotRef.current = null;
     setSpotSmooth(null);
+    seededRef.current = false;
   }, [pool]);
+  // Seed the sparkline with the pool's REAL recent candle closes so the chart
+  // is a full, real price history from the first frame — not an empty line
+  // building up from scratch. Live marks then extend it.
+  useEffect(() => {
+    if (seededRef.current || candles.length === 0) return;
+    seededRef.current = true;
+    const seed = candles.map((c) => ({ t: c.tMs, mid: c.close }));
+    // Prepend the real candle history in FRONT of whatever live marks have
+    // streamed in so far (the marks are newer than the bars), then cap.
+    setHistory((h) => {
+      const olderSeed = seed.filter((s) => h.length === 0 || s.t < h[0]!.t);
+      const merged = [...olderSeed, ...h];
+      return merged.length > MAX_POINTS ? merged.slice(merged.length - MAX_POINTS) : merged;
+    });
+  }, [candles]);
   useEffect(() => {
     if (!mark) return;
     setHistory((h) => {
