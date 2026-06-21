@@ -8,7 +8,7 @@
  * server, and the on-chain settlement all wrap. See docs/design/v2/28.
  */
 import { SECONDS_PER_YEAR, quote as bsQuote } from "./black-scholes.js";
-import { openOption, realizedPnl, sellToClose as sellPos, settleAtExpiry } from "./option.js";
+import { openOption, realizedPnl, sellToClose as sellPos, settleAtExpiry, settlementPnlAtSpot } from "./option.js";
 import { generatePath } from "./path.js";
 import { commit as commitFn, phaseRemainingMs, revealedSteps, roundPhase } from "./round.js";
 export class RoundEngine {
@@ -132,6 +132,39 @@ export class RoundEngine {
     }
     getPositions() {
         return [...this.positions.values()];
+    }
+    /**
+     * Settlement-projected P&L for one position at the spot visible at `nowMs`
+     * — "what you'd realize if the round settled now". Shares the settlement
+     * formula (see `settlementPnlAtSpot`), so the live readout and the final
+     * settlement always agree. Returns 0 for an unknown id.
+     */
+    livePnlOf(id, nowMs) {
+        const pos = this.positions.get(id);
+        if (!pos)
+            return 0;
+        return settlementPnlAtSpot(pos, this.spotAt(nowMs));
+    }
+    /**
+     * Total settlement-projected P&L across the whole book at `nowMs`: open
+     * positions marked to the intrinsic settlement at the current spot, closed
+     * positions at their realized value. This is the ONE number the headline
+     * "Live P&L" should show; at expiry it equals `playerPnl()` exactly because
+     * both call the same intrinsic settlement on the same spot.
+     */
+    livePnl(nowMs) {
+        const spot = this.spotAt(nowMs);
+        let total = 0;
+        for (const pos of this.positions.values())
+            total += settlementPnlAtSpot(pos, spot);
+        return total;
+    }
+    /** Total premium paid across the book — the natural denominator for a P&L %. */
+    premiumAtRisk() {
+        let total = 0;
+        for (const pos of this.positions.values())
+            total += pos.premiumPaid;
+        return total;
     }
     /** Total realized P&L across all closed player positions. */
     playerPnl() {

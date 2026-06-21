@@ -65,6 +65,23 @@ export declare class RoundEngine {
     /** End-of-round sweep: settle anything still open at its expiry. */
     settleAll(): OptionPosition[];
     getPositions(): OptionPosition[];
+    /**
+     * Settlement-projected P&L for one position at the spot visible at `nowMs`
+     * — "what you'd realize if the round settled now". Shares the settlement
+     * formula (see `settlementPnlAtSpot`), so the live readout and the final
+     * settlement always agree. Returns 0 for an unknown id.
+     */
+    livePnlOf(id: string, nowMs: number): number;
+    /**
+     * Total settlement-projected P&L across the whole book at `nowMs`: open
+     * positions marked to the intrinsic settlement at the current spot, closed
+     * positions at their realized value. This is the ONE number the headline
+     * "Live P&L" should show; at expiry it equals `playerPnl()` exactly because
+     * both call the same intrinsic settlement on the same spot.
+     */
+    livePnl(nowMs: number): number;
+    /** Total premium paid across the book — the natural denominator for a P&L %. */
+    premiumAtRisk(): number;
     /** Total realized P&L across all closed player positions. */
     playerPnl(): number;
     /** The house is the counterparty: house P&L = −player P&L. */

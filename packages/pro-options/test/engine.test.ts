@@ -14,6 +14,8 @@ import {
   roundPhase,
   sellToClose,
   settleAtExpiry,
+  settlementPnlAtSpot,
+  pnlReturnFraction,
   yearsFromSeconds,
   type RoundConfig,
 } from "../src/index";
@@ -102,6 +104,45 @@ check("sell-to-close marks the position and the spread is a round-trip loss", ()
   assert.equal(sold.status, "sold");
   assert.ok((sold.proceeds ?? 0) < pos.premiumPaid, "round-trip should lose the spread");
   assert.ok(realizedPnl(sold) < 0, "house edge: immediate round-trip is negative");
+});
+
+// ── Live P&L == settlement (the trust-critical guarantee) ───────────────────
+// The headline live readout MUST be the same number the settlement realizes,
+// so a player never watches one P&L and gets paid another. settlementPnlAtSpot
+// is the live readout; settleAtExpiry → realizedPnl is the settlement. They
+// must agree at EVERY spot, for both sides, ITM and OTM, any contract count.
+check("live P&L == realized settlement at every spot (call & put, ITM/OTM)", () => {
+  for (const side of ["call", "put"] as const) {
+    for (const contracts of [1, 3, 7.5]) {
+      const pos = openOption({
+        id: `m-${side}-${contracts}`, side, strike: 100, openedAtMs: T0,
+        expiryMs, contracts, fairPremium: fair, spreadBps: 100,
+      });
+      for (const spot of [60, 80, 95, 99.99, 100, 100.01, 105, 120, 175]) {
+        const live = settlementPnlAtSpot(pos, spot);
+        const settled = realizedPnl(settleAtExpiry(pos, spot));
+        assert.ok(
+          Math.abs(live - settled) < 1e-9,
+          `${side} ${contracts}c @ ${spot}: live ${live} != settled ${settled}`,
+        );
+      }
+    }
+  }
+});
+
+check("settlementPnlAtSpot of a closed position returns its realized P&L", () => {
+  const pos = openOption({ id: "closed", side: "call", strike: 100, openedAtMs: T0, expiryMs, contracts: 1, fairPremium: fair, spreadBps: 100 });
+  const settled = settleAtExpiry(pos, 130);
+  // Spot argument is ignored once closed — it reads the realized proceeds.
+  assert.equal(settlementPnlAtSpot(settled, 999), realizedPnl(settled));
+  assert.equal(settlementPnlAtSpot(settled, 0), realizedPnl(settled));
+});
+
+check("pnlReturnFraction is P&L over premium (and 0 when no premium)", () => {
+  const pos = openOption({ id: "ret", side: "call", strike: 100, openedAtMs: T0, expiryMs, contracts: 1, fairPremium: fair, spreadBps: 100 });
+  const pnl = settlementPnlAtSpot(pos, 100 + pos.premiumPaid + 5);
+  assert.ok(Math.abs(pnlReturnFraction(pnl, pos.premiumPaid) - pnl / pos.premiumPaid) < 1e-12);
+  assert.equal(pnlReturnFraction(123, 0), 0);
 });
 
 check("settle is idempotent (re-settling a closed position is a no-op)", () => {
