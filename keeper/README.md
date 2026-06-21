@@ -1,8 +1,13 @@
 # Wick Keeper
 
-Permissionless cranking daemon for [Wick Markets](../README.md). Targets the
-**post-C.3 Move ABI**: `random_walk_driver::tick`, `pull_oracle_driver::push_price`,
-`wick::lock_and_settle<C>`, and `wick::crank_expired_ride<C>`.
+Permissionless cranking daemon for [Wick Markets](../README.md). Two jobs:
+
+1. **Touch / no-touch + ride markets** — `random_walk_driver::tick`,
+   `pull_oracle_driver::push_price`, `wick::lock_and_settle<C>`,
+   `wick::crank_expired_ride<C>`.
+2. **The live `/ride` segment chart** — pumps `wick::record_segment<C>` at
+   400 ms via the [`SegmentCranker`](#segment-market-cranking--the-live-ride-chart),
+   with a sponsored `SegmentSentinel` keeping the chart awake between players.
 
 The keeper is permissionless on chain — anyone can run one. It holds its own
 keypair only to pay gas; it never touches LP shares or user positions.
@@ -120,6 +125,54 @@ For full coverage, a side-table indexer reading `RideOpened` events is
 needed — flagged in the source. The Move side has the load-bearing checks
 (`touched_during`, treasury sufficiency, `EAlreadyClosed`); the keeper just
 schedules attempts.
+
+## Segment-market cranking — the live `/ride` chart
+
+The shipped ride (`/ride`, `wick::segment_market_v4`) streams a provably-fair
+candle chart by recording one **segment** every 400 ms. Two keeper subsystems
+keep that chart alive; both are on by default in `watch` mode once their market
+list is set.
+
+### `SegmentCranker` — pump `record_segment`
+
+`record_segment` has a wake/sleep gate: it aborts with `ENoActiveRides (=14)`
+when `active_ride_count == 0`. The cranker pumps `wick::record_segment<C>` at a
+~400 ms cadence **whenever a market has at least one open ride**, and goes quiet
+otherwise so dormant markets don't burn gas. It tracks `active_ride_count`
+locally off `RideOpened` / `RideClosed` event polling (no per-tick market read)
+and pipelines submissions fire-and-forget behind a small in-flight cap.
+
+```bash
+# comma-separated <marketId>[@<packageId>[:<collateral>]] — package + collateral
+# default to deployments/testnet.json + 0x2::sui::SUI when omitted.
+export WICK_KEEPER_SEGMENT_MARKETS=0xmarket1,0xmarket2@0xpkg:0x2::sui::SUI
+```
+
+| Var                              | Default | Notes |
+|----------------------------------|---------|-------|
+| `WICK_KEEPER_SEGMENT_MARKETS`    | (empty — cranker off) | markets to crank |
+| `WICK_KEEPER_SEGMENT_INTERVAL_MS`| `400`   | per-market crank cadence (the chain hard-codes 400 ms / segment) |
+| `WICK_KEEPER_GAS_RECORD_SEGMENT` | —       | optional per-tx gas budget override |
+
+### `SegmentSentinel` — keep the gate satisfied between players (sponsored)
+
+So the chart never freezes when no human is riding, the sentinel opens and
+closes one tiny ride per round to hold `active_ride_count > 0`. It signs as the
+sentinel but ships the tx through **`/api/sponsor`** (doc 22), so gas is debited
+from the protocol sponsor wallet rather than the operator's — the production
+replacement for the laptop-bound `scripts/sentinel-runner.sh`.
+
+```bash
+export WICK_KEEPER_SENTINEL_MARKETS=0xmarket1
+export WICK_SPONSOR_URL=https://<deployment>/api/sponsor   # co-signs gas
+```
+
+| Var                               | Default | Notes |
+|-----------------------------------|---------|-------|
+| `WICK_KEEPER_SENTINEL_MARKETS`    | (empty — sentinel off) | markets to keep awake |
+| `WICK_KEEPER_SENTINEL_INTERVAL_MS`| `1000`  | round-scan cadence |
+| `WICK_KEEPER_SENTINEL_BARRIER`    | —       | optional barrier override for the sentinel ride |
+| `WICK_SPONSOR_URL`                | (doc 22 default) | sponsor service that co-signs as `gas_owner` |
 
 ## Walrus archiver (v3.5, optional)
 
