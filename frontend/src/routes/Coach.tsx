@@ -84,6 +84,9 @@ function MiniCandles({ candles }: { candles: CandleInput[] }) {
   const span = Math.max(0.0001, top - bot);
   const cw = W / view.length;
   const y = (v: number) => ((top - v) / span) * (H - 6) + 3;
+  const lastC = view[view.length - 1]!;
+  const lastUp = lastC.close >= lastC.open;
+  const priceY = y(lastC.close);
 
   return (
     <svg
@@ -92,6 +95,30 @@ function MiniCandles({ candles }: { candles: CandleInput[] }) {
       className="h-full w-full"
       aria-hidden
     >
+      {/* faint reference gridlines so it reads like a real trading chart */}
+      {[0.25, 0.5, 0.75].map((f) => (
+        <line
+          key={f}
+          x1={0}
+          x2={W}
+          y1={f * H}
+          y2={f * H}
+          stroke="#ffffff"
+          strokeWidth={0.25}
+          opacity={0.05}
+        />
+      ))}
+      {/* current-price line */}
+      <line
+        x1={0}
+        x2={W}
+        y1={priceY}
+        y2={priceY}
+        stroke={lastUp ? "#00ff3f" : "#ff0696"}
+        strokeWidth={0.4}
+        strokeDasharray="1.5 1.5"
+        opacity={0.5}
+      />
       {view.map((c, i) => {
         const x = i * cw + cw / 2;
         const up = c.close >= c.open;
