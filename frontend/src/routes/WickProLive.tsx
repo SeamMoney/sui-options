@@ -207,9 +207,11 @@ export function WickProLive() {
           eased = true;
         }
       }
-      // Drive the live-P&L/countdown clock every frame while in a trade; when
-      // idle and the spot has settled, skip the re-render entirely.
-      if (hasPositionRef.current && !eased) setNowMs(nowMsRef.current);
+      // Tick the live clock every frame whenever we have a price — it drives the
+      // countdown/P&L in a trade AND keeps the chart line scrolling through the
+      // settle window and idle (W3: the line must not freeze flat when the lock
+      // settles at countdown end). One state write per frame; cheap.
+      if (spotSmoothRef.current !== null && !eased) setNowMs(nowMsRef.current);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -579,6 +581,7 @@ export function WickProLive() {
           up={headline ? headline.pnl >= 0 : true}
           liveMid={spot}
           pnl={headline?.pnl ?? null}
+          nowMs={nowMs}
         />
         {/* CandleVision coach — real DeepBook bars. Visible on every viewport. */}
         {coachEl && (
@@ -754,8 +757,10 @@ const MarkChart = memo(function MarkChart(props: {
   liveMid: number | null;
   /** Live P&L while in a position — shown as the pill on the live point. */
   pnl: number | null;
+  /** Frame clock — advances the scrolling tip so the line never freezes (W3). */
+  nowMs: number;
 }) {
-  const { history, strike, entryTime, up, liveMid, pnl } = props;
+  const { history, strike, entryTime, up, liveMid, pnl, nowMs } = props;
   const W = 1000;
   const H = 320;
   if (history.length < 2) {
@@ -772,18 +777,24 @@ const MarkChart = memo(function MarkChart(props: {
   if (hi === lo) { hi += 1; lo -= 1; }
   const pad = (hi - lo) * 0.12;
   lo -= pad; hi += pad;
-  const x = (i: number) => (i / (history.length - 1)) * W;
   const y = (v: number) => H - ((v - lo) / (hi - lo)) * H;
-  // The tip rides the frame-smoothed live spot (not the 1.5s-stepped poll), so
-  // the line glides at 60fps. lo/hi stay off liveMid so the ladder won't jitter.
-  const plotMids =
-    liveMid != null && Number.isFinite(liveMid) ? [...mids.slice(0, -1), liveMid] : mids;
-  const line = plotMids.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  // W3 — keep the line ALIVE through the round, the settle window AND idle:
+  // scroll it left by the fraction of the way to the next ~1.5s mark, so it
+  // creeps every frame (nowMs ticks each frame) instead of freezing flat
+  // between polls. The live tip rides the frame-smoothed spot, pinned right.
+  const n = mids.length;
+  const frac = Math.min(1, Math.max(0, (nowMs - history[n - 1]!.t) / 1500));
+  const x = (i: number) => ((i - frac) / (n - 1)) * W;
+  const tipMid = liveMid != null && Number.isFinite(liveMid) ? liveMid : mids[n - 1]!;
+  const line =
+    mids.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ") +
+    ` L${W},${y(tipMid).toFixed(1)}`;
   const area = `${line} L${W},${H} L0,${H} Z`;
+  const strikeY = strike !== null ? y(strike) : null;
   // bloxwap signature: neon green (winning / idle) vs hot magenta (losing).
   const neon = up ? "#00ff3f" : "#ff0696";
-  const lastMid = plotMids[plotMids.length - 1]!;
-  const lastY = y(lastMid);
+  const lastMid = tipMid;
+  const lastY = y(tipMid);
   const decimals = lastMid < 1 ? 5 : lastMid < 100 ? 4 : lastMid < 10000 ? 2 : 0;
   // Right-edge price ladder — evenly spaced levels across the visible range.
   const N_LADDER = 11;
@@ -805,14 +816,39 @@ const MarkChart = memo(function MarkChart(props: {
     <div className="relative h-full w-full" style={{ backgroundImage: PLUS_GRID, backgroundSize: "40px 40px" }}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full">
         <defs>
-          <linearGradient id="proFill" x1="0" y1="0" x2="0" y2="1">
-            {/* Bold PnL-colored fill while in a position (bloxwap); faint when
-                idle so it stays a bare glowing line with the ladder showing through. */}
-            <stop offset="0%" stopColor={neon} stopOpacity={pnl != null ? "0.42" : "0.14"} />
+          {/* Idle: one faint wash so it stays a bare glowing line with the
+              ladder showing through. */}
+          <linearGradient id="proFillIdle" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={neon} stopOpacity="0.14" />
             <stop offset="100%" stopColor={neon} stopOpacity="0" />
           </linearGradient>
+          {strikeY != null && (
+            <>
+              {/* W1: in a position the wash is GREEN above the break-even line
+                  and RED below it — colour tells you at a glance whether the
+                  price is in the winning or losing zone (not one flat colour).
+                  Brightest at the break-even line, fading away from it. */}
+              <linearGradient id="proFillUp" gradientUnits="userSpaceOnUse" x1="0" y1={strikeY} x2="0" y2="0">
+                <stop offset="0%" stopColor="#00ff3f" stopOpacity="0.45" />
+                <stop offset="100%" stopColor="#00ff3f" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="proFillDown" gradientUnits="userSpaceOnUse" x1="0" y1={strikeY} x2="0" y2={H}>
+                <stop offset="0%" stopColor="#ff0696" stopOpacity="0.45" />
+                <stop offset="100%" stopColor="#ff0696" stopOpacity="0" />
+              </linearGradient>
+              <clipPath id="aboveBE"><rect x="0" y="0" width={W} height={strikeY} /></clipPath>
+              <clipPath id="belowBE"><rect x="0" y={strikeY} width={W} height={Math.max(0, H - strikeY)} /></clipPath>
+            </>
+          )}
         </defs>
-        <path d={area} fill="url(#proFill)" />
+        {pnl != null && strikeY != null ? (
+          <>
+            <path d={area} fill="url(#proFillUp)" clipPath="url(#aboveBE)" />
+            <path d={area} fill="url(#proFillDown)" clipPath="url(#belowBE)" />
+          </>
+        ) : (
+          <path d={area} fill="url(#proFillIdle)" />
+        )}
         {/* neon glow halo under the sharp line */}
         <path d={line} fill="none" stroke={neon} strokeWidth={9} opacity={0.3} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
         <path d={line} fill="none" stroke={neon} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
