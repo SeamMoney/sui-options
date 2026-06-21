@@ -42,6 +42,12 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 - **[/verify](https://wick-markets.vercel.app/verify)** — replay any closed ride live in your browser
   from its on-chain keys; toggle **"dishonest house"** to watch the verifier catch a tampered candle.
   Or one command: `npx tsx scripts/verify.ts --market <id> --ride <id>`.
+- **Verify the LIVE v4 round from your terminal** — `npm run verify:v4` replays the latest
+  on-chain round of the live `segment_market_v4` market straight from its committed segment seeds
+  and proves every candle's high/low is the deterministic result of on-chain `sui::random` —
+  the house could not cherry-pick the wick. `npm run verify:v4:tamper` flips one committed bit
+  and shows the verifier catch it. Reads the `segments` Table directly, so it works even after old
+  rounds are pruned; pass `--round 0` to chain the proof all the way back to bootstrap (genesis-anchored).
 
 ## Proof points
 

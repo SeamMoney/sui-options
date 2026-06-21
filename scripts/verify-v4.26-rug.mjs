@@ -33,7 +33,12 @@ const DEPLOYMENT = JSON.parse(
   readFileSync(join(REPO_ROOT, "deployments/testnet.json"), "utf8"),
 );
 
-const PKG = DEPLOYMENT.package_id;
+// NOTE: event type tags are keyed by the package that *defined* the type
+// (the type-origin package), NOT the latest upgraded `package_id`. After an
+// upgrade, `DEPLOYMENT.package_id` points at the newest package, but events
+// emitted by an older module keep their original address — so querying with
+// the latest id silently returns zero events. We resolve the correct
+// type-origin package from the market object's own type at startup.
 const v4Market = DEPLOYMENT.segment_markets_v4?.at(-1);
 if (!v4Market) {
   console.error("No segment_markets_v4 entry. Bootstrap a market first.");
@@ -49,19 +54,44 @@ console.log(`  configured rug_chance_bps: ${RUG_BPS}  (= ${EXPECTED_RATE_PCT}% p
 console.log(`  if rug_chance_bps === 0, this market has rugs disabled`);
 console.log("─".repeat(64));
 
-const RPC = "https://fullnode.testnet.sui.io";
+const RPC = process.env.SUI_RPC ?? "https://fullnode.testnet.sui.io";
 const POLL_MS = 5000;
 const args = process.argv.slice(2);
 const durationArg = args.find((a) => a.startsWith("--duration"));
 const DURATION_SEC = durationArg ? Number(durationArg.split("=").at(-1) ?? args[args.indexOf(durationArg) + 1]) : Infinity;
 const startMs = Date.now();
 
-const types = {
-  segment: `${PKG}::segment_market_v4::SegmentRecordedV4`,
-  rug: `${PKG}::segment_market_v4::RugFiredV4`,
-  opened: `${PKG}::segment_market_v4::RideOpenedV4`,
-  closed: `${PKG}::segment_market_v4::RideClosedV4`,
-};
+// Populated by resolveTypePackage() once we know the market's type-origin pkg.
+let types = null;
+
+async function resolveTypePackage() {
+  const body = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "sui_getObject",
+    params: [MARKET, { showType: true }],
+  };
+  const r = await fetch(RPC, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json();
+  const type = j.result?.data?.type ?? "";
+  const marker = "::segment_market_v4::SegmentMarketV4";
+  const idx = type.indexOf(marker);
+  if (idx < 0) {
+    throw new Error(`object ${MARKET} is not a SegmentMarketV4; type=${type}`);
+  }
+  const pkg = type.slice(0, idx);
+  types = {
+    segment: `${pkg}::segment_market_v4::SegmentRecordedV4`,
+    rug: `${pkg}::segment_market_v4::RugFiredV4`,
+    opened: `${pkg}::segment_market_v4::RideOpenedV4`,
+    closed: `${pkg}::segment_market_v4::RideClosedV4`,
+  };
+  console.log(`  type-origin package: ${pkg}`);
+}
 
 async function queryEvents(eventType, cursor) {
   const body = {
@@ -157,6 +187,7 @@ function printSummary() {
 }
 
 async function main() {
+  await resolveTypePackage();
   while (true) {
     if (Date.now() - startMs > DURATION_SEC * 1000) {
       printSummary();

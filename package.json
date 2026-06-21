@@ -21,6 +21,8 @@
     "check:pro": "node scripts/check-pro-live.mjs",
     "check:demo": "node scripts/check-demo.mjs",
     "verify:pro": "npm run --silent build:pro-options && tsx scripts/verify-pro-pnl.ts",
+    "verify:v4": "tsx scripts/verify-v4.ts",
+    "verify:v4:tamper": "tsx scripts/verify-v4.ts --tamper",
     "check:treasury": "tsx scripts/treasury-health.ts",
     "check:meta": "node scripts/check-meta.mjs",
     "check:all": "npm run check:meta && npm run smoke:demo && npm run verify:pro && npm run check:deepbook && npm run check:treasury",

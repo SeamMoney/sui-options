@@ -26,7 +26,16 @@ Operator-facing bash + node scripts. All scripts read live IDs from
   segment market, then run `verify.ts`.
 - `smoke.sh` — original touch-market smoke.
 - `verify.ts` — replay any closed ride against a deterministic walk and
-  assert extrema + verdict match.
+  assert extrema + verdict match (v2/v3 single-barrier path).
+- `verify-v4.ts` — **cold-start provable-fairness verifier for the LIVE v4
+  demo path** (`segment_market_v4`, touch-either, doc 25). Reads `SegmentRecord`
+  rows directly from the market's `segments` Table and, for every segment,
+  re-runs `expand_segment(prev.state_after, key)` off-chain to assert the chain's
+  claimed min/max **and** the carried walk state match. Each passing segment
+  chains to the previous one, so a contiguous run is a single tamper-evident
+  proof. Robust to event pruning (reads the Table, not events). Defaults to the
+  latest market's last complete round; `--round N`, `--from/--to`, `--all`,
+  `--tamper` (self-test), `--rpc <url>`. `npm run verify:v4` / `verify:v4:tamper`.
 - `verify_record_segment_shape.py` — schema check for `record_segment` events.
 - `prune-proto-smoke.sh` — **empirically validates the storage-rebate
   economic claim** in `docs/design/v2/23_storage_rebate_pruning_v3.md` §3.3
