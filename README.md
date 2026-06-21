@@ -282,7 +282,7 @@ deployments/       testnet.json — read this for live IDs, never hardcode
 
 - **Sui** for the random object + the PTB-Random structural rule that makes the gas-grinding test-and-abort attack a non-issue.
 - **papertrade.xyz** for the Martingaler / loss-recycling / fair-launch token shape — adapted, not vendored. Wick re-derives every formula. See [`docs/design/v2/01_martingaler_accounting_v2.md`](docs/design/v2/01_martingaler_accounting_v2.md).
-- **Tappr** for the tap-and-hold ride UI inspiration. Wick keeps the Move settlement; the UI is a layer. See [`docs/design/v2/21_tappr_ui_port.md`](docs/design/v2/21_tappr_ui_port.md).
+- **Tappr** for the tap-and-hold ride UI inspiration. Wick keeps the Move settlement; the UI is a layer. See [`docs/design/v2/11_ride_streaming_primitive.md`](docs/design/v2/11_ride_streaming_primitive.md).
 - **GPT-5 Codex** and **Claude Opus 4.7** as parallel co-implementors with cross-reviewing. The reviewer-agent pattern (one model implements, the other reviews) caught real shipping bugs in this sprint — including a non-functional gas-spread script that would have shipped with a misleading discharge claim.
 - **[Thesirix/github-readme-animated-chat-bubbles](https://github.com/Thesirix/github-readme-animated-chat-bubbles)** for the animated chat-bubble SVG generator powering this README's hero.
 - **Walrus** (Sui's decentralized blob storage) for the v3 archive design target: per-round segment keys written once at round-end as a Walrus blob, indexed on-chain in `ArchiveIndex`, fetched permanently and permissionlessly by `/verify` regardless of indexer status. v3 spec only — see [`docs/design/v2/24_walrus_archive_v3.md`](docs/design/v2/24_walrus_archive_v3.md).
