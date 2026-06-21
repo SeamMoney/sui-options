@@ -139,6 +139,14 @@ export interface SegmentMarketStatus {
 
 interface MarketState {
   binding: SegmentMarketBinding;
+  // Package id to key Ride{Opened,Closed} event-type tags on. This is the
+  // package that DEFINED the event struct (the market object's type-origin
+  // package) — NOT necessarily `binding.packageId`, which is the latest
+  // upgraded package the crank MoveCall targets. After a package upgrade the
+  // two differ, and querying events under the latest id silently returns ZERO
+  // (so active_ride_count would never resync). Resolved from the market
+  // object's `type` at seed; falls back to `binding.packageId`.
+  eventPackageId: string;
   // Live count of open rides. Driven by RideOpened/RideClosed events.
   activeRideCount: number;
   // How many submitted txs haven't resolved (success or failure) yet.
@@ -252,6 +260,7 @@ export class SegmentCranker {
       if (this.markets.has(b.marketId)) continue;
       const state: MarketState = {
         binding: b,
+        eventPackageId: b.packageId,
         activeRideCount: 0,
         inflight: 0,
         crankTimer: null,
@@ -275,13 +284,18 @@ export class SegmentCranker {
       // If this fails, we log + start at 0; events will bring us into sync.
       if (this.opts.seedFromChain) {
         try {
-          state.activeRideCount = await this.readActiveRideCount(b.marketId);
+          const seeded = await this.readActiveRideCount(b.marketId);
+          state.activeRideCount = seeded.count;
+          // Key event subscriptions on the struct's type-origin package, not
+          // the (possibly upgraded) crank package — see MarketState.eventPackageId.
+          if (seeded.eventPackageId) state.eventPackageId = seeded.eventPackageId;
           this.opts.log({
             ts: nowIso(),
             level: "info",
             action: "segment-cranker.seed",
             market_id: b.marketId,
             active_ride_count: state.activeRideCount,
+            detail: { event_package_id: state.eventPackageId },
           });
         } catch (err) {
           this.opts.log({
@@ -443,8 +457,8 @@ export class SegmentCranker {
       // Poll both event streams. We use MoveEventType to filter at the
       // RPC; we further filter by market_id client-side because the Move
       // emit doesn't expose a per-market topic.
-      const openedType = rideOpenedEventType(state.binding.packageId, state.binding.version);
-      const closedType = rideClosedEventType(state.binding.packageId, state.binding.version);
+      const openedType = rideOpenedEventType(state.eventPackageId, state.binding.version);
+      const closedType = rideClosedEventType(state.eventPackageId, state.binding.version);
       const [openedDelta, closedDelta] = await Promise.all([
         this.pollEventStream(state, openedType, "opened"),
         this.pollEventStream(state, closedType, "closed"),
@@ -547,10 +561,13 @@ export class SegmentCranker {
     return count;
   }
 
-  /** One-shot read of `SegmentMarket.active_ride_count` from chain. Used
-   * on `start()` to seed the local counter so we don't have to replay
-   * history. */
-  private async readActiveRideCount(marketId: string): Promise<number> {
+  /** One-shot read of `SegmentMarket.active_ride_count` from chain, plus the
+   * market's type-origin package (the address that DEFINED the SegmentMarket
+   * struct) so event subscriptions key on the right package after an upgrade.
+   * Used on `start()` to seed the local counter without replaying history. */
+  private async readActiveRideCount(
+    marketId: string,
+  ): Promise<{ count: number; eventPackageId: string | null }> {
     const o = await this.client.getObject({
       id: marketId,
       options: { showContent: true, showType: true },
@@ -558,13 +575,27 @@ export class SegmentCranker {
     if (!o.data || o.data.content?.dataType !== "moveObject") {
       throw new Error(`segment market ${marketId} not found or not a Move object`);
     }
-    const content = o.data.content as { fields: Record<string, unknown> };
+    const content = o.data.content as { fields: Record<string, unknown>; type?: string };
     const raw = content.fields["active_ride_count"];
     if (raw == null) {
       throw new Error(`segment market ${marketId} has no active_ride_count field`);
     }
-    return Number(raw);
+    return {
+      count: Number(raw),
+      eventPackageId: eventOriginPackage(content.type ?? o.data.type ?? ""),
+    };
   }
+}
+
+/** Extract the type-origin package from a `SegmentMarket{,V4}<C>` object type
+ * string. Returns the address before `::segment_market[_v4]::`, or null if the
+ * type doesn't match (caller falls back to the binding package). */
+export function eventOriginPackage(objectType: string): string | null {
+  for (const marker of ["::segment_market_v4::", "::segment_market::"]) {
+    const idx = objectType.indexOf(marker);
+    if (idx > 0) return objectType.slice(0, idx);
+  }
+  return null;
 }
 
 // ── Standalone active-count tracker — testable without RPC ──────────────────
