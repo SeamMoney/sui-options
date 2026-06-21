@@ -98,6 +98,10 @@ export function WickProLive() {
   const [stakeUsd, setStakeUsd] = useState(5);
   const [position, setPosition] = useState<OptionPosition | null>(null);
   const [settled, setSettled] = useState<OptionPosition | null>(null);
+  // Running session result — booked by CLOSE, auto-settle, AND flip (so a
+  // flipped leg's P&L is never silently lost). Declared up here so flip() can
+  // book into it. Shows the game LOOP working over several rounds.
+  const [session, setSession] = useState({ pnl: 0, wins: 0, losses: 0 });
   const [history, setHistory] = useState<MarkPoint[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const nowMsRef = useRef(nowMs); // latest frame time, for exact close-at-display
@@ -289,18 +293,32 @@ export function WickProLive() {
     setPosition(null);
   }, [position, sigma]);
 
-  // FLIP = reverse the bet: cash out the current leg and open the opposite side
-  // at the live mark with the same stake, in one tap. Never leaves you with no
-  // position (the whole point of FLIP vs CLOSE).
+  // FLIP = reverse the bet in one tap: BANK the current leg (its P&L counts —
+  // it must not silently vanish) and open the opposite side at the live mark
+  // with the same stake. No result toast — flipping stays instant; the booked
+  // P&L shows up in the session chip.
   const flip = useCallback(() => {
     if (!position || spot === null) return;
+    // Realize the current leg at the same (spot, time) the headline painted, so
+    // the booked figure equals what was on screen (same as CLOSE).
+    const { spot: s, nowMs: t } = paintedRef.current;
+    if (s !== null) {
+      const net = realizedPnl(sellToClose(position, s, t, sigma, SPREAD_BPS));
+      haptic(net >= 0 ? [18, 30, 26] : 40);
+      setSession((sess) => ({
+        pnl: sess.pnl + net,
+        wins: sess.wins + (net >= 0 ? 1 : 0),
+        losses: sess.losses + (net >= 0 ? 0 : 1),
+      }));
+    } else {
+      haptic(12);
+    }
     const opp: OptionSide = position.side === "call" ? "put" : "call";
     const next = buildPosition(opp);
     if (!next) return;
-    haptic(12);
     setSettled(null);
     setPosition(next);
-  }, [position, spot, buildPosition]);
+  }, [position, spot, sigma, buildPosition]);
 
   // Settle at expiry by auto-closing at the expiry mark — equals the last live
   // number (same mark-to-close formula; at τ=0 the mark collapses to intrinsic).
@@ -347,8 +365,6 @@ export function WickProLive() {
   // resolves, so a win lands with a punch and a loss reads instantly. Keyed on
   // the settled position id so every settle re-triggers it.
   const [flash, setFlash] = useState<null | "win" | "loss">(null);
-  // Running session result — shows the game LOOP working over several rounds.
-  const [session, setSession] = useState({ pnl: 0, wins: 0, losses: 0 });
   const lastSettledIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!settled) return;
