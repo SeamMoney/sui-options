@@ -2,6 +2,8 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <!-- Paint the dark theme immediately so a cold load never flashes white before the CSS bundle applies. -->
+    <style>html,body{background-color:#0a0a0a}</style>
     <!-- Warm DNS+TLS to the live data hosts during HTML parse so the first
          DeepBook mark/candle fetch (the /pro chart) and Sui RPC calls don't
          pay connection setup on the critical path — the chart/data show sooner. -->
@@ -56,7 +58,7 @@
     />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.32);font:13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em">loading…</div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
