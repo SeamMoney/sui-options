@@ -262,11 +262,39 @@ export function WickProLive() {
     [coachCandles],
   );
 
+  // Settle FEEL: a quick full-screen colour flash + number pop when a round
+  // resolves, so a win lands with a punch and a loss reads instantly. Keyed on
+  // the settled position id so every settle re-triggers it.
+  const [flash, setFlash] = useState<null | "win" | "loss">(null);
+  useEffect(() => {
+    if (!settled) return;
+    setFlash(realizedPnl(settled) >= 0 ? "win" : "loss");
+    const id = window.setTimeout(() => setFlash(null), 850);
+    return () => window.clearTimeout(id);
+  }, [settled]);
+
   const secsLeft = position ? Math.max(0, Math.ceil((position.expiryMs - nowMs) / 1000)) : 0;
   const poolMeta = DEEPBOOK_POOLS[pool];
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[#0b0b0c] text-white overflow-hidden">
+      <style>{`
+        @keyframes wpFlash { 0% { opacity: 0.9 } 100% { opacity: 0 } }
+        @keyframes wpPop { 0% { transform: scale(0.7); opacity: 0 } 45% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }
+      `}</style>
+      {/* Settle flash — a fading colour wash, green on a win, red on a loss. */}
+      {flash && (
+        <div
+          className="pointer-events-none fixed inset-0 z-40"
+          style={{
+            background:
+              flash === "win"
+                ? "radial-gradient(circle at 50% 42%, rgba(16,185,129,0.30), transparent 70%)"
+                : "radial-gradient(circle at 50% 42%, rgba(244,63,94,0.22), transparent 70%)",
+            animation: "wpFlash 850ms ease-out forwards",
+          }}
+        />
+      )}
       {/* Header */}
       <header className="flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 shrink-0">
         <div className="flex items-center gap-2">
@@ -339,10 +367,14 @@ export function WickProLive() {
                   : "Settled — you lost"}
             </div>
             <div
+              key={headline.live ? "live" : `settled-${settled?.id ?? ""}`}
               className={`text-6xl font-black tabular-nums leading-none ${
                 headline.pnl >= 0 ? "text-emerald-400" : "text-rose-500"
               }`}
-              style={{ textShadow: "0 2px 32px rgba(0,0,0,0.6)" }}
+              style={{
+                textShadow: "0 2px 32px rgba(0,0,0,0.6)",
+                animation: headline.live ? undefined : "wpPop 380ms ease-out",
+              }}
             >
               {fmtSignedUsd(headline.pnl)}
             </div>
