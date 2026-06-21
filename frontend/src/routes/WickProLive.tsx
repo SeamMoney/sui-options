@@ -463,16 +463,20 @@ export function WickProLive() {
             sess {fmtSignedUsd(session.pnl)} · {session.wins}W/{session.losses}L
           </span>
         )}
-        <span
-          className={`ml-auto text-[10px] uppercase tracking-widest flex items-center gap-1 ${
+        {/* Links to the full DeepBook desk (/coach): live order book, depth,
+            24h volume, recent fills + the same BS quote/payoff. */}
+        <a
+          href="/coach"
+          title="Open the live DeepBook desk — order book, depth, recent fills"
+          className={`ml-auto text-[10px] uppercase tracking-widest flex items-center gap-1 hover:opacity-75 transition-opacity ${
             status === "live" ? "text-emerald-400" : status === "stale" ? "text-amber-400" : "text-white/40"
           }`}
         >
           <span className={`h-1.5 w-1.5 rounded-full ${
             status === "live" ? "bg-emerald-400 animate-pulse" : status === "stale" ? "bg-amber-400" : "bg-white/30"
           }`} />
-          DeepBook {status}
-        </span>
+          DeepBook {status} ↗
+        </a>
       </div>
 
       {/* Indexer cold-start fallback — only if no mark after ~12s. */}
