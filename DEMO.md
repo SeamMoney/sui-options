@@ -53,7 +53,7 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 - **DeepBook v3 mark** the options price against: `npm run check:deepbook` (live mid + σ → BS premium).
 - **Live P&L == settlement, provably** — `npm run verify:pro` pulls the real DeepBook mark + σ and asserts the number you *watch* equals the number you're *paid* at a sweep of exit prices × times, to `1e-9`. Honest P&L isn't a promise; it's a function call. (`npm run check:all` runs every no-browser gate in one shot.)
 - **Move package** (v4.26, testnet): [`0x1fdf78474…815924` on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924).
-- **553/553 Move tests** (incl. 10k seeded-path conformance vectors, TS↔Move byte-identical, enforced in CI).
+- **574/574 Move tests** (incl. 10k seeded-path conformance vectors, TS↔Move byte-identical, enforced in CI).
 
 > Honest scope: `/pro` settles client-side against the live DeepBook mark (no wallet, instant) — the
 > on-chain pieces are the DeepBook price it reads, the `/ride` rides, and the `sui::random` fairness
