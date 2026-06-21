@@ -17,6 +17,12 @@ const RideTest = lazy(() =>
   import("@/routes/RideTest").then((m) => ({ default: m.RideTest })),
 );
 const Coach = lazy(() => import("@/routes/Coach").then((m) => ({ default: m.Coach })));
+// /pro is the LIVE-DeepBook-mark Wick Pro (the submission build per
+// SUBMISSION-STRATEGY: options priced off the real CLOB mid + live σ).
+const WickProLive = lazy(() =>
+  import("@/routes/WickProLive").then((m) => ({ default: m.WickProLive })),
+);
+// The synthetic, commit/reveal provably-fair round game, kept at /pro-sim.
 const WickPro = lazy(() => import("@/routes/WickPro").then((m) => ({ default: m.WickPro })));
 
 // Minimal pathname-based routing. Computed once at module load (no hash
@@ -29,6 +35,7 @@ const WickPro = lazy(() => import("@/routes/WickPro").then((m) => ({ default: m.
 const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
 const IS_PRO_ROUTE = PATHNAME === "/pro";
+const IS_PRO_SIM_ROUTE = PATHNAME === "/pro-sim";
 const IS_CANDLE_VISION_ROUTE = PATHNAME === "/candle-vision";
 const IS_COACH_ROUTE = PATHNAME === "/coach";
 const IS_DEGEN_ROUTE = PATHNAME === "/degen";
@@ -81,8 +88,14 @@ export default function App() {
   if (IS_PRO_ROUTE)
     return (
       <Suspense fallback={<RouteFallback />}>
+        <WickProLive />
+      </Suspense>
+    ); // Wick Pro — Black-Scholes options on the LIVE DeepBook mark (submission)
+  if (IS_PRO_SIM_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
         <WickPro />
       </Suspense>
-    ); // Wick Pro — the Black-Scholes options round game (the submission)
+    ); // synthetic commit/reveal provably-fair variant
   return <Ride />; // default
 }
