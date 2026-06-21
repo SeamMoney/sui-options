@@ -4,7 +4,7 @@
 
 > **Now with `MARKET HALT` events (v4.26)** — ~1.5% per second the market freezes and wipes any open ride. Calibrated to a +3.93% house edge so the protocol survives. The roll is deterministic from `keccak256(segment_key)` — anyone can replay and verify the halt was honest. That's how the house wins.
 
-[![CI](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml/badge.svg)](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml) [![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 584/584](https://img.shields.io/badge/move%20tests-584%2F584-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
+[![CI](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml/badge.svg)](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml) [![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 589/589](https://img.shields.io/badge/move%20tests-589%2F589-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
 
 <p align="center">
   <img src="docs/assets/wick-chat.svg" width="600" alt="A chat between a curious dev and a Wick veteran" />
@@ -234,7 +234,7 @@ Vault solvency under the rug: at the live 100M TUSD seed with a 500 TUSD per-rou
 
 | Layer | Verification |
 |---|---|
-| `move/sources/*.move` (26 modules) | **584 / 584** Move tests pass on every commit (`sui move test`) including invariant suite, adversarial suite, spine-test-2 e2e replay, full DNT lifecycle, deadband, deferred-spread, FSM determinism, and the v4.26 rug-roll determinism + replay suite |
+| `move/sources/*.move` (26 modules) | **589 / 589** Move tests pass on every commit (`sui move test`) including invariant suite, adversarial suite, spine-test-2 e2e replay, full DNT lifecycle, deadband, deferred-spread, FSM determinism, and the v4.26 rug-roll determinism + replay suite |
 | `seeded_path::expand_segment` vs `sdk/src/seededPath.ts` | 10k random vectors, rolling blake2b digest, **byte-identical** |
 | Touch / DNT settlement on Sui testnet | Smoke ride 2026-05-23 — opened, recorded 3 segments, closed with CASHOUT, `verify.ts` PASS (extrema match + verdict match) |
 | Asymmetric impact fee for DNT | 15 / 15 DNT tests pass including `lock_and_settle_dnt_market_with_*` |
@@ -272,7 +272,7 @@ git clone https://github.com/SeamMoney/sui-options && cd sui-options
 npm install                                # all workspaces in one go
 
 # Move
-cd move && sui move test && cd ..          # 584/584
+cd move && sui move test && cd ..          # 589/589
 
 # upgrade Move package on testnet (preserves all existing singletons)
 ./scripts/deploy-testnet.sh                # OR sui client upgrade --upgrade-capability <cap>
@@ -305,7 +305,7 @@ npm run bots:run                           # ~1 trade/sec across the fleet
 
 ```
 move/sources/      26 Move modules — market, segment_market, vault, fee_router, …
-move/tests/        584 Move tests including conformance, invariants, adversarial, e2e replay, v4.26 rug-roll suite
+move/tests/        589 Move tests including conformance, invariants, adversarial, e2e replay, v4.26 rug-roll suite
 sdk/src/           @wick/sdk — PTB builders, typed event parsers, deterministic walk TS port
 frontend/src/      Vite + React + Sui dApp Kit; live testnet markets
 keeper/src/        Cranker + segment-market poller; permissionless on Move side
