@@ -41,6 +41,8 @@ const steps = [
   { script: "verify:fairness:tamper", title: "Provable fairness — tamper caught", proves: "flip one reported extremum and the verifier exits non-zero → the house can't cheat", expectFail: true },
   { script: "verify:fairness:rug", title: "Provable house edge — honest MARKET HALT", proves: "the v4.26 rug only fires on an honest keccak roll (roll < rug_chance_bps); the verifier re-derives it and routes the wiped ride to EXPIRED_LOSS → the house can't fake or hide a halt" },
   { script: "verify:pro", title: "Live P&L == settlement", proves: "the number you watch on /pro equals the number you're paid, to 1e-9, off the real DeepBook mark" },
+  { script: "verify:pro-fairness", title: "/pro provable fairness — commit-reveal", proves: "every /pro round's price path is SHA-256-committed before the lobby; recompute the digest independently (node:crypto) and it binds → the path was fixed before you bet" },
+  { script: "verify:pro-fairness:tamper", title: "/pro provable fairness — forged reveal caught", proves: "a dishonest house forges a more-favourable reveal under the published commit; the independent verifier rejects all 4 → the house can't move the path after committing", expectFail: true },
 ];
 
 const results = [];
