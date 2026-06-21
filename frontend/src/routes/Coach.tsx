@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CandleInput } from "@sui-options/candle-vision";
 import { PatternCoachPanel } from "@/components/PatternCoachPanel";
 import { LiveOptionQuote } from "@/components/LiveOptionQuote";
+import { DeepBookDepth } from "@/components/DeepBookDepth";
 import { useDeepBookCandles } from "@/hooks/useDeepBookCandles";
 import { DEEPBOOK_POOLS, type DeepBookPoolName } from "@/lib/deepbook";
 
@@ -208,6 +209,7 @@ export function Coach() {
           <div className="flex flex-col gap-4">
             <PatternCoachPanel candles={candles} maxItems={4} />
             {isLive ? <LiveOptionQuote pool={pool} expirySecs={300} /> : null}
+            {isLive ? <DeepBookDepth pool={pool} levels={5} /> : null}
           </div>
         </div>
       </div>
