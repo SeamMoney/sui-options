@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { TopBar, type TopBarTab } from "@/components/layout/TopBar";
 import { MarketsRail } from "@/components/market/MarketsRail";
 import { MarketHeader } from "@/components/market/MarketHeader";
@@ -8,11 +8,23 @@ import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { STUB_MARKETS, type MarketSnapshot } from "@/fixtures/markets";
 import { useLiveMarkets } from "@/hooks/useLiveMarkets";
 import { usePortfolio } from "@/hooks/usePortfolio";
-import { RideTest } from "@/routes/RideTest";
 import { Ride } from "@/routes/Ride";
-import { CandleVision } from "@/routes/CandleVision";
-import { Docs } from "@/routes/Docs";
-import { Verify } from "@/routes/Verify";
+
+// The headline `/` (and `/degen`) route is `Ride`, so it stays eagerly
+// imported — it's what a judge hits cold and it must paint instantly.
+// Every other route is a separate destination reached only by an explicit
+// URL, so we lazy-load them: that keeps the candle-vision scanner (gsap +
+// motion + the candle-vision lib), the docs grid, the provable-fairness
+// verifier, and the pro terminal OUT of the entry chunk the ride page
+// downloads. Pre-split, all of that rode along in one ~3.4 MB bundle.
+const CandleVision = lazy(() =>
+  import("@/routes/CandleVision").then((m) => ({ default: m.CandleVision })),
+);
+const Docs = lazy(() => import("@/routes/Docs").then((m) => ({ default: m.Docs })));
+const Verify = lazy(() => import("@/routes/Verify").then((m) => ({ default: m.Verify })));
+const RideTest = lazy(() =>
+  import("@/routes/RideTest").then((m) => ({ default: m.RideTest })),
+);
 
 // Minimal pathname-based routing. Computed once at module load (no hash
 // routing / SPA nav within these pages — the Vercel SPA rewrite in
@@ -30,14 +42,45 @@ const IS_DEGEN_ROUTE = PATHNAME === "/degen";
 const IS_DOCS_ROUTE = PATHNAME === "/docs" || PATHNAME.startsWith("/docs/");
 const IS_VERIFY_ROUTE = PATHNAME === "/verify";
 
+// Tiny full-screen fallback while a lazy route chunk streams in. Kept
+// dark + centered so it reads as "loading", never as a broken white flash.
+function RouteFallback() {
+  return (
+    <div className="h-full w-full flex items-center justify-center bg-background text-foreground/40 text-sm font-mono tracking-wide">
+      loading…
+    </div>
+  );
+}
+
 export default function App() {
-  if (IS_VERIFY_ROUTE) return <Verify />;          // in-browser provable-fairness replay
-  if (IS_DOCS_ROUTE) return <Docs path={PATHNAME} />;  // docs grid + topic pages (chaos-feed)
-  if (IS_DEGEN_ROUTE) return <Ride />;             // degen tap-hold app
-  if (IS_CANDLE_VISION_ROUTE) return <CandleVision />;
-  if (IS_RIDE_TEST_ROUTE) return <RideTest />;
-  if (IS_PRO_ROUTE) return <MainApp />;            // TEMP placeholder — real Legend panes go here next
-  return <Ride />;                                 // default
+  // Non-default routes are lazy chunks, so each needs a Suspense boundary.
+  if (IS_VERIFY_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <Verify />
+      </Suspense>
+    ); // in-browser provable-fairness replay
+  if (IS_DOCS_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <Docs path={PATHNAME} />
+      </Suspense>
+    ); // docs grid + topic pages (chaos-feed)
+  if (IS_DEGEN_ROUTE) return <Ride />; // degen tap-hold app
+  if (IS_CANDLE_VISION_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <CandleVision />
+      </Suspense>
+    );
+  if (IS_RIDE_TEST_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <RideTest />
+      </Suspense>
+    );
+  if (IS_PRO_ROUTE) return <MainApp />; // TEMP placeholder — real Legend panes go here next
+  return <Ride />; // default
 }
 
 function MainApp() {
