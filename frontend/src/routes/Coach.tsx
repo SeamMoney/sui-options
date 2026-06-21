@@ -12,6 +12,7 @@ import type { CandleInput } from "@sui-options/candle-vision";
 import { PatternCoachPanel } from "@/components/PatternCoachPanel";
 import { LiveOptionQuote } from "@/components/LiveOptionQuote";
 import { useDeepBookCandles } from "@/hooks/useDeepBookCandles";
+import { DEEPBOOK_POOLS, type DeepBookPoolName } from "@/lib/deepbook";
 
 const MAX_CANDLES = 60;
 const STEP_MS = 700;
@@ -123,14 +124,16 @@ function MiniCandles({ candles }: { candles: CandleInput[] }) {
 }
 
 export function Coach() {
-  // Real SUI/USDC candles off the DeepBook mark (the same source Wick Pro
+  const [pool, setPool] = useState<DeepBookPoolName>("SUI_USDC");
+  // Real candles off the selected DeepBook mark (the same source Wick Pro
   // prices against). Falls back to a synthetic stream so the page renders cold
   // — no wallet, no RPC — and during the first poll.
-  const live = useDeepBookCandles("SUI_USDC", {
+  const live = useDeepBookCandles(pool, {
     bucketMs: 60_000,
     windowMs: 60 * 60_000,
     pollMs: 4_000,
   });
+  const poolLabel = DEEPBOOK_POOLS[pool].base;
   const synthetic = useSyntheticCandles();
   const liveCandles: CandleInput[] = live.candles.map((c) => ({
     time: c.tMs,
@@ -158,9 +161,26 @@ export function Coach() {
         <p className="mt-2 max-w-[640px] text-sm leading-relaxed text-white/55">
           The CandleVision detector reads the tape and calls out the strongest
           candlestick setups as they form — the same panel that layers onto the
-          Wick Pro chart, here reading the {isLive ? "live" : ""} SUI/USDC
+          Wick Pro chart, here reading the {isLive ? "live" : ""} {poolLabel}/USDC
           DeepBook mark.
         </p>
+
+        {/* Asset toggle — same live DeepBook marks Wick Pro prices against. */}
+        <div className="mt-4 flex gap-1.5">
+          {(Object.keys(DEEPBOOK_POOLS) as DeepBookPoolName[]).map((pk) => (
+            <button
+              key={pk}
+              onClick={() => setPool(pk)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-bold transition ${
+                pk === pool
+                  ? "bg-white text-zinc-950"
+                  : "bg-white/[0.06] text-white/55 hover:text-white/80"
+              }`}
+            >
+              {DEEPBOOK_POOLS[pk].label}
+            </button>
+          ))}
+        </div>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_300px]">
           {/* Chart */}
@@ -173,7 +193,7 @@ export function Coach() {
                   }`}
                   aria-hidden
                 />
-                {isLive ? "SUI / USDC · DeepBook" : "Synthetic mark"}
+                {isLive ? `${poolLabel} / USDC · DeepBook` : "Synthetic mark"}
               </span>
               <span className="font-mono tabular-nums text-sm text-white/80">
                 {last ? last.close.toFixed(isLive ? 4 : 2) : "…"}
@@ -187,7 +207,7 @@ export function Coach() {
           {/* Right rail: pattern coach + a live BS option quote off the same mark */}
           <div className="flex flex-col gap-4">
             <PatternCoachPanel candles={candles} maxItems={4} />
-            {isLive ? <LiveOptionQuote pool="SUI_USDC" expirySecs={300} /> : null}
+            {isLive ? <LiveOptionQuote pool={pool} expirySecs={300} /> : null}
           </div>
         </div>
       </div>
