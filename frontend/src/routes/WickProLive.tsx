@@ -638,7 +638,8 @@ export function WickProLive() {
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={closeNow}
-              className="rounded-2xl bg-white text-zinc-950 active:scale-95 transition py-5 font-black text-xl disabled:opacity-40 shadow-lg"
+              className="rounded-full bg-white text-zinc-950 active:scale-95 transition py-5 font-black text-xl disabled:opacity-40"
+              style={{ boxShadow: "0 0 22px rgba(255,255,255,0.22)" }}
             >
               CLOSE
               <div className="text-[11px] font-semibold text-zinc-950/60 normal-case tabular-nums">
@@ -647,11 +648,12 @@ export function WickProLive() {
             </button>
             <button
               onClick={flip}
-              className={`rounded-2xl active:scale-95 transition py-5 font-black text-xl text-zinc-950 shadow-lg ${
+              className="rounded-full active:scale-95 transition py-5 font-black text-xl text-zinc-950"
+              style={
                 position.side === "call"
-                  ? "bg-rose-500 shadow-rose-500/20"
-                  : "bg-emerald-500 shadow-emerald-500/20"
-              }`}
+                  ? { background: "#ff0696", boxShadow: "0 0 30px #ff069680" }
+                  : { background: "#00ff3f", boxShadow: "0 0 30px #00ff3f80" }
+              }
             >
               FLIP {position.side === "call" ? "▼ DOWN" : "▲ UP"}
               <div className="text-[11px] font-semibold normal-case opacity-70">
@@ -664,20 +666,22 @@ export function WickProLive() {
             <button
               onClick={() => openPosition("call")}
               disabled={spot === null}
-              className="rounded-2xl bg-emerald-500 active:scale-95 transition py-5 font-black text-xl text-zinc-950 disabled:opacity-40 shadow-lg shadow-emerald-500/20"
+              className="rounded-full active:scale-95 transition py-5 font-black text-xl text-zinc-950 disabled:opacity-40"
+              style={{ background: "#00ff3f", boxShadow: "0 0 30px #00ff3f80" }}
             >
               ▲ UP
-              <div className="text-[11px] font-semibold text-emerald-950/70 normal-case">
+              <div className="text-[11px] font-semibold text-black/55 normal-case">
                 {spot !== null ? breakevenLabel(spot, "call", sigma) : "call"}
               </div>
             </button>
             <button
               onClick={() => openPosition("put")}
               disabled={spot === null}
-              className="rounded-2xl bg-rose-500 active:scale-95 transition py-5 font-black text-xl text-zinc-950 disabled:opacity-40 shadow-lg shadow-rose-500/20"
+              className="rounded-full active:scale-95 transition py-5 font-black text-xl text-zinc-950 disabled:opacity-40"
+              style={{ background: "#ff0696", boxShadow: "0 0 30px #ff069680" }}
             >
               ▼ DOWN
-              <div className="text-[11px] font-semibold text-rose-950/70 normal-case">
+              <div className="text-[11px] font-semibold text-black/55 normal-case">
                 {spot !== null ? breakevenLabel(spot, "put", sigma) : "put"}
               </div>
             </button>
