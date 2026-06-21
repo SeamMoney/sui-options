@@ -13,8 +13,9 @@
  *   3. open a real `open_segment_ride_v4` ride on the live touch-either market
  *   4. crank a handful of segments (`record_segment_v4`)
  *   5. close it (`close_segment_ride_v4`) — on-chain settlement
- *   6. hand the closed ride to `scripts/verify-v4.ts` and assert it PASSes
- *      (the chain's recorded candles reproduce from their own keys)
+ *   6. hand the closed ride to `scripts/audit-ride.ts` (the COMPLETE audit) and
+ *      assert it PASSes — barriers (not cherry-picked) · candles (⟸ keys) ·
+ *      MARKET HALT · verdict · payout, every dimension proven from the chain
  *
  * This is the end-to-end companion to `scripts/demo-smoke.sh` (which only pings
  * routes + faucet liveness). Exits non-zero on any hard failure so it can gate
@@ -225,27 +226,29 @@ async function main() {
       `payout=${payout}  ${scan("tx", closeRes.digest)}`,
   );
 
-  // 6. independent audit via verify-v4.ts
-  log("auditing the closed ride with scripts/verify-v4.ts…");
+  // 6. COMPLETE independent audit via scripts/audit-ride.ts — barriers (not
+  //    cherry-picked) · candles · MARKET HALT · verdict · payout. Exits non-zero
+  //    if ANY dimension fails, so the try/catch is the real gate.
+  log("auditing the closed ride with scripts/audit-ride.ts (barriers · candles · halt · verdict · payout)…");
   let verifyOut = "";
   try {
     verifyOut = execFileSync(
       "npx",
-      ["tsx", join(REPO_ROOT, "scripts/verify-v4.ts"), "--market", MARKET, "--ride", rideId as string, "--rpc", RPC],
+      ["tsx", join(REPO_ROOT, "scripts/audit-ride.ts"), "--market", MARKET, "--ride", rideId as string, "--rpc", RPC],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string };
     console.log(err.stdout ?? "");
     console.log(err.stderr ?? "");
-    die("verify-v4 did NOT pass — the chain's recorded path failed to reproduce");
+    die("the complete audit did NOT pass — a dimension of the ride failed to reproduce");
   }
-  const passed = /\bPASS\b/.test(verifyOut);
-  // echo the verifier's verdict lines
-  for (const line of verifyOut.trim().split("\n").slice(-6)) console.log(`    ${line}`);
-  if (!passed) die("verify-v4 output did not contain PASS");
+  const passed = /COMPLETE AUDIT PASS/.test(verifyOut);
+  // echo the audit's final verdict lines
+  for (const line of verifyOut.trim().split("\n").slice(-4)) console.log(`    ${line}`);
+  if (!passed) die("audit output did not contain COMPLETE AUDIT PASS");
 
-  console.log(`\n\x1b[32m✅ full on-chain loop verified\x1b[0m — funded a cold wallet, opened, cranked, settled, and independently audited a real ride on testnet.`);
+  console.log(`\n\x1b[32m✅ full on-chain loop verified\x1b[0m — funded a cold wallet, opened, cranked, settled, and ran the COMPLETE audit (barriers, candles, halt, verdict, payout) on a real ride on testnet.`);
 }
 
 main().catch((e) => {
