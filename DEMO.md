@@ -113,7 +113,7 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 - **Sui-native economics, measured on-chain** — `npm run gas:report` pulls a real `record_segment_v4` tx and prints its cost: **≈ $0.004 per candle tick**, with **~69% of the storage refunded** by Sui's storage rebate, and one tick advances the chart for *every* open ride at once. The streaming chart is only affordable because of Sui's object+rebate model — not a generic-EVM design.
 - **Audit the live protocol yourself, one command** — `npm run prove:live` proves the *deployed* protocol is fair **and** solvent on testnet right now, walking the whole chain of custody: `verify:randomness` (every `record_segment` crank consumes the `0x…08` system Random — the key isn't house-chosen or grindable) → `audit:deployment` (every market's candles reproduce from those on-chain keys) → `vault:solvency` (every `MartingalerVault` clears its full FIFO claim queue from on-hand reserves). Random keys → honest candles → a vault that can pay everyone — checkable without trusting us.
 - **Move package** (v4.26, testnet): [`0x1fdf78474…815924` on Suiscan](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924).
-- **574/574 Move tests** (incl. 10k seeded-path conformance vectors, TS↔Move byte-identical, enforced in CI).
+- **589/589 Move tests** (incl. 10k seeded-path conformance vectors, TS↔Move byte-identical, enforced in CI).
 
 > Honest scope: `/pro` settles client-side against the live DeepBook mark (no wallet, instant) — the
 > on-chain pieces are the DeepBook price it reads, the `/ride` rides, and the `sui::random` fairness
