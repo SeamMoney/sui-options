@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm --prefix ../sdk run build && npm --prefix ../packages/candle-vision run build && npm --prefix ../packages/candle-vision-react run build && npm --prefix ../packages/pro-options run build",
     "build": "vite build",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
