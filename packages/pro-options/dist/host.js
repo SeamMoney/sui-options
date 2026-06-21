@@ -36,8 +36,8 @@ export class RoundHost {
             const swept = this.engine.settleAll();
             if (swept.length)
                 this.emit({ type: "settled", positions: swept, nowMs });
-            const { seed, verified } = this.engine.reveal();
-            this.emit({ type: "reveal-seed", seed, verified, nowMs });
+            const { seed, paramsJson, commit, verified } = this.engine.reveal();
+            this.emit({ type: "reveal-seed", seed, paramsJson, commit, verified, nowMs });
             this.seedRevealed = true;
         }
     }

@@ -30,6 +30,8 @@ export type HostEvent = {
 } | {
     type: "reveal-seed";
     seed: number;
+    paramsJson: string;
+    commit: string;
     verified: boolean;
     nowMs: number;
 };
