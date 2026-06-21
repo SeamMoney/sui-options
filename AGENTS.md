@@ -56,7 +56,7 @@ After every state transition in `move/`:
 collateral_vault == total_touch_supply == total_no_touch_supply
 ```
 
-Any function that mutates supplies or the vault must preserve this. The invariant test suite (`move/tests/invariants.move`) must pass before any commit. Bugs here are direct loss-of-funds.
+Any function that mutates supplies or the vault must preserve this. The conservation test (`conservation_in_minus_out_equals_held` in `move/tests/martingaler_vault_tests.move`) and the rest of the `sui move test` suite must pass before any commit. Bugs here are direct loss-of-funds. See [`move/SAFETY.md`](move/SAFETY.md) for the full map of every safety property to the named test that proves it.
 
 ## Safety properties the Move package must enforce
 
