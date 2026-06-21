@@ -97,6 +97,9 @@ function usage(): never {
   console.error(
     "  tamper demo:   npx tsx scripts/verify-v4.ts --rpc mock://tamper-v4 --ride 0xmock   (FAILs)",
   );
+  console.error(
+    "  rug demo:      npx tsx scripts/verify-v4.ts --rpc mock://rug-v4 --ride 0xmock --home 1000000000   (MARKET HALT → EXPIRED_LOSS)",
+  );
   process.exit(2);
 }
 
@@ -602,8 +605,13 @@ async function findRoundRug(
 
 async function verify(args: Args): Promise<boolean> {
   const synthetic = args.rpc.startsWith("mock://");
+  const synthMode: SynthMode = args.rpc.includes("rug")
+    ? "rug"
+    : args.rpc.includes("tamper")
+      ? "tamper"
+      : "honest";
   const client: RpcClient = synthetic
-    ? buildSyntheticClient(args.rpc.includes("tamper"))
+    ? buildSyntheticClient(synthMode)
     : (new SuiJsonRpcClient({ url: args.rpc, network: "testnet" }) as unknown as RpcClient);
 
   const marketId = synthetic
@@ -790,7 +798,12 @@ async function verify(args: Args): Promise<boolean> {
 // Generates a self-consistent v4 market: a real seeded walk forward from a
 // genesis price, storing each segment's key + extrema + state_after exactly as
 // `record_segment` would. `tamper` corrupts one segment's max so the verifier
-// catches the lie — this is the `--rpc mock://tamper-v4` demo.
+// catches the lie (`--rpc mock://tamper-v4`). `rug` enables a MARKET HALT at
+// segment 0 (rug_chance_bps=10_000 ⇒ the keccak roll always fires) with a ride
+// entered at 0, so the rug-settlement wiring is exercised offline in CI
+// (`--rpc mock://rug-v4` ⇒ EXPIRED_LOSS, PASS).
+
+type SynthMode = "honest" | "tamper" | "rug";
 
 const SYNTH_MARKET = "0x" + "5e6".padEnd(64, "0");
 const SYNTH_RIDE = "0x" + "47de".padEnd(64, "0");
@@ -809,7 +822,9 @@ interface SynthSeg {
   recordedAtMs: bigint;
 }
 
-function buildSyntheticClient(tamper: boolean): RpcClient {
+function buildSyntheticClient(mode: SynthMode): RpcClient {
+  const tamper = mode === "tamper";
+  const rug = mode === "rug";
   // Deterministic keys: byte i of segment k = (k*7 + i*3 + 11) mod 251.
   const segs: SynthSeg[] = [];
   let state = newState(SYNTH_HOME, DEFAULT_VOL_REGIME_INIT, SYNTH_HOME);
@@ -867,6 +882,7 @@ function buildSyntheticClient(tamper: boolean): RpcClient {
                 deadband_bps: SYNTH_DEADBAND.toString(),
                 round_duration_segments: SYNTH_ROUND_DUR.toString(),
                 next_segment_index: String(SYNTH_SEG_COUNT),
+                cached_round_index: "0",
               },
             },
           },
@@ -880,13 +896,15 @@ function buildSyntheticClient(tamper: boolean): RpcClient {
               dataType: "moveObject",
               type: `${SYNTH_PKG}::segment_market_v4::SegmentRidePositionV4`,
               fields: {
-                entry_segment_index: "2",
+                // Rug mode: enter at segment 0 so the seg-0 halt applies; the
+                // chain then settles EXPIRED_LOSS. Honest/tamper: enter at 2.
+                entry_segment_index: rug ? "0" : "2",
                 round_index: "0",
                 upper_barrier_price: upper.toString(),
                 lower_barrier_price: lower.toString(),
                 closed: true,
                 closed_at_ms: rideClosedAt.toString(),
-                settlement_kind: String(SETTLEMENT_CASHOUT),
+                settlement_kind: String(rug ? SETTLEMENT_EXPIRED_LOSS : SETTLEMENT_CASHOUT),
               },
             },
           },
@@ -895,6 +913,25 @@ function buildSyntheticClient(tamper: boolean): RpcClient {
       return { data: null };
     },
     async getDynamicFieldObject(a) {
+      // Rug config lives under the market UID (not the segments Table). Return a
+      // RugConfig with an always-firing chance so the seg-0 halt is deterministic.
+      if (rug && a.parentId === SYNTH_MARKET) {
+        return {
+          data: {
+            objectId: "0x" + "c0nf16".padEnd(64, "0"),
+            content: {
+              fields: {
+                value: {
+                  fields: {
+                    rug_chance_bps: "10000",
+                    rugged_at_segment: { fields: { vec: ["0"] } },
+                  },
+                },
+              },
+            },
+          },
+        };
+      }
       if (a.parentId !== TABLE_ID) return { data: null };
       const k = Number(a.name.value);
       if (k < 0 || k >= segs.length) return { data: null };
