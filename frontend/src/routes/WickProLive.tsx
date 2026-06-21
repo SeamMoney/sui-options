@@ -568,6 +568,7 @@ export function WickProLive() {
           entryTime={position ? position.openedAtMs : null}
           up={headline ? headline.pnl >= 0 : true}
           liveMid={spot}
+          pnl={headline?.pnl ?? null}
         />
         {/* CandleVision coach — real DeepBook bars. Visible on every viewport. */}
         {coachEl && (
@@ -741,8 +742,10 @@ const MarkChart = memo(function MarkChart(props: {
   up: boolean;
   /** Live, frame-smoothed spot — the chart tip glides to this at 60fps. */
   liveMid: number | null;
+  /** Live P&L while in a position — shown as the pill on the live point. */
+  pnl: number | null;
 }) {
-  const { history, strike, entryTime, up, liveMid } = props;
+  const { history, strike, entryTime, up, liveMid, pnl } = props;
   const W = 1000;
   const H = 320;
   if (history.length < 2) {
@@ -835,7 +838,8 @@ const MarkChart = memo(function MarkChart(props: {
         </span>
       )}
 
-      {/* Live price pill — neon, glowing, at the last point. */}
+      {/* Live pill at the moving tip — your P&L while in a position (the number
+          that matters when trading, bloxwap-style), the price when idle. */}
       <div
         className="pointer-events-none absolute right-1 z-10 -translate-y-1/2 rounded-full border px-2 py-0.5 font-mono text-[11px] font-bold tabular-nums"
         style={{
@@ -846,7 +850,7 @@ const MarkChart = memo(function MarkChart(props: {
           boxShadow: `0 0 14px ${neon}88`,
         }}
       >
-        {lastMid.toFixed(decimals)}
+        {pnl != null ? fmtSignedUsd(pnl) : lastMid.toFixed(decimals)}
       </div>
     </div>
   );
