@@ -23,7 +23,7 @@
  * button (e.g. "+0.03% to win") matches a genuine 60-second move — a fair,
  * lively round, not the always-lose overpricing an accelerated clock gives.
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   openOption,
   pnlReturnFraction,
@@ -43,7 +43,12 @@ import {
   deepBookPoolExplorerUrl,
   type DeepBookPoolName,
 } from "@/lib/deepbook";
-import { PatternCoachPanel } from "@/components/PatternCoachPanel";
+// Lazy: the coach pulls the CandleVision detector bundle (~28kB gz). It can't
+// render until live candles arrive (a few seconds in), so keeping it off the
+// first-paint path makes the chart + buttons interactive sooner.
+const PatternCoachPanel = lazy(() =>
+  import("@/components/PatternCoachPanel").then((m) => ({ default: m.PatternCoachPanel })),
+);
 
 // ── Game knobs ──────────────────────────────────────────────────────────────
 const EXPIRY_SECONDS = 60;
@@ -317,7 +322,9 @@ export function WickProLive() {
   const coachEl = useMemo(
     () =>
       coachCandles.length >= 4 ? (
-        <PatternCoachPanel candles={coachCandles} maxItems={3} className="!p-3 sm:!p-4" />
+        <Suspense fallback={null}>
+          <PatternCoachPanel candles={coachCandles} maxItems={3} className="!p-3 sm:!p-4" />
+        </Suspense>
       ) : null,
     [coachCandles],
   );
