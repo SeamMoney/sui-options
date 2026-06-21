@@ -107,8 +107,12 @@ def field(oid, name):
     return f.get(name)
 
 print(f"\nfunded + demo-ready:")
-print(f"  MartingalerVault<TUSD>: {int(field(d['vault_tusd'],'treasury') or 0)/1e6:>14,.0f} TUSD")
-print(f"  MartingalerVault<SUI> : {int(field(d['vault_sui'],'treasury') or 0)/1e9:>14,.3f} SUI")
+# The live /ride game + the faucet stake run on the TUSD market (pickSegmentMarketV4
+# selects the last v4 market = the TUSD rug market), so the TUSD vault is the one
+# that backs every demo payout. The SUI vault backs the legacy SUI-collateral
+# markets, which are off the demo path — its low balance is expected, not a gap.
+print(f"  MartingalerVault<TUSD>: {int(field(d['vault_tusd'],'treasury') or 0)/1e6:>14,.0f} TUSD   ← the demo vault (/ride + faucet stake)")
+print(f"  MartingalerVault<SUI> : {int(field(d['vault_sui'],'treasury') or 0)/1e9:>14,.3f} SUI    (legacy SUI markets — off the demo path)")
 print(f"  gas sponsor wallet    : {sui_bal(d['sponsor']['sponsor_address']):>14,.2f} SUI")
 ts = field(d["tusd"]["treasury_cap"], "total_supply")
 supply = int(ts["fields"]["value"]) / 1e6 if ts else 0
