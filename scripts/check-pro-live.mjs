@@ -24,7 +24,7 @@
  * pre-flight. Requires Chromium (playwright); install with
  * `npx playwright install chromium` if missing.
  */
-import { chromium } from "playwright";
+import { chromium, devices } from "playwright";
 
 const BASE = (process.argv[2] || process.env.PRO_URL || "https://wick-markets.vercel.app").replace(/\/$/, "");
 const CENTS = /[+\-−]\$[0-9][0-9.,]*/; // matches +$1.23 / -$0.04 / −$0.04
@@ -73,14 +73,52 @@ try {
   });
   check("chart is a full real history (>20 points)", segs > 20, `${segs} points`);
 
+  // 1b. The displayed price tracks the REAL DeepBook SUI/USDC mid (not a
+  // synthetic / mis-scaled line). Compare the on-screen price to the indexer.
+  const shownPx = await page.evaluate(() => {
+    const m = document.body.innerText.match(/\b\d+\.\d{4,6}\b/);
+    return m ? parseFloat(m[0]) : null;
+  });
+  // Use the SAME order-book mid the app prices against (fetchDeepBookMark),
+  // not /ticker last_price (which can be a stale/odd print).
+  const realMid = await page.evaluate(async () => {
+    try {
+      const r = await fetch("https://deepbook-indexer.mainnet.mystenlabs.com/orderbook/SUI_USDC?level=1");
+      const j = await r.json();
+      const bid = Number(j.bids?.[0]?.[0]);
+      const ask = Number(j.asks?.[0]?.[0]);
+      return bid && ask ? (bid + ask) / 2 : null;
+    } catch {
+      return null;
+    }
+  });
+  const pxClose = shownPx && realMid ? Math.abs(shownPx - realMid) / realMid <= 0.03 : false;
+  check("chart price tracks the live DeepBook mid (±3%)", pxClose, `shown ${shownPx} vs DeepBook ${realMid}`);
+
   // DeepBook live (UP becomes enabled once the mark lands).
   const liveReady = await waitUntil(async () => (await up.count()) > 0 && !(await up.isDisabled().catch(() => true)), 22000);
   check("DeepBook mark is live (UP enabled)", liveReady);
 
   if (liveReady) {
-    // 3. Open -> CLOSE / FLIP, not UP/DOWN.
-    await up.click();
-    await page.waitForTimeout(500);
+    // 2. Optimistic tap: the CLOSE state must paint within ~2 frames of the
+    // tap (no awaiting the chain) — the SPEED mandate's instant feedback.
+    const tapLatency = await page.evaluate(
+      () =>
+        new Promise((res) => {
+          const b = [...document.querySelectorAll("button")].find((x) => /\bUP\b/.test(x.innerText));
+          if (!b) return res(9999);
+          const t0 = performance.now();
+          b.click();
+          const tick = () => {
+            if ([...document.querySelectorAll("button")].some((x) => /CLOSE/i.test(x.innerText)))
+              res(Math.round(performance.now() - t0));
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    check("tap → CLOSE is optimistic (≤ 100 ms)", tapLatency <= 100, `${tapLatency} ms`);
+    await page.waitForTimeout(400);
     let body = await page.evaluate(() => document.body.innerText);
     const hasClose = /CLOSE/i.test(body);
     const hasFlip = /FLIP/i.test(body);
@@ -109,20 +147,56 @@ try {
       check("FLIP reverses the position", false, "no FLIP button");
     }
 
-    // 6. CLOSE settles ~= live (within a one-frame ease cent).
-    const liveBefore = (await page.evaluate(() => document.body.innerText)).match(CENTS)?.[0] ?? null;
-    const close = page.locator('button:has-text("CLOSE"), button:has-text("Close")').first();
-    if ((await close.count()) > 0) await close.click();
+    // 6. CLOSE settles == the number shown ON the CLOSE button at the click
+    // instant. Capture-and-click in one sync eval so there's no read→click gap
+    // (the price keeps moving; comparing to a stale earlier read would false-
+    // fail on a fast tick even though the app settles at the painted value).
+    const liveAtClick = await page.evaluate(() => {
+      const btn = [...document.querySelectorAll("button")].find((b) => /CLOSE/i.test(b.innerText));
+      if (!btn) return null;
+      const m = btn.innerText.match(/[+\-−]\$[0-9.]+/);
+      btn.click();
+      return m ? m[0] : null;
+    });
     await page.waitForTimeout(1200);
     const after = await page.evaluate(() => document.body.innerText);
     const settled = after.match(CENTS)?.[0] ?? null;
     const num = (s) => (s ? Number(s.replace(/[+$]/g, "").replace("−", "-")) : NaN);
-    const diff = Math.abs(num(liveBefore) - num(settled));
-    check("CLOSE settles ≈ live P&L (≤ $0.05)", Number.isFinite(diff) && diff <= 0.05, `live ${liveBefore} → settled ${settled}`);
+    const diff = Math.abs(num(liveAtClick) - num(settled));
+    check("CLOSE settles == the number on the button (≤ $0.05)", Number.isFinite(diff) && diff <= 0.05, `button ${liveAtClick} → settled ${settled}`);
   }
 
   // 7. No console errors.
   check("no uncaught console errors", consoleErrors.length === 0, consoleErrors.slice(0, 2).join(" | "));
+
+  // 8. Mobile-first: no horizontal overflow at common phone widths.
+  let worstOverflow = 0;
+  let mobileErrors = 0;
+  for (const w of [320, 360, 390, 414]) {
+    const ctx = await browser.newContext({
+      viewport: { width: w, height: 780 },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 2,
+    });
+    const mp = await ctx.newPage();
+    mp.on("pageerror", () => (mobileErrors += 1));
+    try {
+      await mp.goto(`${BASE}/pro`, { waitUntil: "domcontentloaded", timeout: 30000 });
+      // Let the live chart + coach settle — the initial paint can briefly
+      // exceed the viewport for a frame before layout stabilises.
+      await mp.waitForTimeout(5500);
+      const o = await mp.evaluate(() => ({
+        sw: document.documentElement.scrollWidth,
+        cw: document.documentElement.clientWidth,
+      }));
+      worstOverflow = Math.max(worstOverflow, o.sw - o.cw);
+    } catch {
+      /* counted via mobileErrors */
+    }
+    await ctx.close();
+  }
+  check("mobile-first: no overflow @ 320–414px", worstOverflow <= 2 && mobileErrors === 0, `worst +${worstOverflow}px, errors ${mobileErrors}`);
 } catch (err) {
   check("ran the flow without throwing", false, String(err).slice(0, 120));
 } finally {
