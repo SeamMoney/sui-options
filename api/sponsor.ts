@@ -14,7 +14,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+
+// Default to PublicNode, not the Mysten public fullnode — the sponsor co-signs
+// cranking txs and the Mysten testnet endpoint throttles under sustained load
+// (v4.29 finding; frontend/keeper/bots already moved off it). Override with
+// WICK_API_RPC.
+const TESTNET_RPC_URL =
+  process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 import { Transaction } from "@mysten/sui/transactions";
 import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
 
@@ -125,7 +132,7 @@ function getClient(): SuiJsonRpcClient {
   if (cachedClient) return cachedClient;
   cachedClient = new SuiJsonRpcClient({
     network: "testnet",
-    url: getJsonRpcFullnodeUrl("testnet"),
+    url: TESTNET_RPC_URL,
   });
   return cachedClient;
 }
