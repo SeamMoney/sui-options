@@ -1,14 +1,17 @@
 # Vercel-side ignore rules.
 #
 # Without this, Vercel would try to bundle every .ts file under api/ as a
-# separate serverless function. We only want api/faucet.ts. The api/src/
-# tree is the @wick/api Fastify workspace, which is deployed elsewhere
-# (Fly / Railway / self-hosted) and uses top-level await + Fastify in a
-# way that breaks Vercel's Node bundler.
+# separate serverless function. We only want the real endpoints (faucet.ts,
+# faucet-tusd.ts, sponsor.ts). The api/src/ tree is the @wick/api Fastify
+# workspace, which is deployed elsewhere (Fly / Railway / self-hosted) and uses
+# top-level await + Fastify in a way that breaks Vercel's Node bundler.
 
 api/src/
 api/smoke.ts
 api/README.md
+# Test files must never be bundled as serverless functions — they import a test
+# runner and export no handler (api/faucet.test.ts, api/sponsor.test.ts).
+api/*.test.ts
 
 # Non-frontend workspaces are not needed inside the Vercel build sandbox.
 # Note: sdk/ must NOT be excluded — the frontend imports @wick/sdk via
