@@ -57,6 +57,11 @@ const FALLBACK_SIGMA = 0.6; // until the live σ lands (useDeepBookCandles seeds
 const STAKE_PRESETS = [1, 5, 10, 25];
 const MAX_POINTS = 120; // rolling mark history for the sparkline
 
+// bloxwap palette — neon green (up/win), hot magenta (down/loss). The chart
+// (#138) already uses these; share them so the buttons / P&L / flash match.
+const NEON = "#00ff3f";
+const MAGENTA = "#ff0696";
+
 interface MarkPoint {
   t: number;
   mid: number;
@@ -435,10 +440,10 @@ export function WickProLive() {
         @keyframes wpFlash { 0% { opacity: 0.9 } 100% { opacity: 0 } }
         @keyframes wpPop { 0% { transform: scale(0.7); opacity: 0 } 45% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }
         @keyframes wpWin {
-          0% { transform: scale(0.6); opacity: 0; filter: drop-shadow(0 0 0 rgba(16,185,129,0)) }
-          40% { transform: scale(1.3); filter: drop-shadow(0 0 26px rgba(16,185,129,0.85)) }
+          0% { transform: scale(0.6); opacity: 0; filter: drop-shadow(0 0 0 rgba(0,255,63,0)) }
+          40% { transform: scale(1.3); filter: drop-shadow(0 0 26px rgba(0,255,63,0.85)) }
           70% { transform: scale(0.93) }
-          100% { transform: scale(1); opacity: 1; filter: drop-shadow(0 0 0 rgba(16,185,129,0)) }
+          100% { transform: scale(1); opacity: 1; filter: drop-shadow(0 0 0 rgba(0,255,63,0)) }
         }
       `}</style>
       {/* Settle flash — a fading colour wash, green on a win, red on a loss. */}
@@ -448,8 +453,8 @@ export function WickProLive() {
           style={{
             background:
               flash === "win"
-                ? "radial-gradient(circle at 50% 42%, rgba(16,185,129,0.30), transparent 70%)"
-                : "radial-gradient(circle at 50% 42%, rgba(244,63,94,0.22), transparent 70%)",
+                ? "radial-gradient(circle at 50% 42%, rgba(0,255,63,0.30), transparent 70%)"
+                : "radial-gradient(circle at 50% 42%, rgba(255,6,150,0.22), transparent 70%)",
             animation: "wpFlash 850ms ease-out forwards",
           }}
         />
@@ -486,15 +491,15 @@ export function WickProLive() {
       {/* Live mark + live σ (honest pricing) */}
       <div className="px-4 flex items-baseline gap-2 shrink-0">
         <span
-          className={`text-3xl font-bold tabular-nums transition-colors duration-150 ${
+          className={`font-mono text-3xl font-bold tabular-nums transition-colors duration-150 ${
             spot === null ? "text-white/30 animate-pulse" : ""
           }`}
           style={{
             color:
               spot !== null && priceTick === "up"
-                ? "#34d399"
+                ? NEON
                 : spot !== null && priceTick === "down"
-                  ? "#f43f5e"
+                  ? MAGENTA
                   : undefined,
           }}
         >
@@ -587,11 +592,10 @@ export function WickProLive() {
               // when it settles. 60fps text updates keep the same key, so they
               // don't re-trigger the pop.
               key={headline.live ? `live-${position?.id ?? ""}` : `settled-${settled?.id ?? ""}`}
-              className={`text-6xl font-black tabular-nums leading-none ${
-                headline.pnl >= 0 ? "text-emerald-400" : "text-rose-500"
-              }`}
+              className="font-mono text-6xl font-black tabular-nums leading-none"
               style={{
-                textShadow: "0 2px 32px rgba(0,0,0,0.6)",
+                color: headline.pnl >= 0 ? NEON : MAGENTA,
+                textShadow: `0 0 28px ${headline.pnl >= 0 ? NEON : MAGENTA}55, 0 2px 24px rgba(0,0,0,0.6)`,
                 // A win settles with a bigger, glowing celebratory bounce; a
                 // loss and the live updates use the plain pop.
                 animation:
@@ -602,7 +606,7 @@ export function WickProLive() {
             >
               {fmtSignedUsd(headline.pnl)}
             </div>
-            <div className={`mt-1 text-lg font-bold tabular-nums ${headline.pnl >= 0 ? "text-emerald-400/80" : "text-rose-500/80"}`}>
+            <div className="mt-1 font-mono text-lg font-bold tabular-nums" style={{ color: headline.pnl >= 0 ? `${NEON}cc` : `${MAGENTA}cc` }}>
               {fmtPct(headline.pct)}
             </div>
           </>
@@ -638,23 +642,21 @@ export function WickProLive() {
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={closeNow}
-              className="rounded-2xl bg-white text-zinc-950 active:scale-95 transition py-5 font-black text-xl disabled:opacity-40 shadow-lg"
+              className="rounded-full py-5 font-black text-xl uppercase tracking-wider text-white active:scale-95 transition"
+              style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.5)", boxShadow: "0 0 22px rgba(255,255,255,0.10)" }}
             >
               CLOSE
-              <div className="text-[11px] font-semibold text-zinc-950/60 normal-case tabular-nums">
+              <div className="text-[11px] font-bold text-white/55 normal-case tabular-nums font-mono">
                 cash out {headline ? fmtSignedUsd(headline.pnl) : ""}
               </div>
             </button>
             <button
               onClick={flip}
-              className={`rounded-2xl active:scale-95 transition py-5 font-black text-xl text-zinc-950 shadow-lg ${
-                position.side === "call"
-                  ? "bg-rose-500 shadow-rose-500/20"
-                  : "bg-emerald-500 shadow-emerald-500/20"
-              }`}
+              className="rounded-full py-5 font-black text-xl uppercase tracking-wider active:scale-95 transition"
+              style={(() => { const c = position.side === "call" ? MAGENTA : NEON; return { color: c, background: `${c}1f`, border: `1px solid ${c}88`, boxShadow: `0 0 26px ${c}33` }; })()}
             >
               FLIP {position.side === "call" ? "▼ DOWN" : "▲ UP"}
-              <div className="text-[11px] font-semibold normal-case opacity-70">
+              <div className="text-[11px] font-bold normal-case opacity-70 font-mono">
                 reverse · {secsLeft}s left
               </div>
             </button>
@@ -664,20 +666,22 @@ export function WickProLive() {
             <button
               onClick={() => openPosition("call")}
               disabled={spot === null}
-              className="rounded-2xl bg-emerald-500 active:scale-95 transition py-5 font-black text-xl text-zinc-950 disabled:opacity-40 shadow-lg shadow-emerald-500/20"
+              className="rounded-full py-5 font-black text-xl uppercase tracking-wider active:scale-95 transition disabled:opacity-40"
+              style={{ color: NEON, background: `${NEON}14`, border: `1px solid ${NEON}80`, boxShadow: `0 0 26px ${NEON}2e` }}
             >
               ▲ UP
-              <div className="text-[11px] font-semibold text-emerald-950/70 normal-case">
+              <div className="text-[11px] font-bold normal-case font-mono" style={{ color: `${NEON}bb` }}>
                 {spot !== null ? breakevenLabel(spot, "call", sigma) : "call"}
               </div>
             </button>
             <button
               onClick={() => openPosition("put")}
               disabled={spot === null}
-              className="rounded-2xl bg-rose-500 active:scale-95 transition py-5 font-black text-xl text-zinc-950 disabled:opacity-40 shadow-lg shadow-rose-500/20"
+              className="rounded-full py-5 font-black text-xl uppercase tracking-wider active:scale-95 transition disabled:opacity-40"
+              style={{ color: MAGENTA, background: `${MAGENTA}14`, border: `1px solid ${MAGENTA}80`, boxShadow: `0 0 26px ${MAGENTA}2e` }}
             >
               ▼ DOWN
-              <div className="text-[11px] font-semibold text-rose-950/70 normal-case">
+              <div className="text-[11px] font-bold normal-case font-mono" style={{ color: `${MAGENTA}bb` }}>
                 {spot !== null ? breakevenLabel(spot, "put", sigma) : "put"}
               </div>
             </button>
