@@ -7,8 +7,9 @@
  * wallet, no RPC). Drop <PatternCoachPanel candles={…}/> onto any candle
  * source to get the identical read.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CandleInput } from "@sui-options/candle-vision";
+import { useCandleVisionScanner } from "@sui-options/candle-vision-react";
 import { PatternCoachPanel } from "@/components/PatternCoachPanel";
 import { LiveOptionQuote } from "@/components/LiveOptionQuote";
 import { DeepBookDepth } from "@/components/DeepBookDepth";
@@ -71,12 +72,29 @@ function useSyntheticCandles(): CandleInput[] {
   return candles;
 }
 
+const VIEW_N = 40;
+
+/** A detected pattern's candle range to highlight on the chart. */
+interface ChartHighlight {
+  /** Indices into the FULL candles array. */
+  readonly start: number;
+  readonly end: number;
+  readonly color: string;
+}
+
 /** Minimal inline candlestick chart — last N candles, no chart lib. */
-function MiniCandles({ candles }: { candles: CandleInput[] }) {
+function MiniCandles({
+  candles,
+  highlight,
+}: {
+  candles: CandleInput[];
+  highlight?: ChartHighlight | null;
+}) {
   const W = 100;
   const H = 100;
   if (candles.length === 0) return null;
-  const view = candles.slice(-40);
+  const view = candles.slice(-VIEW_N);
+  const viewStart = candles.length - view.length;
   const highs = view.map((c) => c.high);
   const lows = view.map((c) => c.low);
   const top = Math.max(...highs);
@@ -87,6 +105,16 @@ function MiniCandles({ candles }: { candles: CandleInput[] }) {
   const lastC = view[view.length - 1]!;
   const lastUp = lastC.close >= lastC.open;
   const priceY = y(lastC.close);
+
+  // Map the highlighted pattern's candle range into the visible window.
+  let hl: { x: number; w: number; color: string } | null = null;
+  if (highlight) {
+    const a = Math.max(0, highlight.start - viewStart);
+    const z = Math.min(view.length - 1, highlight.end - viewStart);
+    if (z >= a && z >= 0 && a < view.length) {
+      hl = { x: a * cw, w: (z - a + 1) * cw, color: highlight.color };
+    }
+  }
 
   return (
     <svg
@@ -108,6 +136,25 @@ function MiniCandles({ candles }: { candles: CandleInput[] }) {
           opacity={0.05}
         />
       ))}
+      {/* highlight the candles of the top detected pattern — shows the coach's
+          call ON the chart, not just in the list beside it. */}
+      {hl && (
+        <>
+          <rect x={hl.x} y={0} width={hl.w} height={H} fill={hl.color} opacity={0.1} />
+          <rect
+            x={hl.x}
+            y={0.3}
+            width={hl.w}
+            height={H - 0.6}
+            fill="none"
+            stroke={hl.color}
+            strokeWidth={0.4}
+            strokeDasharray="1.5 1"
+            opacity={0.65}
+            vectorEffect="non-scaling-stroke"
+          />
+        </>
+      )}
       {/* current-price line */}
       <line
         x1={0}
@@ -174,6 +221,18 @@ export function Coach() {
   const candles = isLive ? liveCandles : synthetic;
   const last = candles[candles.length - 1];
 
+  // Scan the same candles to find the top detected pattern, and highlight its
+  // candle range on the chart so the coach's call is visible ON the tape.
+  const scanOpts = useMemo(() => ({ minConfidence: 0.4 }), []);
+  const { visibleSignals } = useCandleVisionScanner(candles, scanOpts);
+  const highlight = useMemo<ChartHighlight | null>(() => {
+    const ev = visibleSignals[0]?.event;
+    if (!ev) return null;
+    const color =
+      ev.direction === "bullish" ? "#00ff3f" : ev.direction === "bearish" ? "#ff0696" : "#9ca3af";
+    return { start: ev.startIndex, end: ev.endIndex, color };
+  }, [visibleSignals]);
+
   return (
     <div className="min-h-full w-full bg-black text-white">
       <div className="mx-auto w-full max-w-[920px] px-4 py-6 sm:px-6 sm:py-10">
@@ -229,7 +288,7 @@ export function Coach() {
               </span>
             </div>
             <div className="min-h-[240px] w-full flex-1">
-              <MiniCandles candles={candles} />
+              <MiniCandles candles={candles} highlight={highlight} />
             </div>
           </div>
 
