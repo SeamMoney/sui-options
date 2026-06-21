@@ -38,7 +38,11 @@ import {
 import type { CandleInput } from "@sui-options/candle-vision";
 import { useDeepBookMark } from "@/hooks/useDeepBookMark";
 import { useDeepBookCandles } from "@/hooks/useDeepBookCandles";
-import { DEEPBOOK_POOLS, type DeepBookPoolName } from "@/lib/deepbook";
+import {
+  DEEPBOOK_POOLS,
+  deepBookPoolExplorerUrl,
+  type DeepBookPoolName,
+} from "@/lib/deepbook";
 import { PatternCoachPanel } from "@/components/PatternCoachPanel";
 
 // ── Game knobs ──────────────────────────────────────────────────────────────
@@ -383,7 +387,15 @@ export function WickProLive() {
         <span className="text-3xl font-bold tabular-nums">
           {spot !== null ? fmtPrice(spot) : "—"}
         </span>
-        <span className="text-xs text-white/40">{poolMeta.base}/{poolMeta.quote}</span>
+        <a
+          href={deepBookPoolExplorerUrl(pool)}
+          target="_blank"
+          rel="noreferrer"
+          title="Verify this DeepBook pool on-chain (mainnet CLOB)"
+          className="text-xs text-white/40 underline decoration-white/20 underline-offset-2 hover:text-white/70"
+        >
+          {poolMeta.base}/{poolMeta.quote} ↗
+        </a>
         {candleStatus === "live" && (
           <span className="text-[10px] text-white/35 tabular-nums">σ {(sigma * 100).toFixed(0)}%</span>
         )}
