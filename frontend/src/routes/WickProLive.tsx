@@ -89,7 +89,12 @@ function haptic(pattern: number | number[]): void {
 }
 
 export function WickProLive() {
-  const [pool, setPool] = useState<DeepBookPoolName>("SUI_USDC");
+  // Honour ?asset=<pool> so the asset is deep-linkable (/pro?asset=XBTC_USDC is a
+  // direct "Bitcoin options" link) and preserved when returning from /coach.
+  const [pool, setPool] = useState<DeepBookPoolName>(() => {
+    const a = new URLSearchParams(window.location.search).get("asset");
+    return a && a in DEEPBOOK_POOLS ? (a as DeepBookPoolName) : "SUI_USDC";
+  });
   const { mark, status } = useDeepBookMark(pool, 1500);
   const { candles, sigma: liveSigma, status: candleStatus } = useDeepBookCandles(pool, {
     bucketMs: 60_000,
