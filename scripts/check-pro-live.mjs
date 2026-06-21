@@ -119,6 +119,16 @@ try {
   const liveReady = await waitUntil(async () => (await up.count()) > 0 && !(await up.isDisabled().catch(() => true)), 22000);
   check("DeepBook mark is live (UP enabled)", liveReady);
 
+  // Provenance: the pair label links to the REAL on-chain DeepBook pool object
+  // on Suiscan — the proof DEMO.md tells judges to click ("the pair"). Gate it
+  // so the "real on-chain CLOB, not a faked feed" claim can't silently break.
+  const poolLink = await page.evaluate(() =>
+    [...document.querySelectorAll("a")].some(
+      (a) => /↗/.test(a.textContent || "") && /suiscan\.xyz\/mainnet\/object\//.test(a.href),
+    ),
+  );
+  check("the mark is verifiable (pair links to the real DeepBook pool on Suiscan)", poolLink);
+
   if (liveReady) {
     // 2. Optimistic tap: the CLOSE state must paint within ~2 frames of the
     // tap (no awaiting the chain) — the SPEED mandate's instant feedback.
