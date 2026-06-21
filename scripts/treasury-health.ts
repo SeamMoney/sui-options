@@ -28,10 +28,11 @@ const SPONSOR =
 const TUSD_TREASURY_CAP =
   "0x7db5b3edead4f503ce8ef19ace6eca26e961edd08871042ad5de6f870a369b11";
 
-// Thresholds. The faucet now drips 1.0 SUI/req (bumped from 0.2 in #232 so a
-// full hold-for-touch ride doesn't run out of gas), so the wallet drains ~5×
-// faster per judge — warn with more headroom (100 SUI ≈ 100 more drips).
-const MIN_TREASURY_SUI = 100;
+// Thresholds. The faucet drips 2.0 SUI/req (0.2 → 1.0 in #232 so a full
+// hold-for-touch ride doesn't run out of gas, then 1.0 → 2.0 for smooth
+// multi-ride judge sessions). Keep the warning floor at ~100 drips of headroom
+// → 200 SUI at the current 2.0 SUI/req drip.
+const MIN_TREASURY_SUI = 200;
 const MIN_SPONSOR_SUI = 5;
 
 async function rpc(method: string, params: unknown[]): Promise<any> {
