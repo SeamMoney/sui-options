@@ -17,6 +17,7 @@
     "build:candle-vision": "npm -w @sui-options/candle-vision run build",
     "typecheck:candle-vision": "npm -w @sui-options/candle-vision run typecheck",
     "test:candle-vision": "npm -w @sui-options/candle-vision run test",
+    "check:deepbook": "tsx scripts/deepbook-mark-check.ts",
     "check:candle-vision:browser": "node scripts/candle-vision-browser-check.mjs",
     "check:candle-vision:lightcone": "BROWSER_BACKEND=lightcone CANDLE_VISION_URL=https://wick-markets.vercel.app/candle-vision node scripts/candle-vision-browser-check.mjs",
     "build:candle-vision-react": "npm -w @sui-options/candle-vision-react run build",
