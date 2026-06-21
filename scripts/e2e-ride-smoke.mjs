@@ -58,7 +58,16 @@ page.on("pageerror", (e) => errors.push("PAGEERROR: " + String(e).slice(0, 160))
 let exitCode = 0;
 try {
   await page.goto(URL, { waitUntil: "domcontentloaded", timeout: 45000 });
-  await page.waitForTimeout(4000); // let the p5 chart + data spin up
+  // Wait for the React app + lazy /ride chunk + DeepBook data to actually
+  // RENDER, not a fixed sleep — on a cold load the old 4s timeout fired while
+  // the body was still ~empty (8 chars), falsely failing the content / framing
+  // / canvas checks even though /ride renders fine (onboarding "Get free funds"
+  // screen + p5 chart). Wait until real content is present, then a short settle
+  // so the p5 <canvas> has mounted.
+  await page
+    .waitForFunction(() => (document.body.innerText || "").length > 50, { timeout: 25000 })
+    .catch(() => {});
+  await page.waitForTimeout(2500);
 
   const title = await page.title();
   check("page has the Wick title", /wick/i.test(title), title);
