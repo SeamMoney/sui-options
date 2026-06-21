@@ -217,46 +217,41 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
     };
   }
 
-  // ---- Gas-coin pool (anti-contention) -------------------------------------
+  // ---- Build + execute the transfer PTB (retry on gas-coin contention) ------
   // The wallet historically held its SUI in ONE coin, so two requests landing
   // close together resolved the SAME gas coin and the second equivocated → 500.
-  // If the wallet has been split into a POOL of usable coins, pin each request
-  // (and each retry) to a DISTINCT coin so concurrent drips never collide. With
-  // 0–1 usable coins we fall back to auto gas (`tx.gas`) — i.e. this is a strict
-  // no-op until a pool exists, so it can't regress the single-coin path.
-  let gasPool: { objectId: string; version: string; digest: string }[] = [];
-  try {
-    const coins = await client.getCoins({
-      owner: signer.sender,
-      coinType: "0x2::sui::SUI",
-      limit: 50,
-    });
-    gasPool = coins.data
-      .filter((c) => BigInt(c.balance) >= DRIP_MIST + GAS_BUFFER_MIST)
-      .map((c) => ({ objectId: c.coinObjectId, version: c.version, digest: c.digest }));
-  } catch (err) {
-    console.error("[api/faucet] getCoins failed; using auto gas", { error: String(err) });
-  }
-  const poolStart = gasPool.length > 0 ? Math.floor(Math.random() * gasPool.length) : 0;
-
-  // ---- Build + execute the transfer PTB (retry on gas-coin contention) ------
-  // run() rebuilds the tx every attempt so a retry re-resolves the advanced
-  // gas coin version (see executeWithRetry).
-  let attemptIdx = 0;
+  // Anti-contention: on EACH attempt, fetch a FRESH view of the wallet's coin
+  // pool and pin gas to a random usable coin (setGasPayment). Fetching per
+  // attempt (not once up front) means a retry re-resolves CURRENT coin versions,
+  // so it escapes both the collision AND the stale-snapshot a sibling drip just
+  // advanced. Strict no-op until the wallet has ≥2 usable coins (0–1 → auto gas,
+  // exactly today's behavior); a getCoins failure also falls back to auto gas.
   const outcome = await executeWithRetry(
-    () => {
+    async () => {
+      let gasCoin: { objectId: string; version: string; digest: string } | null = null;
+      try {
+        const coins = await client.getCoins({
+          owner: signer.sender,
+          coinType: "0x2::sui::SUI",
+          limit: 50,
+        });
+        const usable = coins.data.filter(
+          (c) => BigInt(c.balance) >= DRIP_MIST + GAS_BUFFER_MIST,
+        );
+        if (usable.length >= 2) {
+          const c = usable[Math.floor(Math.random() * usable.length)]!;
+          gasCoin = { objectId: c.coinObjectId, version: c.version, digest: c.digest };
+        }
+      } catch (err) {
+        console.error("[api/faucet] getCoins failed; using auto gas", { error: String(err) });
+      }
       const tx = new Transaction();
       // Take DRIP_MIST out of the gas coin. The remainder of the gas coin pays
       // the network fee, so we don't need a separate gas split.
       const [dripCoin] = tx.splitCoins(tx.gas, [DRIP_MIST]);
       tx.transferObjects([dripCoin], recipient);
       tx.setSender(signer.sender);
-      // Pool present (≥2 coins): pin gas to a distinct coin per attempt so
-      // concurrent requests + retries don't collide on one coin version.
-      if (gasPool.length >= 2) {
-        tx.setGasPayment([gasPool[(poolStart + attemptIdx) % gasPool.length]!]);
-      }
-      attemptIdx += 1;
+      if (gasCoin) tx.setGasPayment([gasCoin]);
       return client.signAndExecuteTransaction({
         transaction: tx,
         signer: signer.keypair,
