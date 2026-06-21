@@ -55,14 +55,14 @@ The round structure is shared: everyone sees the **same** barrier grid, the same
 
 | Thing | ID |
 |---|---|
-| Package (v4.26, current) | `0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924` |
-| MartingalerVault\<SUI\> | `0x73d3a17ab1e1cdc173b8cde1ae7d9789a29d1a177ebfd415196a04a6a10e5b9f` |
-| MartingalerVault\<TUSD\> | `0xd9ff33f4f6e4014bcac74e89261ec47ce2ed34be4c6ea1ce10592fe7e081aa4d` |
-| TUSD test stablecoin (package) | `0x204d595c642a06ccc667a32789a6a5a01d0b7ff3340fb53f7f69649c90d00a31` |
-| SegmentMarket V4 — SUI (75-seg round) | `0xec32d173efe554247bc0b2b676f52a2f98918f6e0e6065d756757590ba526943` |
-| SegmentMarket V4 — TUSD (75-seg round) | `0xe98ace0ba07f165626c66b8d0ef9ec4858fe5d0b7fda8561d41a9e71476fa113` |
-| SegmentMarket V4 — TUSD + rug (1.5 %/seg halt) | `0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282` |
-| Upgrade cap | `0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590` |
+| Package (v4.26, current) | [`0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924`](https://suiscan.xyz/testnet/object/0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924) |
+| MartingalerVault\<SUI\> | [`0x73d3a17ab1e1cdc173b8cde1ae7d9789a29d1a177ebfd415196a04a6a10e5b9f`](https://suiscan.xyz/testnet/object/0x73d3a17ab1e1cdc173b8cde1ae7d9789a29d1a177ebfd415196a04a6a10e5b9f) |
+| MartingalerVault\<TUSD\> | [`0xd9ff33f4f6e4014bcac74e89261ec47ce2ed34be4c6ea1ce10592fe7e081aa4d`](https://suiscan.xyz/testnet/object/0xd9ff33f4f6e4014bcac74e89261ec47ce2ed34be4c6ea1ce10592fe7e081aa4d) |
+| TUSD test stablecoin (package) | [`0x204d595c642a06ccc667a32789a6a5a01d0b7ff3340fb53f7f69649c90d00a31`](https://suiscan.xyz/testnet/object/0x204d595c642a06ccc667a32789a6a5a01d0b7ff3340fb53f7f69649c90d00a31) |
+| SegmentMarket V4 — SUI (75-seg round) | [`0xec32d173efe554247bc0b2b676f52a2f98918f6e0e6065d756757590ba526943`](https://suiscan.xyz/testnet/object/0xec32d173efe554247bc0b2b676f52a2f98918f6e0e6065d756757590ba526943) |
+| SegmentMarket V4 — TUSD (75-seg round) | [`0xe98ace0ba07f165626c66b8d0ef9ec4858fe5d0b7fda8561d41a9e71476fa113`](https://suiscan.xyz/testnet/object/0xe98ace0ba07f165626c66b8d0ef9ec4858fe5d0b7fda8561d41a9e71476fa113) |
+| SegmentMarket V4 — TUSD + rug (1.5 %/seg halt) | [`0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282`](https://suiscan.xyz/testnet/object/0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282) |
+| Upgrade cap | [`0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590`](https://suiscan.xyz/testnet/object/0xa5bd66c01634671d92ce1ce6084074feaadc74e844f28e2f09af9ed8175cb590) |
 | Faucet endpoint | `POST https://wick-markets.vercel.app/api/faucet` (SUI gas) · `/api/faucet-tusd` (TUSD stake) |
 | **Every package + object, with SuiScan links** (72/72 verified live) | [`deployments/ADDRESSES.md`](deployments/ADDRESSES.md) |
 | Source of truth (read this if README lags) | [`deployments/testnet.json`](deployments/testnet.json) |
