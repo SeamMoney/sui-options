@@ -8,11 +8,18 @@
 import { useEffect, useRef, useState } from "react";
 import {
   fetchDeepBookDepth,
+  fetchDeepBookTicker,
   deepBookPoolExplorerUrl,
   type DeepBookDepth as Depth,
   type DeepBookPoolName,
   DEEPBOOK_POOLS,
 } from "@/lib/deepbook";
+
+function fmtUsd(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}k`;
+  return `$${n.toFixed(0)}`;
+}
 
 export interface DeepBookDepthProps {
   readonly pool?: DeepBookPoolName;
@@ -31,11 +38,23 @@ function fmtSize(n: number): string {
 export function DeepBookDepth({
   pool = "SUI_USDC",
   levels = 5,
-  pollMs = 2_000,
+  pollMs = 1_200,
 }: DeepBookDepthProps) {
   const [depth, setDepth] = useState<Depth | null>(null);
   const [live, setLive] = useState(false);
+  const [vol24h, setVol24h] = useState<number | null>(null);
   const last = useRef<Depth | null>(null);
+
+  // 24h quote volume — proves the pool is a real, active market (fetched once
+  // per asset; volume moves slowly, no need to poll it).
+  useEffect(() => {
+    const controller = new AbortController();
+    setVol24h(null);
+    fetchDeepBookTicker(DEEPBOOK_POOLS[pool].name, controller.signal)
+      .then((t) => setVol24h(t.quoteVolume))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [pool]);
 
   useEffect(() => {
     const poolName = DEEPBOOK_POOLS[pool].name;
@@ -124,6 +143,11 @@ export function DeepBookDepth({
         >
           DeepBook book · {DEEPBOOK_POOLS[pool].label}/USDC ↗
         </a>
+        {vol24h != null && (
+          <span className="text-[9px] tabular-nums text-white/30">
+            {fmtUsd(vol24h)} 24h
+          </span>
+        )}
         <span className="flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-white/35">
           <span
             className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-400" : "bg-white/30"}`}
