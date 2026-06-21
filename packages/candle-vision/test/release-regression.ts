@@ -77,6 +77,13 @@ assert.deepEqual(
   ranking.visible.map((_, index) => index + 1),
   'visible ranks should be consecutive',
 );
+// Best-first ordering is the coach's core promise: the signal it surfaces at the
+// top of /pro must be the strongest. Lock that the visible list is sorted by
+// visibleScore descending (consecutive ranks alone don't guarantee the order).
+assert.ok(
+  ranking.visible.every((signal, index) => index === 0 || ranking.visible[index - 1].visibleScore >= signal.visibleScore),
+  'visible signals must be ordered best-first (visibleScore non-increasing)',
+);
 
 const visibleFamilyCounts = new Map<string, number>();
 for (const signal of ranking.visible) {
