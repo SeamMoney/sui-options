@@ -162,8 +162,9 @@ Once funded, the next call to `/api/faucet` succeeds without a redeploy
   Edge Config.
 - **No address allow-list.** Anyone on the internet who knows the URL
   can drip. Fine for hackathon; revisit for any wider beta.
-- **Public Sui RPC.** Uses `https://fullnode.testnet.sui.io:443`. Under
-  load, swap to a paid RPC by editing `getClient()` in `api/faucet.ts`.
+- **Public Sui RPC.** Defaults to `https://sui-testnet-rpc.publicnode.com`
+  (PublicNode — the Mysten public fullnode throttles under load). Override
+  with the `WICK_API_RPC` env var, or swap to a paid RPC.
 
 ### Local testing
 

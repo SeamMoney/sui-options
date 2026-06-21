@@ -49,7 +49,10 @@ console.log(`  configured rug_chance_bps: ${RUG_BPS}  (= ${EXPECTED_RATE_PCT}% p
 console.log(`  if rug_chance_bps === 0, this market has rugs disabled`);
 console.log("─".repeat(64));
 
-const RPC = "https://fullnode.testnet.sui.io";
+// PublicNode default (repo testnet RPC convention — Mysten fullnode throttles
+// under the poll loop below); override with WICK_VERIFY_RPC.
+const RPC =
+  process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 const POLL_MS = 5000;
 const args = process.argv.slice(2);
 const durationArg = args.find((a) => a.startsWith("--duration"));

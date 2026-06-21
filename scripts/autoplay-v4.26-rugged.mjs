@@ -34,7 +34,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -85,7 +85,7 @@ const sender = keypair.getPublicKey().toSuiAddress();
 
 const client = new SuiJsonRpcClient({
   network: "testnet",
-  url: getJsonRpcFullnodeUrl("testnet"),
+  url: process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com",
 });
 
 console.log("─".repeat(64));

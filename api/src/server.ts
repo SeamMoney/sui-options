@@ -17,9 +17,12 @@ const deployment: Deployment = JSON.parse(
   readFileSync(resolve(repoRoot, "deployments", "testnet.json"), "utf8"),
 );
 
+// testnet defaults to PublicNode, not the Mysten public fullnode, which
+// rate-limits under the demo's sustained load (keeper crank + bot fleet +
+// faucet). Repo-wide testnet RPC convention; override with WICK_API_RPC.
 const RPC_FOR: Record<Deployment["network"], string> = {
   mainnet: "https://fullnode.mainnet.sui.io:443",
-  testnet: "https://fullnode.testnet.sui.io:443",
+  testnet: "https://sui-testnet-rpc.publicnode.com",
   devnet: "https://fullnode.devnet.sui.io:443",
   localnet: "http://127.0.0.1:9000",
 };

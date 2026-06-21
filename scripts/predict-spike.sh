@@ -98,7 +98,7 @@ SIDE="${SIDE:-up}"                           # up | down
 
 ARTIFACT="deployments/predict-testnet.json"
 CLOCK="0x6"
-RPC="https://fullnode.testnet.sui.io:443"
+RPC="${WICK_VERIFY_RPC:-https://sui-testnet-rpc.publicnode.com}"
 
 # ---------- 1. Preflight ----------
 hr
