@@ -7,8 +7,9 @@
  *
  * Steps (each one a real testnet tx, with a SuiScan link):
  *   1. mint a throwaway burner keypair (in memory, never saved)
- *   2. fund it from the production faucet API — 0.2 SUI gas + 10 TUSD stake
- *      (the exact two requests the /ride UI fires for a fresh player)
+ *   2. fund it from the production faucet API — SUI gas + TUSD stake, the exact
+ *      two requests the /ride UI fires for a fresh player (amounts are read from
+ *      the live response, so they track the server's configured drip)
  *   3. open a real `open_segment_ride_v4` ride on the live touch-either market
  *   4. crank a handful of segments (`record_segment_v4`)
  *   5. close it (`close_segment_ride_v4`) — on-chain settlement
@@ -68,7 +69,10 @@ function die(msg: string): never {
   process.exit(1);
 }
 
-async function postFaucet(path: string, recipient: string): Promise<string> {
+async function postFaucet(
+  path: string,
+  recipient: string,
+): Promise<{ digest: string; label: string }> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -78,7 +82,15 @@ async function postFaucet(path: string, recipient: string): Promise<string> {
   if (!res.ok) {
     die(`${path} → HTTP ${res.status}: ${JSON.stringify(body)}`);
   }
-  return String(body.digest ?? "");
+  // Derive the human label from the actual response so it never drifts from the
+  // server's configured drip (SUI faucet → amount_mist; TUSD faucet → amount_raw).
+  let label = "";
+  if (body.amount_mist != null) {
+    label = `${(Number(body.amount_mist) / 1e9).toLocaleString()} SUI`;
+  } else if (body.amount_raw != null) {
+    label = `${(Number(body.amount_raw) / 1e6).toLocaleString()} TUSD`;
+  }
+  return { digest: String(body.digest ?? ""), label };
 }
 
 async function balance(owner: string, coinType: string): Promise<bigint> {
@@ -119,10 +131,10 @@ async function main() {
 
   // 2. fund via the production faucet (the judge's exact two requests)
   log("funding from the production faucet…");
-  const gasDigest = await postFaucet("/api/faucet", me);
-  ok(`0.2 SUI  ${scan("tx", gasDigest)}`);
-  const tusdDigest = await postFaucet("/api/faucet-tusd", me);
-  ok(`10 TUSD  ${scan("tx", tusdDigest)}`);
+  const gas = await postFaucet("/api/faucet", me);
+  ok(`${gas.label || "SUI gas"}  ${scan("tx", gas.digest)}`);
+  const tusd = await postFaucet("/api/faucet-tusd", me);
+  ok(`${tusd.label || "TUSD stake"}  ${scan("tx", tusd.digest)}`);
 
   await waitFor("gas + stake to land", async () => {
     const sui = await balance(me, "0x2::sui::SUI");
