@@ -386,6 +386,12 @@ export function WickProLive() {
       <style>{`
         @keyframes wpFlash { 0% { opacity: 0.9 } 100% { opacity: 0 } }
         @keyframes wpPop { 0% { transform: scale(0.7); opacity: 0 } 45% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }
+        @keyframes wpWin {
+          0% { transform: scale(0.6); opacity: 0; filter: drop-shadow(0 0 0 rgba(16,185,129,0)) }
+          40% { transform: scale(1.3); filter: drop-shadow(0 0 26px rgba(16,185,129,0.85)) }
+          70% { transform: scale(0.93) }
+          100% { transform: scale(1); opacity: 1; filter: drop-shadow(0 0 0 rgba(16,185,129,0)) }
+        }
       `}</style>
       {/* Settle flash — a fading colour wash, green on a win, red on a loss. */}
       {flash && (
@@ -525,7 +531,12 @@ export function WickProLive() {
               }`}
               style={{
                 textShadow: "0 2px 32px rgba(0,0,0,0.6)",
-                animation: "wpPop 320ms ease-out",
+                // A win settles with a bigger, glowing celebratory bounce; a
+                // loss and the live updates use the plain pop.
+                animation:
+                  !headline.live && headline.pnl >= 0
+                    ? "wpWin 620ms cubic-bezier(.2,.8,.3,1)"
+                    : "wpPop 320ms ease-out",
               }}
             >
               {fmtSignedUsd(headline.pnl)}
