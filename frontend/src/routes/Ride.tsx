@@ -76,6 +76,10 @@ type SettlementToast = {
   digest: string;
   /** doc 26 §5.1 — set to "rugged" when kind=3 fired in a rugged round. */
   settlementSubKind?: "rugged";
+  /** v4.31d — chain-attested stake (raw micro-USD), from RideClosedV4. */
+  stakePaidRaw?: bigint;
+  /** v4.31d — chain-attested payout (raw micro-USD), from RideClosedV4. */
+  payoutRaw?: bigint;
 };
 
 function useAutoDismissSettlement(

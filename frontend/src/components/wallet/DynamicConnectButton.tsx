@@ -11,7 +11,6 @@
  */
 import { useCallback } from "react";
 import { useDynamicContext } from "@dynamic-labs/sdk-react-core";
-import { ConnectButton } from "@mysten/dapp-kit";
 import { Button } from "@/components/ui/button";
 import { shortAddr } from "@/lib/format";
 import { HAS_DYNAMIC_ENV_ID } from "@/providers/DynamicProvider";

@@ -111,9 +111,10 @@ export function FaucetButton(props: {
         ttlMs: 8_000,
       });
       setCooldownUntil(Date.now() + LOCAL_COOLDOWN_MS);
-      // Give the fullnode a beat to index, then refresh.
+      // Give the fullnode a beat to index, then refresh. A second, immediate
+      // call here would refresh against an un-indexed tx and paint a stale
+      // balance, so we rely solely on the delayed refresh.
       window.setTimeout(() => onFunded?.(), 1200);
-      onFunded?.();
     } catch (err) {
       toast.update(toastId, {
         title: "Faucet network error",
