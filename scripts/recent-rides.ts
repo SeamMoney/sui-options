@@ -13,13 +13,6 @@
  * Read-only: just queries `RideClosedV4` events (resilient, with an archival
  * fullnode fallback — public nodes prune old tx events) and groups by
  * settlement kind. No wallet, no keys.
- *
- * History: this was pulled (#276) because `verify-v4` FALSE-FAILed rides closed
- * across a round boundary (the bot/crank history is full of them) — a judge
- * could pick one and see "the chain lied". That verify-v4 bug is now fixed
- * (#299: it attributes the halt to the CLOSE round and scans through close), so
- * every recent ride verifies honestly again and the tool is safe to ship. The
- * surfaced batch is re-verified end-to-end before each release.
  */
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
