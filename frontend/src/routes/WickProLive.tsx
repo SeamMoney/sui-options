@@ -335,6 +335,23 @@ export function WickProLive() {
     setPosition(next);
   }, [position, spot, sigma, buildPosition]);
 
+  // Keyboard control for desktop/laptop reviewers: U / ↑ = UP, D / ↓ = DOWN
+  // (idle); C = CLOSE, F = FLIP (locked). The handlers self-gate on position
+  // state, so wrong-state keys are harmless no-ops. No text inputs on this
+  // screen, so a bare keypress is unambiguous.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const k = e.key.toLowerCase();
+      if (k === "u" || e.key === "ArrowUp") { e.preventDefault(); openPosition("call"); }
+      else if (k === "d" || e.key === "ArrowDown") { e.preventDefault(); openPosition("put"); }
+      else if (k === "c") { e.preventDefault(); closeNow(); }
+      else if (k === "f") { e.preventDefault(); flip(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openPosition, closeNow, flip]);
+
   // Settle at expiry by auto-closing at the expiry mark — equals the last live
   // number (same mark-to-close formula; at τ=0 the mark collapses to intrinsic).
   useEffect(() => {

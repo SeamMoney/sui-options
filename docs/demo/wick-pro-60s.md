@@ -6,7 +6,7 @@ This is the runbook for the demo. It is verified green on production.
 
 ## Open it
 
-**[wick-markets.vercel.app/pro](https://wick-markets.vercel.app/pro)** — best on a phone (a tidy centered frame on desktop). No wallet, no sign-in, no faucet. It plays immediately.
+**[wick-markets.vercel.app/pro](https://wick-markets.vercel.app/pro)** — best on a phone (a tidy centered frame on desktop). No wallet, no sign-in, no faucet. It plays immediately. On a laptop you can drive it from the keyboard: **U** / **↑** = UP, **D** / **↓** = DOWN, **C** = CLOSE, **F** = FLIP.
 
 Deep-link straight to an asset: **`/pro?asset=XBTC_USDC`** (Bitcoin), `?asset=SUI_USDC`, `?asset=DEEP_USDC`. The selected asset is written to the URL, so it's shareable and survives a refresh.
 
