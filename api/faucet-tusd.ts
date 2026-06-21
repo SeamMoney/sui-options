@@ -20,6 +20,7 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
+import { executeWithRetry } from "./faucet.js";
 
 // ── Constants pinned at module load ───────────────────────────────────────
 // Read from deployments/testnet.json at the top so the values are visible
@@ -102,65 +103,81 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
 
   const client = getClient();
 
-  // Build the mint tx: calls wick_tusd::tusd::mint(treasury_cap, amount,
-  // recipient). The TreasuryCap is owned by the faucet wallet so we don't
-  // need to share it.
-  const tx = new Transaction();
-  tx.moveCall({
-    target: `${TUSD_PACKAGE_ID}::tusd::mint`,
-    arguments: [
-      tx.object(TUSD_TREASURY_CAP),
-      tx.pure.u64(DRIP_RAW),
-      tx.pure.address(recipient),
-    ],
-  });
-  tx.setSender(signer.sender);
-
-  try {
-    const result = await client.signAndExecuteTransaction({
-      transaction: tx,
-      signer: signer.keypair,
-      options: { showEffects: true },
-    });
-
-    const status = result.effects?.status?.status;
-    if (status !== "success") {
-      console.error("[api/faucet-tusd] tx failed on chain", {
-        digest: result.digest,
-        status,
-        err: result.effects?.status?.error,
+  // The mint tx consumes the faucet wallet's gas coin, so two requests landing
+  // close together collide on the same coin version and the second throws an
+  // object-version / equivocation error (intermittent 500s when a user taps the
+  // SUI + TUSD faucets back to back). executeWithRetry rebuilds the tx each
+  // attempt so a retry re-resolves the advanced gas coin. Shared with
+  // api/faucet.ts.
+  const outcome = await executeWithRetry(
+    () => {
+      // wick_tusd::tusd::mint(treasury_cap, amount, recipient). The TreasuryCap
+      // is owned by the faucet wallet so we don't need to share it.
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${TUSD_PACKAGE_ID}::tusd::mint`,
+        arguments: [
+          tx.object(TUSD_TREASURY_CAP),
+          tx.pure.u64(DRIP_RAW),
+          tx.pure.address(recipient),
+        ],
       });
-      return {
-        status: 502,
-        body: {
-          error: "mint did not succeed on-chain",
-          digest: result.digest,
-        },
-      };
-    }
+      tx.setSender(signer.sender);
+      return client.signAndExecuteTransaction({
+        transaction: tx,
+        signer: signer.keypair,
+        options: { showEffects: true },
+      });
+    },
+    {
+      onError: (err, attempt) =>
+        console.error("[api/faucet-tusd] signAndExecuteTransaction threw", {
+          error: String(err),
+          attempt,
+        }),
+    },
+  );
 
-    lastDrip.set(recipient, now);
-
-    console.log("[api/faucet-tusd] mint ok", {
-      recipient,
-      digest: result.digest,
-      amount_raw: DRIP_RAW.toString(),
-    });
-
-    return {
-      status: 200,
-      body: {
-        digest: result.digest,
-        amount_raw: DRIP_RAW.toString(),
-        recipient,
-      },
-    };
-  } catch (err) {
-    console.error("[api/faucet-tusd] signAndExecuteTransaction threw", {
-      error: String(err),
+  if (!outcome.ok) {
+    console.error("[api/faucet-tusd] all attempts exhausted", {
+      error: String(outcome.error),
     });
     return { status: 500, body: { error: "mint failed, try again" } };
   }
+
+  const result = outcome.value;
+  const status = result.effects?.status?.status;
+  if (status !== "success") {
+    console.error("[api/faucet-tusd] tx failed on chain", {
+      digest: result.digest,
+      status,
+      err: result.effects?.status?.error,
+    });
+    return {
+      status: 502,
+      body: {
+        error: "mint did not succeed on-chain",
+        digest: result.digest,
+      },
+    };
+  }
+
+  lastDrip.set(recipient, now);
+
+  console.log("[api/faucet-tusd] mint ok", {
+    recipient,
+    digest: result.digest,
+    amount_raw: DRIP_RAW.toString(),
+  });
+
+  return {
+    status: 200,
+    body: {
+      digest: result.digest,
+      amount_raw: DRIP_RAW.toString(),
+      recipient,
+    },
+  };
 }
 
 interface ReqLike {

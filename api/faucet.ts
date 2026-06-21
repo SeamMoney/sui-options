@@ -84,6 +84,53 @@ interface JsonResponse {
   body: Record<string, unknown>;
 }
 
+export type RetryOutcome<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: unknown };
+
+/**
+ * Run `run()`, retrying on a thrown error up to `maxAttempts` times with a
+ * jittered backoff between attempts.
+ *
+ * The faucet wallets own a single gas coin each, so two requests landing close
+ * together collide on the same coin version and the second tx throws an
+ * object-version / equivocation error — the cause of the intermittent 500s the
+ * SUI + TUSD faucets returned during demos. Because `run()` rebuilds the
+ * Transaction on every call, a retry re-resolves the now-advanced gas coin and
+ * usually succeeds. Pure + dependency-injected (`sleep`) so it is unit-tested
+ * directly in api/faucet.test.ts without touching the network.
+ */
+export async function executeWithRetry<T>(
+  run: () => Promise<T>,
+  opts?: {
+    maxAttempts?: number;
+    onError?: (err: unknown, attempt: number) => void;
+    sleep?: (ms: number) => Promise<void>;
+    random?: () => number;
+  },
+): Promise<RetryOutcome<T>> {
+  const maxAttempts = opts?.maxAttempts ?? 4;
+  const sleep =
+    opts?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const random = opts?.random ?? Math.random;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return { ok: true, value: await run() };
+    } catch (err) {
+      lastErr = err;
+      opts?.onError?.(err, attempt);
+      if (attempt < maxAttempts) {
+        // Backoff grows per attempt; the jitter spreads concurrent retries so
+        // they don't collide on the same coin version again.
+        const backoffMs = 250 * attempt + Math.floor(random() * 200);
+        await sleep(backoffMs);
+      }
+    }
+  }
+  return { ok: false, error: lastErr };
+}
+
 async function handle(rawBody: unknown): Promise<JsonResponse> {
   // ---- Parse + validate input ----------------------------------------------
   if (rawBody === null || typeof rawBody !== "object" || Array.isArray(rawBody)) {
@@ -149,61 +196,74 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
     };
   }
 
-  // ---- Build + execute the transfer PTB ------------------------------------
-  const tx = new Transaction();
-  // Take DRIP_MIST out of the gas coin. The remainder of the gas coin pays
-  // the network fee, so we don't need a separate gas split.
-  const [dripCoin] = tx.splitCoins(tx.gas, [DRIP_MIST]);
-  tx.transferObjects([dripCoin], recipient);
-  tx.setSender(signer.sender);
-
-  try {
-    const result = await client.signAndExecuteTransaction({
-      transaction: tx,
-      signer: signer.keypair,
-      options: { showEffects: true },
-    });
-
-    const status = result.effects?.status?.status;
-    if (status !== "success") {
-      console.error("[api/faucet] tx failed onchain", {
-        digest: result.digest,
-        status,
-        err: result.effects?.status?.error,
+  // ---- Build + execute the transfer PTB (retry on gas-coin contention) ------
+  // run() rebuilds the tx every attempt so a retry re-resolves the advanced
+  // gas coin version (see executeWithRetry).
+  const outcome = await executeWithRetry(
+    () => {
+      const tx = new Transaction();
+      // Take DRIP_MIST out of the gas coin. The remainder of the gas coin pays
+      // the network fee, so we don't need a separate gas split.
+      const [dripCoin] = tx.splitCoins(tx.gas, [DRIP_MIST]);
+      tx.transferObjects([dripCoin], recipient);
+      tx.setSender(signer.sender);
+      return client.signAndExecuteTransaction({
+        transaction: tx,
+        signer: signer.keypair,
+        options: { showEffects: true },
       });
-      return {
-        status: 502,
-        body: {
-          error: "transaction did not succeed on-chain",
-          digest: result.digest,
-        },
-      };
-    }
+    },
+    {
+      onError: (err, attempt) =>
+        console.error("[api/faucet] signAndExecuteTransaction threw", {
+          error: String(err),
+          attempt,
+        }),
+    },
+  );
 
-    // Only stamp the rate-limit on success so a transient RPC failure doesn't
-    // lock the recipient out for 5 minutes.
-    lastDrip.set(recipient, now);
-
-    console.log("[api/faucet] drip ok", {
-      recipient,
-      digest: result.digest,
-      amount_mist: DRIP_MIST.toString(),
-    });
-
-    return {
-      status: 200,
-      body: {
-        digest: result.digest,
-        amount_mist: DRIP_MIST.toString(),
-        recipient,
-      },
-    };
-  } catch (err) {
-    console.error("[api/faucet] signAndExecuteTransaction threw", {
-      error: String(err),
+  if (!outcome.ok) {
+    console.error("[api/faucet] all attempts exhausted", {
+      error: String(outcome.error),
     });
     return { status: 500, body: { error: "drip failed, try again" } };
   }
+
+  const result = outcome.value;
+  const status = result.effects?.status?.status;
+  if (status !== "success") {
+    console.error("[api/faucet] tx failed onchain", {
+      digest: result.digest,
+      status,
+      err: result.effects?.status?.error,
+    });
+    return {
+      status: 502,
+      body: {
+        error: "transaction did not succeed on-chain",
+        digest: result.digest,
+      },
+    };
+  }
+
+  // Only stamp the rate-limit on success so a transient RPC failure doesn't
+  // lock the recipient out for 5 minutes.
+  lastDrip.set(recipient, now);
+
+  console.log("[api/faucet] drip ok", {
+    recipient,
+    digest: result.digest,
+    amount_mist: DRIP_MIST.toString(),
+  });
+
+  return {
+    status: 200,
+    body: {
+      digest: result.digest,
+      amount_mist: DRIP_MIST.toString(),
+      recipient,
+    },
+  };
 }
 
 /**
