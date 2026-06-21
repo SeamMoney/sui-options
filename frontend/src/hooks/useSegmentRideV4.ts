@@ -325,10 +325,19 @@ export function useSegmentRideV4(
       if (inFlight) return;
       inFlight = true;
       try {
+        // Key these event/type queries on the package that DEFINED
+        // segment_market_v4 (the market's type-origin pkg), NOT the latest
+        // upgraded package_id — Move type tags keep their origin across
+        // upgrades, so querying SegmentRecordedV4/RoundStartedV4 (and the
+        // SegmentRidePositionV4 struct below) under `packageId` returns ZERO
+        // rows and the chart never gets candles. `fetchSegmentMarketV4`
+        // resolves it (snapshot.typeOriginPackage); fall back to packageId
+        // until the first snapshot lands. (RugFiredV4 stays on the latest pkg.)
+        const eventPkg = marketSnapshotRef.current?.typeOriginPackage ?? packageId;
         // ── SegmentRecordedV4 ─────────────────────────────────────────
         const segPage = await client.queryEvents({
           query: {
-            MoveEventType: segmentRecordedV4EventType(packageId),
+            MoveEventType: segmentRecordedV4EventType(eventPkg),
           },
           limit: 50,
           order: "descending",
@@ -363,7 +372,7 @@ export function useSegmentRideV4(
 
         // ── RoundStartedV4 ────────────────────────────────────────────
         const roundPage = await client.queryEvents({
-          query: { MoveEventType: roundStartedV4EventType(packageId) },
+          query: { MoveEventType: roundStartedV4EventType(eventPkg) },
           limit: 20,
           order: "descending",
         });
@@ -506,10 +515,14 @@ export function useSegmentRideV4(
     if (!packageId) return;
     const sweep = async () => {
       try {
+        // SegmentRidePositionV4's type-origin pkg (where it was defined), not
+        // the latest upgraded package_id — else the StructType filter matches
+        // nothing and an orphaned ride is never adopted for CASH OUT.
+        const typePkg = marketSnapshotRef.current?.typeOriginPackage ?? packageId;
         const owned = await client.getOwnedObjects({
           owner: sender,
           filter: {
-            StructType: `${packageId}::segment_market_v4::SegmentRidePositionV4`,
+            StructType: `${typePkg}::segment_market_v4::SegmentRidePositionV4`,
           },
           // 2026-05-24: ask for content so we can check the `closed` flag.
           // Without this we'd adopt already-closed rides as if they were
