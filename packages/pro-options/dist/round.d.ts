@@ -23,9 +23,15 @@ export declare function phaseRemainingMs(cfg: RoundConfig, nowMs: number): numbe
  */
 export declare function revealedSteps(cfg: RoundConfig, nowMs: number, totalSteps: number): number;
 /**
- * Fairness commitment over the seed + params. FNV-1a 32-bit — a deterministic
- * placeholder; the on-chain/production commit uses SHA-256. Same input ⇒ same
- * commit, which is all the off-chain prototype needs to wire the flow.
+ * Fairness commitment over the seed + params: the full SHA-256 of
+ * `${seed}:${paramsJson}`, as 64 lowercase hex chars. The engine publishes this
+ * before the lobby and reveals the seed at settle, so anyone can recompute the
+ * digest and confirm the streamed path was fixed in advance — a real
+ * commit-reveal, not a toy hash.
+ *
+ * Implemented as a dependency-free, synchronous SHA-256 so the same code runs
+ * in the browser and in Node without Web Crypto's async `subtle.digest`. The
+ * digest matches `crypto.createHash("sha256").update(input).digest("hex")`.
  */
 export declare function commit(seed: number, paramsJson: string): string;
 //# sourceMappingURL=round.d.ts.map

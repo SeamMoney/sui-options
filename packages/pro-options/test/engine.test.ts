@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   breakeven,
   commit,
@@ -202,6 +203,19 @@ check("revealedSteps is 0 in lobby and full at live end, monotonic between", () 
 check("commit is deterministic and seed-sensitive", () => {
   assert.equal(commit(1, "{}"), commit(1, "{}"));
   assert.notEqual(commit(1, "{}"), commit(2, "{}"));
+});
+
+check("commit is a real SHA-256 — 64 hex chars, matches node:crypto", () => {
+  const c = commit(7, '{"a":1}');
+  assert.match(c, /^[0-9a-f]{64}$/, "must be 64 lowercase hex chars");
+  // The fairness claim only holds if this is genuine SHA-256 of `${seed}:${params}`.
+  const expected = createHash("sha256").update("7:{\"a\":1}").digest("hex");
+  assert.equal(c, expected);
+  // Known FIPS 180-4 vector, routed through commit's input format.
+  assert.equal(
+    createHash("sha256").update("abc").digest("hex"),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  );
 });
 
 console.log(`\n${passed} checks passed`);
