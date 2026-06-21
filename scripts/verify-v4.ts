@@ -320,6 +320,31 @@ async function readRide(client: RpcClient, rideId: string): Promise<RideInfo> {
   };
 }
 
+/**
+ * Is this market rug-enabled? (doc 26) A `RugConfig` dynamic field under the
+ * market UID, keyed by the bytes of "rug_config", means `enable_rug` was
+ * called. On a rug market the chain checks `rugged_at_segment` BEFORE the touch
+ * scan in `decide_settlement`, so a rug can override any path-derived verdict —
+ * and the rug segment is per-round mutable state we can't reconstruct from the
+ * current object without the (prunable) RugFiredV4 event. So we detect rug here
+ * and refuse to over-claim the settlement KIND on those markets.
+ */
+async function readRugEnabled(client: RpcClient, marketId: string): Promise<boolean> {
+  const key = Array.from(new TextEncoder().encode("rug_config"));
+  try {
+    const d = asObject(
+      await client.getDynamicFieldObject({
+        parentId: marketId,
+        // The RPC accepts the byte array as the dynamic-field name value.
+        name: { type: "vector<u8>", value: key as unknown as string },
+      }),
+    );
+    return Boolean(asObject(d.data).content);
+  } catch {
+    return false;
+  }
+}
+
 /** Read one SegmentRecord from the market's Table<u64, SegmentRecord>. */
 async function readSegment(
   client: RpcClient,
@@ -582,20 +607,48 @@ async function verify(args: Args): Promise<boolean> {
       ]),
     );
 
-    const derived = deriveSettlementKind(
-      touchedInWindow,
-      maxInWindowK,
-      ride,
-      market.roundDurationSegments,
-    );
-    const verdictMatch = derived === ride.settlementKind;
-    const pass = allIntegrityOk && verdictMatch;
+    // Rug markets (doc 26) check `rugged_at_segment` BEFORE the touch scan, so a
+    // rug can route ANY ride to EXPIRED_LOSS — overriding the path-derived
+    // verdict. The rug segment is per-round mutable state, reset each round, so
+    // it isn't reconstructable from the current object (only from the prunable
+    // RugFiredV4 event, which this prune-proof verifier deliberately avoids).
+    // To stay correct we never assert the CASHOUT/EXPIRED distinction on a rug
+    // market — but TOUCH_WIN ⟹ a touch occurred holds even with rug (rug never
+    // pays TOUCH_WIN), so that implication is still checked everywhere.
+    const rugEnabled = synthetic ? false : await readRugEnabled(client, marketId);
 
     console.log("");
     console.log(`extrema replay:    ${allIntegrityOk ? "match (every segment)" : "MISMATCH"}`);
-    console.log(`off-chain verdict: ${SETTLEMENT_NAME[derived] ?? derived}`);
     console.log(`on-chain verdict:  ${SETTLEMENT_NAME[ride.settlementKind] ?? ride.settlementKind}`);
-    console.log(verdictMatch ? "verdict:           match" : "verdict:           MISMATCH");
+
+    let verdictOk: boolean;
+    if (ride.settlementKind === SETTLEMENT_TOUCH_WIN) {
+      // TOUCH_WIN must be backed by a barrier touch in the live window.
+      verdictOk = touchedInWindow;
+      console.log(
+        `touch check:       ${touchedInWindow ? "barrier touched in-window ✓ (consistent with TOUCH_WIN)" : "NO touch found — TOUCH_WIN is unjustified"}`,
+      );
+    } else if (rugEnabled) {
+      // CASHOUT / EXPIRED_LOSS on a rug market: don't assert the kind. Integrity
+      // is the binding proof; the verdict can hinge on a rug we can't replay.
+      verdictOk = true;
+      console.log(
+        `verdict:           ${SETTLEMENT_NAME[ride.settlementKind] ?? ride.settlementKind} on a rug-enabled market — not asserted ` +
+          "(needs the round's RugFiredV4 event; integrity is the binding proof here)",
+      );
+    } else {
+      const derived = deriveSettlementKind(
+        touchedInWindow,
+        maxInWindowK,
+        ride,
+        market.roundDurationSegments,
+      );
+      verdictOk = derived === ride.settlementKind;
+      console.log(`off-chain verdict: ${SETTLEMENT_NAME[derived] ?? derived}`);
+      console.log(verdictOk ? "verdict:           match" : "verdict:           MISMATCH");
+    }
+
+    const pass = allIntegrityOk && verdictOk;
     console.log(pass ? "\nPASS — the chain was honest." : "\nFAIL — the chain lied.");
     return pass;
   }
