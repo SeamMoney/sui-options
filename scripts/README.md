@@ -26,6 +26,12 @@ Operator-facing bash + node scripts. All scripts read live IDs from
 
 ## Smoke / verify
 
+- `judge.mjs` (`npm run judge`) — **the one command a reviewer runs.** Chains
+  the no-browser proofs (live demo up · provable fairness honest + tamper-caught
+  · live P&L == settlement) with a judge-readable narrative and a single
+  PASS/FAIL (~15s, no wallet, never flaky). `npm run judge -- --with-e2e` adds
+  the live-UI Playwright flows; `-- --with-chain` adds the full cold on-chain
+  ride loop; `-- --full` runs everything.
 - `e2e-pro-smoke.mjs` (`npm run e2e:pro`) — drives the **submission** (Wick Pro,
   `/pro`) headless against the live site exactly as a judge would: loads the
   live DeepBook mark, opens a $5 UP option, asserts the live P&L ticks, closes
