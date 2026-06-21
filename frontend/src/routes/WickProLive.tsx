@@ -486,6 +486,7 @@ export function WickProLive() {
         <MarkChart
           history={history}
           strike={headline?.pos.strike ?? null}
+          entryTime={position ? position.openedAtMs : null}
           up={headline ? headline.pnl >= 0 : true}
         />
         {/* CandleVision coach — real DeepBook bars. Visible on every viewport. */}
@@ -635,9 +636,11 @@ function breakevenLabel(spot: number, side: OptionSide, sigma: number): string {
 const MarkChart = memo(function MarkChart(props: {
   history: MarkPoint[];
   strike: number | null;
+  /** When in a position: ms timestamp of entry, marked on the strike line. */
+  entryTime: number | null;
   up: boolean;
 }) {
-  const { history, strike, up } = props;
+  const { history, strike, entryTime, up } = props;
   const W = 1000;
   const H = 320;
   if (history.length < 2) {
@@ -682,6 +685,30 @@ const MarkChart = memo(function MarkChart(props: {
           opacity={0.5}
         />
       )}
+      {/* Entry marker — where (in time) you opened, sitting on the strike line.
+          Makes the move-since-entry tangible. */}
+      {strike !== null &&
+        entryTime !== null &&
+        (() => {
+          // Index of the history point nearest the entry timestamp.
+          let bestI = 0;
+          let bestDt = Infinity;
+          for (let i = 0; i < history.length; i++) {
+            const dt = Math.abs(history[i]!.t - entryTime);
+            if (dt < bestDt) {
+              bestDt = dt;
+              bestI = i;
+            }
+          }
+          const ex = x(bestI);
+          const ey = y(strike);
+          return (
+            <g>
+              <circle cx={ex} cy={ey} r={7} fill="none" stroke="#ffffff" strokeWidth={2} vectorEffect="non-scaling-stroke" opacity={0.9} />
+              <circle cx={ex} cy={ey} r={2.5} fill="#ffffff" vectorEffect="non-scaling-stroke" />
+            </g>
+          );
+        })()}
       <circle cx={W} cy={lastY} r={5} fill={stroke} vectorEffect="non-scaling-stroke" />
     </svg>
   );
