@@ -79,6 +79,12 @@ if (withE2e) {
   const ok = run("e2e");
   results.push({ script: "e2e", title: "Live UI flows", ok });
   console.log(ok ? C.green("   ✓ e2e PASS") : C.red("   ✗ e2e FAIL"));
+
+  console.log(C.cyan(`\n[+] Every route + the unknown-route fallback`));
+  console.log(C.dim(`      proves: /pro · /coach · /ride · /verify all render; a mistyped URL falls through to the Ride game, never the crash screen`));
+  const routesOk = run("check:routes");
+  results.push({ script: "check:routes", title: "All routes + unknown-route guard", ok: routesOk });
+  console.log(routesOk ? C.green("   ✓ check:routes PASS") : C.red("   ✗ check:routes FAIL (a route is down or the live deploy is stale)"));
 }
 
 if (withChain) {
