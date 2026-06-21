@@ -180,7 +180,8 @@ events are `copy, drop`.
 
 - **Collateral invariant**, after every transition:
   `collateral_vault == total_touch_supply == total_no_touch_supply`
-  (`move/tests/invariants.move`). Violations are direct loss-of-funds.
+  (test: `conservation_in_minus_out_equals_held` in `move/tests/martingaler_vault_tests.move`;
+  full property→test map in [`move/SAFETY.md`](move/SAFETY.md)). Violations are direct loss-of-funds.
 - A market cannot settle both ways; settlement is idempotent; redeem consumes the
   `Position` UID so it can't double-pay; the losing side cannot redeem;
   `lock_and_settle` commits snapshot + status + fee + lock-release atomically.
