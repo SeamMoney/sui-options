@@ -121,6 +121,7 @@ npm run audit:deployment         # audit EVERY live v4 market's candles in one c
 npm run verify:halt              # prove a real MARKET HALT (rug) ride was an HONEST roll → PASS
 npm run gas:report               # real on-chain gas: a candle tick ≈ $0.004, settle ≈ $0.002 (Sui storage-rebated)
 npm run vault:solvency           # prove the live MartingalerVault covers every outstanding claim → SOLVENT
+npm run prove:live               # ONE command: the live protocol is provably fair AND solvent → PASS
 #
 #    …or audit a specific LIVE v4 market (reads the segment Table directly — prune-proof):
 npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>            # audit recent segments
