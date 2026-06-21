@@ -110,6 +110,9 @@ npm run test:move   # just `sui move test` (needs the Sui CLI)
 cd move && sui move test seeded_path_conformance && cd ..
 
 # 4. prove provable fairness — instant, offline, no wallet:
+npm run verify:pro-fairness        # /pro round path is SHA-256-committed before the lobby;
+                                   # recompute the digest independently (node:crypto) → binds
+npm run verify:pro-fairness:tamper # forge a favourable reveal under that commit → rejected, exit 1
 npm run verify:fairness          # honest synthetic v4 market+ride → PASS, exit 0
 npm run verify:fairness:tamper   # one tampered segment extremum → FAIL, exit 1
 npm run verify:fairness:live     # audit a LIVE market (auto-picked from deployments), zero args
