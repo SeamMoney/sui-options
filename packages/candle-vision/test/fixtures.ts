@@ -58,6 +58,21 @@ export const patternFixtures: Record<string, CandleInput[]> = {
     { time: 6, open: 100.8, high: 103.2, low: 100.6, close: 103, volume: 150 },
     { time: 7, open: 102.8, high: 105.2, low: 102.6, close: 105, volume: 160 },
   ],
+  // Piercing line: a big bearish candle, then a bullish candle that opens below
+  // the prior low and closes back above the prior body's midpoint — a two-candle
+  // bullish reversal the coach calls.
+  'piercing-line': [
+    ...baseCandles(4),
+    { time: 5, open: 101, high: 101.5, low: 94, close: 94.5, volume: 150 },
+    { time: 6, open: 93.5, high: 99, low: 93, close: 98.5, volume: 160 },
+  ],
+  // Dark cloud cover: the bearish mirror — a big bullish candle, then a bearish
+  // candle opening above the prior high and closing below its midpoint.
+  'dark-cloud-cover': [
+    ...baseCandles(4),
+    { time: 5, open: 94, high: 101.5, low: 93.5, close: 101, volume: 150 },
+    { time: 6, open: 102, high: 102.5, low: 96, close: 96.5, volume: 160 },
+  ],
   'morning-star': [
     ...baseCandles(4, 112),
     { time: 5, open: 111, high: 112, low: 99, close: 100, volume: 140 },
