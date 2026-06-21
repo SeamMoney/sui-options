@@ -75,6 +75,24 @@ page.on("console", (m) => {
   if (m.type() === "error") consoleErrors.push(m.text());
 });
 
+// Speed guard: tally the JS /pro pulls. The submission's headline win is its
+// ~8x load cut — it skips the Dynamic + dapp-kit + mysten wallet stack (~1.5MB+
+// on its own). If a future change imports that stack into the /pro chunk, this
+// payload balloons and the check below fails before it ever ships to a judge.
+let proJsBytes = 0;
+let walletChunkLoaded = false;
+page.on("response", async (r) => {
+  const u = r.url();
+  if (/\.js(\?|$)/.test(u)) {
+    try {
+      proJsBytes += (await r.body()).length;
+    } catch {
+      /* body already consumed / redirected — ignore */
+    }
+    if (/dynamic|dapp-kit|wallet|mysten|suiet/i.test(u)) walletChunkLoaded = true;
+  }
+});
+
 try {
   await page.goto(`${BASE}/pro`, { waitUntil: "domcontentloaded", timeout: 40000 });
   await page.waitForTimeout(4000);
@@ -92,6 +110,16 @@ try {
     return (d.match(/[ML]/g) || []).length;
   });
   check("chart is a full real history (>20 points)", segs > 20, `${segs} points`);
+
+  // Speed guard (see the response tally above): /pro must stay off the wallet
+  // stack. 382 KB today; 750 KB leaves room to grow but is far below the ~2 MB
+  // a wallet-stack import would drag in.
+  const proKB = Math.round(proJsBytes / 1024);
+  check(
+    "/pro stays lean — JS < 750 KB, no wallet stack (the load cut holds)",
+    proJsBytes > 0 && proKB < 750 && !walletChunkLoaded,
+    `${proKB} KB${walletChunkLoaded ? " + WALLET CHUNK!" : ""}`,
+  );
 
   // 1b. The displayed price tracks the REAL DeepBook SUI/USDC mid (not a
   // synthetic / mis-scaled line). Compare the on-screen price to the indexer.
