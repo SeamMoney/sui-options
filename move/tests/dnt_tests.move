@@ -355,3 +355,41 @@ fun lock_and_settle_dnt_market_with_breached_corridor_pays_outside_side() {
     sc.end();
 }
 
+// Safety: DNT_HELD and DNT_BROKEN are mutually exclusive. A market settled to
+// HELD must never re-settle to BROKEN — re-settlement is a no-op on the
+// terminal status (mirrors lock_and_settle_idempotent, on the DNT path).
+#[test]
+fun lock_and_settle_dnt_held_idempotent_cannot_flip_to_broken() {
+    let mut sc = ts::begin(ALICE);
+    let (mut oracle, rw, mut path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, mut clk) =
+        setup_dnt_world(&mut sc);
+    h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+
+    // Corridor holds — only in-corridor ticks (same as the held-pays test).
+    clk.increment_for_testing(200);
+    push_obs(&mut oracle, 101_000_000_000, 200);
+    po::record(&mut path, &oracle, &clk);
+    clk.increment_for_testing(200);
+    push_obs(&mut oracle, 99_000_000_000, 400);
+    po::record(&mut path, &oracle, &clk);
+
+    clk.set_for_testing(EXPIRY + 6_000);
+    push_obs(&mut oracle, 100_000_000_000, EXPIRY + 50);
+    market::lock_and_settle<SUI>(&mut mkt, &mut vault, &mut path, &mut oracle, &mut reg, &clk, sc.ctx());
+    assert!(market::status(&mkt) == market::status_dnt_held(), 0);
+
+    // A second settle can never flip the held corridor to broken.
+    market::lock_and_settle<SUI>(&mut mkt, &mut vault, &mut path, &mut oracle, &mut reg, &clk, sc.ctx());
+    assert!(market::status(&mkt) == market::status_dnt_held(), 1);
+    assert!(market::status(&mkt) != market::status_dnt_broken(), 2);
+
+    test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
+    test_utils::destroy(vault); test_utils::destroy(vcap);
+    test_utils::destroy(rconf); test_utils::destroy(rcap);
+    test_utils::destroy(reg); test_utils::destroy(regcap);
+    test_utils::destroy(frtr); test_utils::destroy(frcap);
+    market::destroy_for_testing(mkt);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
