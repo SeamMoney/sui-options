@@ -561,6 +561,7 @@ export function WickProLive() {
           strike={headline?.pos.strike ?? null}
           entryTime={position ? position.openedAtMs : null}
           up={headline ? headline.pnl >= 0 : true}
+          liveMid={spot}
         />
         {/* CandleVision coach — real DeepBook bars. Visible on every viewport. */}
         {coachEl && (
@@ -733,8 +734,10 @@ const MarkChart = memo(function MarkChart(props: {
   /** When in a position: ms timestamp of entry, marked on the strike line. */
   entryTime: number | null;
   up: boolean;
+  /** Live, frame-smoothed spot — the chart tip glides to this at 60fps. */
+  liveMid: number | null;
 }) {
-  const { history, strike, entryTime, up } = props;
+  const { history, strike, entryTime, up, liveMid } = props;
   const W = 1000;
   const H = 320;
   if (history.length < 2) {
@@ -753,11 +756,15 @@ const MarkChart = memo(function MarkChart(props: {
   lo -= pad; hi += pad;
   const x = (i: number) => (i / (history.length - 1)) * W;
   const y = (v: number) => H - ((v - lo) / (hi - lo)) * H;
-  const line = mids.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  // The tip rides the frame-smoothed live spot (not the 1.5s-stepped poll), so
+  // the line glides at 60fps. lo/hi stay off liveMid so the ladder won't jitter.
+  const plotMids =
+    liveMid != null && Number.isFinite(liveMid) ? [...mids.slice(0, -1), liveMid] : mids;
+  const line = plotMids.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
   const area = `${line} L${W},${H} L0,${H} Z`;
   // bloxwap signature: neon green (winning / idle) vs hot magenta (losing).
   const neon = up ? "#00ff3f" : "#ff0696";
-  const lastMid = mids[mids.length - 1]!;
+  const lastMid = plotMids[plotMids.length - 1]!;
   const lastY = y(lastMid);
   const decimals = lastMid < 1 ? 5 : lastMid < 100 ? 4 : lastMid < 10000 ? 2 : 0;
   // Right-edge price ladder — evenly spaced levels across the visible range.
