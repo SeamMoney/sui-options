@@ -83,7 +83,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function classifyError(err: Error): "idempotent" | "fatal" {
+export function classifyError(err: Error): "idempotent" | "fatal" {
   const msg = err.message ?? "";
   for (const p of IDEMPOTENT_ABORT_PATTERNS) {
     if (msg.includes(p)) return "idempotent";
@@ -119,11 +119,11 @@ async function executeTx(
 
 // ---------- per-market action builders ----------
 
-function isArcadeInWindow(m: ArcadeMarketRecord, nowMs: number): boolean {
+export function isArcadeInWindow(m: ArcadeMarketRecord, nowMs: number): boolean {
   return nowMs < m.expiry_ms;
 }
 
-function isReadyForSettle(
+export function isReadyForSettle(
   expiryMs: number | undefined,
   drainMs: number,
   nowMs: number,
@@ -132,7 +132,7 @@ function isReadyForSettle(
   return nowMs >= expiryMs + drainMs;
 }
 
-function isInDrainWindow(
+export function isInDrainWindow(
   expiryMs: number | undefined,
   drainMs: number,
   nowMs: number,
