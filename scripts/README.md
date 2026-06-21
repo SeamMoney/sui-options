@@ -28,6 +28,12 @@ Operator-facing bash + node scripts. All scripts read live IDs from
   back to the lobby, switches the asset to BTC, and fails on any console/page
   error. Screenshots each step to `~/work/uploads/a8-e2e`. Skips cleanly (exit 0)
   if Playwright isn't installed, so CI without browsers stays green.
+- `e2e-verify-smoke.mjs` (`npm run e2e:verify`) — drives the `/verify`
+  **Provable Fairness** page headless and asserts the headline differentiator
+  works BOTH ways: the honest replay matches every chain-reported candle (all
+  ✓, PASS verdict), and ticking "Simulate a dishonest house" makes the tampered
+  segment get caught (✗, FAIL verdict). Screenshots both states. (`npm run e2e`
+  runs the pro + verify flows back to back.)
 - `segment-smoke.sh` — end-to-end open / record / close on the most-recent
   segment market, then run `verify.ts`.
 - `smoke.sh` — original touch-market smoke.
