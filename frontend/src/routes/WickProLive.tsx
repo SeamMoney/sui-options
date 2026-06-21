@@ -403,7 +403,7 @@ export function WickProLive() {
   const poolMeta = DEEPBOOK_POOLS[pool];
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-[#0b0b0c] text-white overflow-hidden">
+    <div className="fixed inset-0 bg-[#0b0b0c] text-white overflow-hidden">
       <style>{`
         @keyframes wpFlash { 0% { opacity: 0.9 } 100% { opacity: 0 } }
         @keyframes wpPop { 0% { transform: scale(0.7); opacity: 0 } 45% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }
@@ -427,6 +427,9 @@ export function WickProLive() {
           }}
         />
       )}
+      {/* Phone-width column, centered — full-bleed on phones (< max-w), a tidy
+          centered frame on tablet/desktop instead of a stretched layout. */}
+      <div className="mx-auto flex h-full w-full max-w-[480px] flex-col">
       {/* Header */}
       <header className="flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 shrink-0">
         <div className="flex items-center gap-2">
@@ -647,6 +650,7 @@ export function WickProLive() {
             </button>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
