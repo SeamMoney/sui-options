@@ -1,0 +1,86 @@
+name: CI
+
+# Backs the README's "tests pass on every commit / in CI on every PR" claim
+# with reality. Two independent jobs:
+#   - node:  build the workspace packages, typecheck every TS package, run the
+#            keeper / candle-vision / pro-options test suites, and build the
+#            frontend (Vite). Mirrors scripts/agent-preflight.sh.
+#   - move:  install a pinned Sui CLI and run the full Move test suite, which
+#            includes the seeded_path conformance vectors (Move <-> TS).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node — build · typecheck · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install workspace deps
+        run: npm ci
+
+      # The frontend resolves @wick/sdk and the candle-vision / pro-options
+      # packages through their dist/ output, so these must be built before any
+      # dependent typecheck or the frontend build.
+      - name: Build workspace packages
+        run: |
+          npm run build:packages
+          npm run build:sdk
+
+      - name: Typecheck (frontend · api · keeper · bots)
+        run: |
+          npm -w frontend run typecheck
+          npm -w @wick/api run typecheck
+          npm -w wick-keeper run typecheck
+          npm -w wick-bots run typecheck
+
+      - name: Unit tests (keeper · candle-vision · pro-options)
+        run: |
+          npm -w wick-keeper test
+          npm run test:candle-vision
+          npm run test:pro-options
+
+      - name: Build frontend (Vite)
+        run: npm run build:frontend
+
+  move:
+    name: Move — sui move test
+    runs-on: ubuntu-latest
+    env:
+      # Pin the Sui CLI to the testnet release the package is developed against
+      # (local dev is sui 1.73.x). Bump in lockstep with the toolchain.
+      SUI_VERSION: testnet-v1.73.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Sui CLI
+        run: |
+          set -euo pipefail
+          url="https://github.com/MystenLabs/sui/releases/download/${SUI_VERSION}/sui-${SUI_VERSION}-ubuntu-x86_64.tgz"
+          echo "downloading $url"
+          curl -fsSL "$url" -o /tmp/sui.tgz
+          mkdir -p /tmp/sui-bin
+          tar -xzf /tmp/sui.tgz -C /tmp/sui-bin
+          # The tarball lays binaries either at the root or under a dir; find sui.
+          sui_path="$(find /tmp/sui-bin -type f -name sui | head -1)"
+          if [ -z "$sui_path" ]; then echo "sui binary not found in archive" >&2; exit 1; fi
+          install -m 0755 "$sui_path" /usr/local/bin/sui
+          sui --version
+
+      - name: Move tests (incl. seeded_path conformance vectors)
+        run: |
+          cd move
+          sui move test
