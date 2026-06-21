@@ -489,6 +489,9 @@ async function verifySegments(
   const eff = ride
     ? effectiveBarriers(ride.upperBarrier, ride.lowerBarrier, market.deadbandBps)
     : null;
+  const rideRoundEnd = ride
+    ? (ride.roundIndex + 1n) * market.roundDurationSegments
+    : 0n;
 
   // Carried state going into segment `from`.
   let prevState: WalkState;
@@ -514,6 +517,15 @@ async function verifySegments(
   for (let k = from; k < to; k++) {
     const rec = await readSegment(client, market.segmentsTableId, k);
     if (!rec) break; // ran off the end of recorded history
+    // Bound the scan. We integrity-check at least the entry round (so a tampered
+    // candle anywhere in it is caught), then keep going while segments are still
+    // in the ride's window (`recorded_at_ms <= closed_at_ms`, monotonic) so a
+    // ride HELD ACROSS A ROUND BOUNDARY is covered through its close — without
+    // walking the whole market. Stop once we're past BOTH the entry round and
+    // the close window.
+    if (ride && k >= rideRoundEnd && rec.recordedAtMs > ride.closedAtMs) {
+      break;
+    }
     const r = expandSegment(prevState, rec.key);
     const integrity =
       r.min === rec.min &&
@@ -591,14 +603,21 @@ async function findRoundRug(
   ride: RideInfo,
   rug: RugConfig,
   scanEnd: bigint,
-): Promise<{ ruggedSeg: bigint; roll: bigint } | null> {
+): Promise<{ ruggedSeg: bigint; roll: bigint; round: bigint } | null> {
   if (rug.rugChanceBps <= 0n) return null;
-  const roundStart = ride.roundIndex * market.roundDurationSegments;
+  const dur = market.roundDurationSegments;
+  // `decide_settlement` reads `rugged_at_segment` for the round the market is in
+  // AT CLOSE (`ensure_round_current` clears it on every round-roll), and the rug
+  // roll's keccak preimage includes the round index. So the rug that can catch
+  // this ride is the CLOSE round's first qualifier — NOT the entry round's. For
+  // an in-round close this is the entry round, i.e. today's behaviour.
+  const closeRound = dur > 0n ? scanEnd / dur : ride.roundIndex;
+  const roundStart = closeRound * dur;
   for (let k = roundStart; k < scanEnd; k++) {
     const rec = await readSegment(client, market.segmentsTableId, k);
     if (!rec) continue;
-    const r = rollRugFired(rec.key, marketId, ride.roundIndex, rug.rugChanceBps);
-    if (r.fired) return { ruggedSeg: k, roll: r.roll };
+    const r = rollRugFired(rec.key, marketId, closeRound, rug.rugChanceBps);
+    if (r.fired) return { ruggedSeg: k, roll: r.roll, round: closeRound };
   }
   return null;
 }
@@ -651,7 +670,11 @@ async function verify(args: Args): Promise<boolean> {
     }
 
     const rideRoundEnd = (ride.roundIndex + 1n) * market.roundDurationSegments;
-    const to = rideRoundEnd < market.nextSegmentIndex ? rideRoundEnd : market.nextSegmentIndex;
+    // Scan to the chain's head; verifySegments stops at the ride's close window
+    // (recorded_at_ms > closed_at_ms). NOT capped at rideRoundEnd — a ride held
+    // across a round boundary is settled against the CLOSE round, so we must see
+    // the segments past its entry round to attribute the rug + touch correctly.
+    const to = market.nextSegmentIndex;
     const genesis =
       ride.entrySegmentIndex === 0n && args.home !== undefined
         ? newState(args.home, DEFAULT_VOL_REGIME_INIT, args.home)
@@ -696,8 +719,9 @@ async function verify(args: Args): Promise<boolean> {
       // ride's close (`scanEnd`): if the chain's fire is inside that window we
       // must reproduce it; if it fired AFTER this ride closed (≥ scanEnd) our
       // window is correctly empty — that's consistent, not a mismatch.
+      const closeRound = fire ? fire.round : ride.roundIndex;
       let cross = "no chain field to cross-check (re-derived from keys)";
-      if (rug.ruggedAtSegment != null && ride.roundIndex === market.cachedRoundIndex) {
+      if (rug.ruggedAtSegment != null && closeRound === market.cachedRoundIndex) {
         const fieldSeg = rug.ruggedAtSegment;
         const expected = fieldSeg < scanEnd ? fieldSeg : null;
         const ok = expected === ruggedSeg;
@@ -710,7 +734,7 @@ async function verify(args: Args): Promise<boolean> {
       console.log("");
       if (fire) {
         console.log(
-          `MARKET HALT:       rug fired @ segment ${fire.ruggedSeg} (round ${ride.roundIndex}) — ` +
+          `MARKET HALT:       rug fired @ segment ${fire.ruggedSeg} (round ${fire.round}) — ` +
             `keccak roll=${fire.roll} < rug_chance_bps=${rug.rugChanceBps} (HONEST); ${cross}`,
         );
         console.log(
