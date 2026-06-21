@@ -79,7 +79,7 @@ Responses:
 
 | Status | Body                                                       | Meaning                                |
 |--------|------------------------------------------------------------|----------------------------------------|
-| `200`  | `{ digest, amount_mist: "1000000000", recipient }`          | Drip successful, tx confirmed onchain  |
+| `200`  | `{ digest, amount_mist: "2000000000", recipient }`          | Drip successful, tx confirmed onchain  |
 | `400`  | `{ error: "recipient is not a valid Sui address" }`        | Validation failed                      |
 | `405`  | `{ error: "method not allowed; use POST" }`                | Wrong HTTP verb                        |
 | `429`  | `{ error: "rate-limited", retry_after_ms, cooldown_ms }`   | Per-recipient 90s cooldown hit         |
@@ -88,7 +88,7 @@ Responses:
 
 Fixed parameters (edit them in `api/faucet.ts`, not here):
 
-- Drip amount: `1_000_000_000` MIST = **1.0 SUI** per request (covers a full hold-for-touch ride; the v4 game cranks client-side at ~9M MIST/segment)
+- Drip amount: `2_000_000_000` MIST = **2.0 SUI** per request (covers a full multi-ride evaluation session; the v4 game cranks client-side at ~9M MIST/segment)
 - Gas buffer: `20_000_000` MIST (must remain in the source wallet)
 - Per-recipient cooldown: **90 seconds** (in-process map; see *Limitations*)
 
@@ -175,7 +175,7 @@ Once funded, the next call to `/api/faucet` succeeds without a redeploy
 curl -X POST http://localhost:3000/api/faucet \
   -H 'Content-Type: application/json' \
   -d '{"recipient":"0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455"}'
-# → 200 {"digest":"…","amount_mist":"1000000000","recipient":"0xfad7…"}
+# → 200 {"digest":"…","amount_mist":"2000000000","recipient":"0xfad7…"}
 
 # bad address
 curl -X POST http://localhost:3000/api/faucet \
