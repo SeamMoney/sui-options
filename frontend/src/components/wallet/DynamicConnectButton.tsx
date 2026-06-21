@@ -51,14 +51,20 @@ function DynamicConnectButtonInner() {
   // mounts the real <DynamicContextProvider>.
   // `setShowAuthFlow` lives on useDynamicContext in SDK 4.83+, NOT on
   // useDynamicModals (that hook's surface changed).
-  const { primaryWallet, handleLogOut, setShowAuthFlow } = useDynamicContext();
+  const { primaryWallet, handleLogOut, setShowAuthFlow, sdkHasLoaded } =
+    useDynamicContext();
 
-  const openConnect = useCallback(() => setShowAuthFlow(true), [setShowAuthFlow]);
+  const openConnect = useCallback(() => {
+    // Guard against a dead click — opening the auth flow before the SDK has
+    // loaded does nothing (and on a CORS-blocked origin it never loads). The
+    // button is disabled until ready, but double-check here too.
+    if (sdkHasLoaded) setShowAuthFlow(true);
+  }, [setShowAuthFlow, sdkHasLoaded]);
 
   if (!primaryWallet) {
     return (
-      <Button onClick={openConnect} size="sm">
-        Sign in
+      <Button onClick={openConnect} size="sm" disabled={!sdkHasLoaded}>
+        {sdkHasLoaded ? "Sign in" : "Loading…"}
       </Button>
     );
   }

@@ -81,13 +81,32 @@ export function FaucetButton(props: {
       const tusdOk = tusdRes.ok && Boolean(tusdData.digest);
 
       if (!suiOk && !tusdOk) {
-        const msg =
-          suiRes.status === 429 || tusdRes.status === 429
-            ? "Rate-limited — try again in a minute."
-            : (suiData.error ?? tusdData.error ?? `HTTP ${suiRes.status}/${tusdRes.status}`);
+        const is429 = suiRes.status === 429 || tusdRes.status === 429;
+        if (is429) {
+          // Honour the server's per-recipient cooldown so the button shows a
+          // live "Wait Ns" and stays disabled — no dead clicks, no spamming.
+          const retryMs = Math.max(
+            Number(suiData.retry_after_ms) || 0,
+            Number(tusdData.retry_after_ms) || 0,
+            LOCAL_COOLDOWN_MS,
+          );
+          setCooldownUntil(Date.now() + retryMs);
+          toast.update(toastId, {
+            title: "Cooling down",
+            description: `Faucet is rate-limited — try again in ${Math.ceil(
+              retryMs / 1000,
+            )}s.`,
+            tone: "pending",
+            ttlMs: 5_000,
+          });
+          return;
+        }
         toast.update(toastId, {
           title: "Faucet declined",
-          description: msg,
+          description:
+            suiData.error ??
+            tusdData.error ??
+            `HTTP ${suiRes.status}/${tusdRes.status}`,
           tone: "error",
           ttlMs: 6_000,
         });
