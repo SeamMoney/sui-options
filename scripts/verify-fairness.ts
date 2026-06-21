@@ -2,7 +2,11 @@
  * Wick Pro — commit-reveal fairness proof.
  *
  *   npm run --silent build:pro-options && npx tsx scripts/verify-fairness.ts
- *   (or just `npm run verify:fairness`)
+ *   (or just `npm run verify:pro-fairness`)
+ *
+ * Verify ONE specific round you actually played (the seed the engine revealed at
+ * settle), not just the demo presets:
+ *   npx tsx scripts/verify-fairness.ts --seed <revealedSeed> [--preset calm|volatile|trending|choppy]
  *
  * Every Pro round publishes a `commit` BEFORE the lobby, then reveals the seed
  * at settle. The commit is SHA-256(`${seed}:${paramsJson}`) — so the price path
@@ -21,7 +25,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { MARKET_PRESETS, RoundEngine, roundConfigFromPreset } from "../packages/pro-options/src/index";
+import { MARKET_PRESETS, RoundEngine, roundConfigFromPreset, presetById } from "../packages/pro-options/src/index";
 
 /** Independent verifier — does NOT call any pro-options code. */
 function independentCommit(seed: number, paramsJson: string): string {
@@ -32,6 +36,32 @@ function independentCommit(seed: number, paramsJson: string): string {
 // tries to swap a DIFFERENT path under it at reveal. The independent verifier
 // must CATCH every forgery. Mirrors `verify:fairness:tamper` for the /ride chain.
 const TAMPER = process.argv.includes("--tamper");
+
+// `--seed <n> [--preset <id>]` verifies ONE specific round (the one a player
+// actually played, using the seed the engine revealed at settle) instead of the
+// canned preset sweep — so a judge can re-hash their OWN /pro round, not just our
+// demo rounds. Preset ids: calm · volatile · trending · choppy (default: first).
+function argValue(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+const seedArg = argValue("--seed");
+const presetArg = argValue("--preset");
+
+if (seedArg !== undefined && !Number.isFinite(Number(seedArg))) {
+  console.error(`--seed must be a number, got "${seedArg}"`);
+  process.exit(2);
+}
+if (presetArg !== undefined && !presetById(presetArg)) {
+  console.error(`--preset "${presetArg}" not found. Valid: ${MARKET_PRESETS.map((p) => p.id).join(", ")}`);
+  process.exit(2);
+}
+
+// The rounds to verify: a single custom round when --seed is given, else the sweep.
+const rounds =
+  seedArg !== undefined
+    ? [{ preset: presetArg ? presetById(presetArg)! : MARKET_PRESETS[0], seed: Number(seedArg) }]
+    : MARKET_PRESETS.map((preset, i) => ({ preset, seed: 0xc0ffee + i * 7919 }));
 
 let failures = 0;
 let caught = 0;
@@ -45,9 +75,7 @@ console.log(
     : "publish commit (pre-lobby) → reveal seed (settle) → recompute\n",
 );
 
-for (let i = 0; i < MARKET_PRESETS.length; i++) {
-  const preset = MARKET_PRESETS[i];
-  const seed = 0xc0ffee + i * 7919; // distinct per preset, deterministic
+for (const { preset, seed } of rounds) {
   const engine = new RoundEngine(roundConfigFromPreset({ preset, seed, startedAtMs }));
 
   // (1) commit is published before anyone sees the path.
@@ -105,7 +133,7 @@ if (TAMPER) {
   // /ride tamper demo) to signal "a dishonest reveal was detected".
   if (failures === 0) {
     console.error(
-      `CAUGHT — ${caught}/${MARKET_PRESETS.length} forged reveals rejected by independent SHA-256.\n` +
+      `CAUGHT — ${caught}/${rounds.length} forged reveal(s) rejected by independent SHA-256.\n` +
         "A dishonest house can't move the path after committing. Exit 1 = the cheat was detected.",
     );
     process.exit(1);
@@ -115,13 +143,14 @@ if (TAMPER) {
 }
 
 if (failures === 0) {
+  const what = seedArg !== undefined ? `round (seed ${seedArg}, ${rounds[0].preset.id})` : `${rounds.length}/${rounds.length} presets`;
   console.log(
-    `PASS — ${MARKET_PRESETS.length}/${MARKET_PRESETS.length} presets: the published commit is genuine\n` +
+    `PASS — ${what}: the published commit is genuine\n` +
       "SHA-256 of the revealed seed+params, recomputed independently of the engine.\n" +
       "The path was fixed before you bet. Provable, not promised.",
   );
   process.exit(0);
 } else {
-  console.error(`FAIL — ${failures} preset(s) did not bind their commit. Fairness proof broken.`);
+  console.error(`FAIL — ${failures} round(s) did not bind their commit. Fairness proof broken.`);
   process.exit(1);
 }
