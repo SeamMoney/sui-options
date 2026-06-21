@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CandleInput } from "@sui-options/candle-vision";
 import { PatternCoachPanel } from "@/components/PatternCoachPanel";
+import { useDeepBookCandles } from "@/hooks/useDeepBookCandles";
 
 const MAX_CANDLES = 60;
 const STEP_MS = 700;
@@ -121,7 +122,24 @@ function MiniCandles({ candles }: { candles: CandleInput[] }) {
 }
 
 export function Coach() {
-  const candles = useSyntheticCandles();
+  // Real SUI/USDC candles off the DeepBook mark (the same source Wick Pro
+  // prices against). Falls back to a synthetic stream so the page renders cold
+  // — no wallet, no RPC — and during the first poll.
+  const live = useDeepBookCandles("SUI_USDC", {
+    bucketMs: 60_000,
+    windowMs: 60 * 60_000,
+    pollMs: 4_000,
+  });
+  const synthetic = useSyntheticCandles();
+  const liveCandles: CandleInput[] = live.candles.map((c) => ({
+    time: c.tMs,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+  }));
+  const isLive = live.status === "live" && liveCandles.length >= 5;
+  const candles = isLive ? liveCandles : synthetic;
   const last = candles[candles.length - 1];
 
   return (
@@ -137,21 +155,27 @@ export function Coach() {
           Pattern Coach
         </h1>
         <p className="mt-2 max-w-[640px] text-sm leading-relaxed text-white/55">
-          The CandleVision detector reads the live tape and calls out the
-          strongest candlestick setups as they form — the same panel that
-          layers onto the Wick Pro DeepBook-mark chart. Demoed here on a live
-          synthetic stream.
+          The CandleVision detector reads the tape and calls out the strongest
+          candlestick setups as they form — the same panel that layers onto the
+          Wick Pro chart, here reading the {isLive ? "live" : ""} SUI/USDC
+          DeepBook mark.
         </p>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_300px]">
           {/* Chart */}
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
             <div className="mb-2 flex items-baseline justify-between">
-              <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">
-                Synthetic mark
+              <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-white/35">
+                <span
+                  className={`inline-block h-1.5 w-1.5 rounded-full ${
+                    isLive ? "bg-emerald-400" : "bg-white/30"
+                  }`}
+                  aria-hidden
+                />
+                {isLive ? "SUI / USDC · DeepBook" : "Synthetic mark"}
               </span>
               <span className="font-mono tabular-nums text-sm text-white/80">
-                {last ? last.close.toFixed(2) : "…"}
+                {last ? last.close.toFixed(isLive ? 4 : 2) : "…"}
               </span>
             </div>
             <div className="h-[220px] sm:h-[300px] w-full">
