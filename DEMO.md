@@ -56,6 +56,13 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
     `EXPIRED_LOSS` exactly as the chain says. The headline "that's how the house wins" — provably.
   - audit a specific market's recorded segments: `npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id>`
   - verify one closed ride's settlement: `npx tsx scripts/verify-v4.ts --market <id> --ride <id>`
+  - **the COMPLETE audit in one command** — `npm run audit:ride -- --market <id> --ride <id>` runs both
+    verifiers and only passes if all four hold: honest candles · honest `MARKET HALT` · correct verdict ·
+    exact payout → `✅ COMPLETE AUDIT PASS`.
+  - **prove you were paid the exact right amount** — `npm run verify:payout -- --market <id> --ride <id>`
+    re-derives `stake_paid` from on-chain state and checks the payout identity for the settlement kind
+    (`TOUCH_WIN = stake × multiplier`; a `MARKET HALT` forfeits *exactly* the held stake, not a satoshi
+    more). The candles, the house edge, the verdict, **and the money** — all four are a function call.
   - **verify a real `MARKET HALT` (rug) — the house edge is provably fair too:**
     ```
     npx tsx scripts/verify-v4.ts \
