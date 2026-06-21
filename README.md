@@ -121,7 +121,13 @@ npx tsx scripts/verify-v4.ts \
 #  → MARKET HALT: rug fired @ segment 458 — keccak roll=78 < rug_chance_bps=150 (HONEST)
 #  → off-chain EXPIRED_LOSS == on-chain EXPIRED_LOSS → PASS — the chain was honest.
 
-# 5. open the live frontend
+# 5. drive the LIVE UI the way a judge does (headless Chromium, screenshots saved):
+npm run e2e            # /pro: live mark → open a $5 option → live P&L ticks → close → BTC re-mark
+                       # /verify: honest replay all-match PASS, then "dishonest house" tamper → caught
+                       #   (needs Playwright: npm i -D playwright && npx playwright install chromium;
+                       #    skips cleanly if absent)
+
+# 6. open the live frontend
 open https://wick-markets.vercel.app/ride
 ```
 
