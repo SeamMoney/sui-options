@@ -473,7 +473,7 @@ export function WickProLive() {
               key={p}
               onClick={() => setPool(p)}
               disabled={!!position}
-              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition disabled:opacity-40 ${
+              className={`px-3 py-1 rounded-full text-xs font-bold transition disabled:opacity-40 ${
                 p === pool ? "bg-white text-zinc-950" : "bg-white/10 text-white/70"
               }`}
             >
@@ -492,9 +492,15 @@ export function WickProLive() {
           style={{
             color:
               spot !== null && priceTick === "up"
-                ? "#34d399"
+                ? "#00ff3f"
                 : spot !== null && priceTick === "down"
-                  ? "#f43f5e"
+                  ? "#ff0696"
+                  : undefined,
+            textShadow:
+              spot !== null && priceTick === "up"
+                ? "0 0 18px #00ff3f99"
+                : spot !== null && priceTick === "down"
+                  ? "0 0 18px #ff069699"
                   : undefined,
           }}
         >
@@ -622,9 +628,10 @@ export function WickProLive() {
               <button
                 key={s}
                 onClick={() => setStakeUsd(s)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-bold tabular-nums transition ${
-                  s === stakeUsd ? "bg-white/90 text-zinc-950" : "bg-white/10 text-white/70"
+                className={`px-3.5 py-1.5 rounded-full text-sm font-bold tabular-nums transition active:scale-95 ${
+                  s === stakeUsd ? "text-zinc-950" : "bg-white/10 text-white/70"
                 }`}
+                style={s === stakeUsd ? { background: "#00ff3f", boxShadow: "0 0 14px #00ff3f55" } : undefined}
               >
                 ${s}
               </button>
