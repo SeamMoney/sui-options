@@ -15,9 +15,12 @@ import {
   fetchDeepBookTicker,
   fetchDeepBookTrades,
   tradesToCandles,
+  realizedVolatility,
   DEEPBOOK_POOLS,
   type DeepBookTrade,
+  type Candle,
 } from "../frontend/src/lib/deepbook";
+import { quote, yearsFromSeconds } from "../packages/pro-options/src/black-scholes";
 
 // ── Part 1: pure aggregation ────────────────────────────────────────────────
 {
@@ -57,6 +60,36 @@ import {
   console.log("PASS pure tradesToCandles aggregation (3 cases)");
 }
 
+// ── Part 1b: realised volatility ────────────────────────────────────────────
+{
+  const bucketMs = 60_000;
+  // Too few candles → fallback.
+  assert.equal(realizedVolatility([], bucketMs, 0.6), 0.6);
+  // A perfectly flat series carries no vol signal → use the fallback (an
+  // uninformative window shouldn't price options at σ≈0, which is degenerate).
+  const flat: Candle[] = Array.from({ length: 10 }, (_, i) => ({
+    tMs: i * bucketMs,
+    open: 100,
+    high: 100,
+    low: 100,
+    close: 100,
+    volume: 1,
+  }));
+  assert.equal(realizedVolatility(flat, bucketMs, 0.6), 0.6);
+  // A series with real movement yields a positive, in-band σ.
+  const moving: Candle[] = [100, 101, 99, 102, 98, 103, 97].map((p, i) => ({
+    tMs: i * bucketMs,
+    open: p,
+    high: p,
+    low: p,
+    close: p,
+    volume: 1,
+  }));
+  const sig = realizedVolatility(moving, bucketMs);
+  assert.ok(sig > 0.01 && sig <= 5, `moving σ in band: ${sig}`);
+  console.log("PASS realizedVolatility (fallback, flat floor, in-band)");
+}
+
 // ── Part 2: live indexer ────────────────────────────────────────────────────
 async function live() {
   for (const pool of Object.values(DEEPBOOK_POOLS)) {
@@ -65,16 +98,31 @@ async function live() {
     assert.ok(mark.ask >= mark.bid, `${pool.name} ask >= bid`);
     const ticker = await fetchDeepBookTicker(pool.name);
     assert.ok(ticker.lastPrice > 0, `${pool.name} last > 0`);
-    const trades = await fetchDeepBookTrades(pool.name, 200);
-    const candles = tradesToCandles(trades, 60_000); // 1m candles
+    const trades = await fetchDeepBookTrades(pool.name, 500);
+    const bucketMs = 60_000;
+    const candles = tradesToCandles(trades, bucketMs); // 1m candles
+    const sigma = realizedVolatility(candles, bucketMs);
+    // End-to-end Wick Pro pipeline: live mid + live σ → BS premium for a 60s
+    // ATM call. Proves the mark feeds honest Black-Scholes pricing.
+    const tauYears = yearsFromSeconds(60);
+    const atm = quote({
+      spot: mark.mid,
+      strike: mark.mid,
+      tauYears,
+      sigma,
+      side: "call",
+    });
+    assert.ok(atm.premium >= 0, `${pool.name} ATM premium ≥ 0`);
+    assert.ok(atm.greeks.delta > 0 && atm.greeks.delta < 1, "call delta in (0,1)");
     console.log(
       `LIVE ${pool.name.padEnd(10)} mid=${mark.mid.toFixed(5)} ` +
         `spread=${mark.spreadBps.toFixed(1)}bps last=${ticker.lastPrice} ` +
-        `trades=${trades.length} candles(1m)=${candles.length}`,
+        `candles(1m)=${candles.length} σ=${(sigma * 100).toFixed(0)}% → ` +
+        `60s ATM call=${atm.premium.toFixed(6)} Δ=${atm.greeks.delta.toFixed(2)}`,
     );
     assert.ok(trades.length === 0 || candles.length > 0, "trades → candles");
   }
-  console.log("PASS live DeepBook mark (SUI_USDC + DEEP_USDC)");
+  console.log("PASS live DeepBook mark → σ → BS pricing (SUI_USDC + DEEP_USDC)");
 }
 
 void (async () => {
