@@ -8,4 +8,5 @@ export * from "./patterns.js";
 export * from "./segmentMarket.js";
 export * from "./segmentMarketV4.js";
 export * from "./sponsored.js";
+export * from "./proFairness.js";
 //# sourceMappingURL=index.d.ts.map

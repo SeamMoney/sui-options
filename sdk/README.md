@@ -90,6 +90,23 @@ Also exported: `CANDLES_PER_SEGMENT`, `TICKS_PER_CANDLE`, regime helpers
 shaper FSM (`detectArmedPattern`), and the `PATTERN_*` / `PATTERN_NAME` catalog
 (doji, hammer, shooting star, bullish/bearish engulfing, three white soldiers).
 
+## Verify a /pro round — `proFairness`
+
+A one-import, independent commit-reveal check for the **Wick Pro** options game.
+Each round publishes `commit = SHA-256(`${seed}:${paramsJson}`)` before the lobby
+and reveals `{ seed, paramsJson }` at settle:
+
+```ts
+import { verifyProRound } from "@wick/sdk";
+// the three values the UI shows (also returned by the host's `reveal-seed` event):
+const honest = verifyProRound(publishedCommit, revealedSeed, revealedParamsJson); // boolean
+```
+
+Hashes with `@noble/hashes` (sync, browser + node) — **independent of the round
+engine**, so verifying doesn't trust the thing being verified. Same guarantee as
+`npm run verify:pro-fairness` and `POST /api/verify-pro`. Also exports
+`proRoundCommit(seed, paramsJson)` if you want the digest itself.
+
 ## Candle pattern detection — `patterns`
 
 A pure post-hoc detector catalog over a window of `Candle`s — the same shapes
