@@ -64,6 +64,38 @@ test("synthetic MARKET HALT (rug) ride settles EXPIRED_LOSS and PASSes", () => {
   assert.equal(code, 0, "an honest rugged ride must PASS (exit 0)");
 });
 
+// ── Cross-round late close (#297, #303) ─────────────────────────────────────
+// A ride abandoned past its round end is settled by the chain against a LATER
+// round's state (its rug / its segments) that the verifier cannot reconstruct.
+// The verdict then legitimately mismatches our own-round derivation. verify-v4
+// must NOT cry "the chain lied" — it must PASS with an honest "not
+// independently checkable" caveat, while the candles + rug roll stay verified.
+// These guards protect that softening (subtle logic on the headline tool) from
+// a silent regression; without them a refactor could quietly restore the false
+// "chain lied" that made the audit unusable on real late-closed rides.
+
+test("cross-round EXPIRED_LOSS (later-round rug wipe) PASSes with caveat, not 'chain lied'", () => {
+  const { code, out } = run("mock://crossloss-v4");
+  assert.match(out, /extrema replay:\s+match \(every segment\)/);
+  assert.match(out, /on-chain verdict:\s+EXPIRED_LOSS/);
+  assert.match(out, /verdict:\s+not independently checkable/);
+  assert.match(out, /force-settled EXPIRED_LOSS against a LATER round's rug/);
+  assert.doesNotMatch(out, /FAIL — the chain lied/);
+  assert.match(out, /PASS — candles honest; verdict not independently checkable/);
+  assert.equal(code, 0, "a cross-round EXPIRED_LOSS must PASS (exit 0)");
+});
+
+test("cross-round TOUCH_WIN (later-round touch) PASSes with caveat, not 'chain lied'", () => {
+  const { code, out } = run("mock://crosswin-v4");
+  assert.match(out, /extrema replay:\s+match \(every segment\)/);
+  assert.match(out, /on-chain verdict:\s+TOUCH_WIN/);
+  assert.match(out, /verdict:\s+not independently checkable/);
+  assert.match(out, /touched the barrier in a LATER round/);
+  assert.doesNotMatch(out, /FAIL — the chain lied/);
+  assert.match(out, /PASS — candles honest; verdict not independently checkable/);
+  assert.equal(code, 0, "a cross-round TOUCH_WIN must PASS (exit 0)");
+});
+
 // ── MARKET HALT (rug) roll — golden vectors captured live from testnet ──────
 // market 0x54e915…5282 (package 0x10c33843…7a4e), rug_chance_bps = 150. The
 // chain independently armed `rugged_at_segment = 458` for round 6; our keccak

@@ -624,11 +624,15 @@ async function findRoundRug(
 
 async function verify(args: Args): Promise<boolean> {
   const synthetic = args.rpc.startsWith("mock://");
-  const synthMode: SynthMode = args.rpc.includes("rug")
-    ? "rug"
-    : args.rpc.includes("tamper")
-      ? "tamper"
-      : "honest";
+  const synthMode: SynthMode = args.rpc.includes("crossloss")
+    ? "crossloss"
+    : args.rpc.includes("crosswin")
+      ? "crosswin"
+      : args.rpc.includes("rug")
+        ? "rug"
+        : args.rpc.includes("tamper")
+          ? "tamper"
+          : "honest";
   const client: RpcClient = synthetic
     ? buildSyntheticClient(synthMode)
     : (new SuiJsonRpcClient({ url: args.rpc, network: "testnet" }) as unknown as RpcClient);
@@ -867,7 +871,13 @@ async function verify(args: Args): Promise<boolean> {
 // entered at 0, so the rug-settlement wiring is exercised offline in CI
 // (`--rpc mock://rug-v4` ⇒ EXPIRED_LOSS, PASS).
 
-type SynthMode = "honest" | "tamper" | "rug";
+// `crossloss`/`crosswin` reproduce the cross-round late-close artifact (#297,
+// #303): an honest no-touch walk, but the ride's on-chain settlement_kind is
+// EXPIRED_LOSS / TOUCH_WIN respectively (as if a LATER round's rug wiped it, or
+// a later-round touch won it — state the verifier can't reconstruct). The
+// in-round derivation is CASHOUT, so the verdict mismatches; the verifier must
+// PASS with "not independently checkable", NOT cry "chain lied".
+type SynthMode = "honest" | "tamper" | "rug" | "crossloss" | "crosswin";
 
 const SYNTH_MARKET = "0x" + "5e6".padEnd(64, "0");
 const SYNTH_RIDE = "0x" + "47de".padEnd(64, "0");
@@ -889,6 +899,8 @@ interface SynthSeg {
 function buildSyntheticClient(mode: SynthMode): RpcClient {
   const tamper = mode === "tamper";
   const rug = mode === "rug";
+  const crossloss = mode === "crossloss";
+  const crosswin = mode === "crosswin";
   // Deterministic keys: byte i of segment k = (k*7 + i*3 + 11) mod 251.
   const segs: SynthSeg[] = [];
   let state = newState(SYNTH_HOME, DEFAULT_VOL_REGIME_INIT, SYNTH_HOME);
@@ -968,7 +980,13 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
                 lower_barrier_price: lower.toString(),
                 closed: true,
                 closed_at_ms: rideClosedAt.toString(),
-                settlement_kind: String(rug ? SETTLEMENT_EXPIRED_LOSS : SETTLEMENT_CASHOUT),
+                settlement_kind: String(
+                  rug || crossloss
+                    ? SETTLEMENT_EXPIRED_LOSS
+                    : crosswin
+                      ? SETTLEMENT_TOUCH_WIN
+                      : SETTLEMENT_CASHOUT,
+                ),
               },
             },
           },
