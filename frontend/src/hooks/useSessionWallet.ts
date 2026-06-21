@@ -34,17 +34,22 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import {
-  SuiJsonRpcClient,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { TESTNET_RPC_URL } from "@/lib/sui";
 
 const STORAGE_KEY = "wick.session.v1";
 const BALANCE_POLL_MS = 4000;
 
-/** Standalone client — the burner does not go through dApp Kit. */
+/**
+ * Standalone client — the burner does not go through dApp Kit, but it MUST
+ * use the same CORS-safe RPC as the rest of the app. The burner does the
+ * heaviest RPC work of any client (4s balance polls + sign/execute on every
+ * ride open/close), so pointing it at the Mysten public fullnode re-triggered
+ * the v4.29 throttle→CORS failure that sui.ts already moved away from. Share
+ * TESTNET_RPC_URL so there is exactly one testnet endpoint in the browser.
+ */
 const sessionClient = new SuiJsonRpcClient({
-  url: getJsonRpcFullnodeUrl("testnet"),
+  url: TESTNET_RPC_URL,
   network: "testnet",
 });
 
