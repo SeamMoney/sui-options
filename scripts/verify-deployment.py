@@ -46,13 +46,19 @@ def add(label, i):
 add("package (v4.26)", d["package_id"])
 for k in ["risk_config", "global_exposure_registry", "bot_registry", "usd_price_oracle",
           "wick_staking_pool", "wick_token_state", "vault_sui", "vault_admin_cap_sui",
-          "fee_router_sui", "vault_tusd", "vault_admin_cap_tusd", "ride_caps_sui"]:
+          "fee_router_sui", "vault_tusd", "vault_admin_cap_tusd",
+          "ride_caps_sui", "ride_caps_sui_admin"]:
     add(k, d.get(k))
 add("tusd package", d["tusd"]["package_id"])
 add("tusd treasury_cap", d["tusd"]["treasury_cap"])
 add("tusd metadata", d["tusd"]["metadata"])
 add("sponsor policy", d["sponsor"]["policy_id"])
 add("sponsor cap", d["sponsor"]["cap_id"])
+# genesis (v1) publish — the type-origin package for every v1 module; still
+# live and resolvable even though the manifest only names it as the first
+# upgrade's `from_package_id`.
+if d.get("upgrade_history"):
+    add("pkg v1 (genesis)", d["upgrade_history"][0].get("from_package_id"))
 for u in d.get("upgrade_history", []):
     add(f"pkg v{u['version']}", u["to_package_id"])
 add("upgrade cap", d["upgrade_history"][-1]["upgrade_capability"])
@@ -74,7 +80,7 @@ for i in range(0, len(ids), 50):
 
 missing = [(lbl, i) for lbl, i in labelled if i not in live]
 print(f"\nWick deployment — Sui testnet\n{'='*48}")
-print(f"objects verified on-chain: {len(live)}/{len(set(ids))} unique  ({'ALL LIVE' if not missing else str(len(missing))+' MISSING'})")
+print(f"objects + packages verified on-chain: {len(live)}/{len(set(ids))} unique  ({'ALL LIVE' if not missing else str(len(missing))+' MISSING'})")
 for lbl, i in missing:
     print(f"  ❌ MISSING  {lbl:28s} {i}")
 
@@ -107,6 +113,23 @@ print(f"  gas sponsor wallet    : {sui_bal(d['sponsor']['sponsor_address']):>14,
 ts = field(d["tusd"]["treasury_cap"], "total_supply")
 supply = int(ts["fields"]["value"]) / 1e6 if ts else 0
 print(f"  TUSD total supply     : {supply:>14,.0f} TUSD")
+
+# ── wallets — addresses, NOT objects ────────────────────────────────────────
+# ADDRESSES.md also documents a couple of account addresses (the publisher and
+# the gas-sponsor wallet). These are accounts, not owned objects, so they are
+# (correctly) absent from the object-existence count above — verify them here as
+# funded/active accounts instead, so every documented id is accounted for.
+wallets = []
+if d.get("publisher"):
+    wallets.append(("publisher (deployer)", d["publisher"]))
+if d.get("sponsor", {}).get("sponsor_address"):
+    wallets.append(("gas sponsor", d["sponsor"]["sponsor_address"]))
+if wallets:
+    print(f"\nwallet accounts (addresses, not objects):")
+    for lbl, addr in wallets:
+        owned = rpc("suix_getOwnedObjects", [addr, None, None, 1])
+        active = bool(owned and owned.get("data") is not None)
+        print(f"  {'✓' if active else '·'} {lbl:22s} {sui_bal(addr):>10,.2f} SUI  {addr[:12]}…")
 
 print()
 sys.exit(1 if (missing or absent) else 0)
