@@ -92,6 +92,7 @@ export function Verify() {
         {ran && (
           <>
             <Verdict pass={outcome.pass} outcome={outcome} />
+            <VerifyChart rows={outcome.rows} />
             <ReplayTable rows={outcome.rows} />
             <footer className="mt-6 text-xs text-slate-500 leading-relaxed">
               The same replay verifies any real closed ride from on-chain data:
@@ -101,6 +102,88 @@ export function Verify() {
             </footer>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The replay as a candle chart: each segment's candle (body = open/close,
+ * wick = the chain's REPORTED high/low), the barrier line, and — when the
+ * house lied — the mismatched candle boxed in amber. The proof, visual: you
+ * see the candles the chain claimed and exactly which one doesn't add up.
+ */
+function VerifyChart({ rows }: { rows: VerifyRow[] }) {
+  if (rows.length === 0) return null;
+  const W = 200;
+  const H = 80;
+  const n = rows.length;
+  const num = (b: bigint) => Number(b);
+  const barrier = num(rows[0]!.barrier);
+  const highs = rows.map((r) => num(r.chainHigh));
+  const lows = rows.map((r) => num(r.chainLow));
+  const top = Math.max(...highs, barrier);
+  const bot = Math.min(...lows, barrier);
+  const span = Math.max(1, top - bot);
+  const hi = top + span * 0.08;
+  const lo = bot - span * 0.08;
+  const range = hi - lo;
+  const y = (v: number) => ((hi - v) / range) * H;
+  const cw = W / n;
+  const bw = Math.max(1.4, cw * 0.55);
+
+  return (
+    <div className="mb-4 rounded-lg border border-slate-800 bg-[#0d0f13] p-3">
+      <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500">
+        <span>replay · chain-reported candles</span>
+        <span className="text-amber-400/80">— barrier</span>
+      </div>
+      <div className="h-[180px] w-full">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full" aria-hidden>
+          <line
+            x1={0}
+            x2={W}
+            y1={y(barrier)}
+            y2={y(barrier)}
+            stroke="#f59e0b"
+            strokeWidth={0.5}
+            strokeDasharray="2 2"
+            opacity={0.7}
+            vectorEffect="non-scaling-stroke"
+          />
+          {rows.map((r, i) => {
+            const x = i * cw + cw / 2;
+            const o = num(r.open);
+            const c = num(r.close);
+            const up = c >= o;
+            const color = up ? "#22c55e" : "#f43f5e";
+            const oy = y(o);
+            const cy = y(c);
+            return (
+              <g key={r.k}>
+                {!r.extremaMatch && (
+                  <rect x={x - cw / 2} y={0} width={cw} height={H} fill="#f59e0b" opacity={0.18} />
+                )}
+                <line
+                  x1={x}
+                  x2={x}
+                  y1={y(num(r.chainHigh))}
+                  y2={y(num(r.chainLow))}
+                  stroke={r.extremaMatch ? color : "#f59e0b"}
+                  strokeWidth={0.6}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <rect
+                  x={x - bw / 2}
+                  y={Math.min(oy, cy)}
+                  width={bw}
+                  height={Math.max(0.5, Math.abs(cy - oy))}
+                  fill={color}
+                />
+              </g>
+            );
+          })}
+        </svg>
       </div>
     </div>
   );
