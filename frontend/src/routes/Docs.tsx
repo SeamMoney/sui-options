@@ -88,9 +88,9 @@ const DOCS: Doc[] = [
   },
   {
     slug: "the-round", exe: "THE_ROUND.EXE", category: "Pro Options", tag: "lifecycle", title: "How a Round Works",
-    blurb: <>A market is committed, then <code>lobby → live → settle</code>. Bet on how the rest of the chart plays out.</>,
+    blurb: <>The provably-fair synthetic mode (<code>/pro-sim</code>): a market is committed, then <code>lobby → live → settle</code>.</>,
     full: <>
-      <p>Every round runs on a clock with three phases:</p>
+      <p>This is the <b>provably-fair synthetic mode</b> (at <code>/pro-sim</code>) — the live product (<code>/pro</code>) instead prices always-open 60-second options off the real DeepBook mark. Here, every round runs on a clock with three phases:</p>
       <ul>
         <li><b>Lobby</b> — the market's opening setup is shown, and the keeper commits a hash of the entire price path. You browse the chain and open positions at the Desk.</li>
         <li><b>Live</b> — the rest of the chart streams out in real time. Everyone watches the same reveal; you manage your book.</li>
@@ -101,9 +101,9 @@ const DOCS: Doc[] = [
   },
   {
     slug: "desk-vs-live", exe: "DESK_VS_LIVE.EXE", category: "Pro Options", tag: "mechanics", title: "Desk vs Live",
-    blurb: <>Open <b>deliberately</b> at the Desk. Manage <b>live</b> with one decision: hold or <code>Sell to close</code>.</>,
+    blurb: <>The synthetic mode's two phases: open <b>deliberately</b> at the Desk, manage <b>live</b> (hold or <code>Sell to close</code>).</>,
     full: <>
-      <p>Opening an option and managing one have opposite cognitive loads, so they live in different modes.</p>
+      <p>In the <b>provably-fair synthetic mode</b> (<code>/pro-sim</code>), opening an option and managing one have opposite cognitive loads, so they live in different phases. (The live DeepBook mode at <code>/pro</code> collapses this to one tap — UP/DOWN, then close.)</p>
       <H>The Desk (lobby)</H>
       <p>The options desk: full chain, payoff curves, Greeks, strike and expiry selection. No time pressure — this is where you think and build a position.</p>
       <H>Live (the round)</H>
