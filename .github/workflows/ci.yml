@@ -63,12 +63,14 @@ jobs:
           npm -w wick-keeper run typecheck
           npm -w wick-bots run typecheck
 
-      - name: Unit tests (keeper · api · candle-vision · pro-options)
-        run: |
-          npm -w wick-keeper test
-          npm -w @wick/api test
-          npm run test:candle-vision
-          npm run test:pro-options
+      # Run the full root `npm test` aggregate (sdk · bots · keeper · api ·
+      # candle-vision · pro-options · verify-v4 · audit-rugs) rather than a
+      # hardcoded subset — the subset had drifted and was silently NOT running
+      # the verify-v4 fairness/rug guard, the audit-rugs guard, or the SDK
+      # PTB-builder tests in CI. `npm test` excludes Move (that's the separate
+      # job below), so this stays the Node-side unit gate and can't drift again.
+      - name: Unit tests (sdk · bots · keeper · api · candle-vision · pro-options · verify-v4 · audit-rugs)
+        run: npm test
 
       # The Move conformance test (move/tests/seeded_path_conformance.move) is
       # AUTO-GENERATED from the TS port (sdk/src/seededPath.ts): it embeds the
