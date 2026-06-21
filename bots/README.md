@@ -1,5 +1,12 @@
 # wick-bots — testnet trading bots
 
+> ⚠️ **LEGACY — does not run against the current package.** These bots drive the
+> retired **v1 touch/no-touch *trade*** model (`wick::create_market`, `buy`,
+> `swap`), which no longer exists on-chain. `npm run bots:run` will fail at
+> submit time (no such entry function). To animate the **live v4** chart for a
+> demo, use `npm run chart:keep` (the supervised v4 sentinel) instead. Kept for
+> reference / a future rewrite onto the segment-ride model.
+
 Personality-driven bots that create organic-looking activity on Wick markets.
 Each bot is its own keypair with its own bias; together they buy, swap, and
 periodically open fresh markets, while the keeper bot settles the markets when
