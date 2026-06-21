@@ -16,6 +16,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
+    "test": "tsx --test test/*.test.ts",
     "conformance": "tsx scripts/gen-conformance.ts"
   },
   "dependencies": {
