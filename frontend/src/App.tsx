@@ -25,6 +25,10 @@ const Verify = lazy(() => import("@/routes/Verify").then((m) => ({ default: m.Ve
 const RideTest = lazy(() =>
   import("@/routes/RideTest").then((m) => ({ default: m.RideTest })),
 );
+// Wick Pro — Black-Scholes options on a live DeepBook mark (the submission
+// game). Lazy so its pro-options engine + DeepBook layer stay out of the
+// ride entry chunk.
+const Pro = lazy(() => import("@/routes/Pro").then((m) => ({ default: m.Pro })));
 
 // Minimal pathname-based routing. Computed once at module load (no hash
 // routing / SPA nav within these pages — the Vercel SPA rewrite in
@@ -37,6 +41,8 @@ const RideTest = lazy(() =>
 const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 const IS_RIDE_TEST_ROUTE = PATHNAME === "/ride-test";
 const IS_PRO_ROUTE = PATHNAME === "/pro";
+// The legacy touch-trading terminal (MainApp) kept reachable for reference.
+const IS_TERMINAL_ROUTE = PATHNAME === "/terminal";
 const IS_CANDLE_VISION_ROUTE = PATHNAME === "/candle-vision";
 const IS_DEGEN_ROUTE = PATHNAME === "/degen";
 const IS_DOCS_ROUTE = PATHNAME === "/docs" || PATHNAME.startsWith("/docs/");
@@ -79,7 +85,13 @@ export default function App() {
         <RideTest />
       </Suspense>
     );
-  if (IS_PRO_ROUTE) return <MainApp />; // TEMP placeholder — real Legend panes go here next
+  if (IS_PRO_ROUTE)
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <Pro />
+      </Suspense>
+    ); // Wick Pro — the Black-Scholes options game (the submission)
+  if (IS_TERMINAL_ROUTE) return <MainApp />; // legacy touch-trading terminal
   return <Ride />; // default
 }
 
