@@ -130,10 +130,14 @@ export function FaucetButton(props: {
         ttlMs: 8_000,
       });
       setCooldownUntil(Date.now() + LOCAL_COOLDOWN_MS);
-      // Give the fullnode a beat to index, then refresh. A second, immediate
-      // call here would refresh against an un-indexed tx and paint a stale
-      // balance, so we rely solely on the delayed refresh.
-      window.setTimeout(() => onFunded?.(), 1200);
+      // Progressive reconcile so the new balance appears the moment the
+      // fullnode indexes the drip — instead of one fixed 1.2s wait. Each
+      // refresh re-reads the chain; whichever first sees the indexed tx paints
+      // the funds, so onboarding feels instant (SPEED) without risking a single
+      // too-early read sticking a stale 0 balance.
+      for (const ms of [700, 1600, 3000]) {
+        window.setTimeout(() => onFunded?.(), ms);
+      }
     } catch (err) {
       toast.update(toastId, {
         title: "Faucet network error",
