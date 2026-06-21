@@ -166,6 +166,24 @@ async function main() {
         "v4",
       ),
     ];
+    // v4 auto-discovery: WICK_KEEPER_SEGMENT_V4_AUTO=1 cranks every
+    // segment_markets_v4[] entry in the deployment manifest — so
+    // `keeper:watch` keeps all live charts alive without hand-listing ids.
+    // Each market's own collateral is honored (SUI or TUSD). Deduped against
+    // any explicit env bindings above.
+    if (/^(1|true|yes)$/i.test(process.env.WICK_KEEPER_SEGMENT_V4_AUTO ?? "")) {
+      const seen = new Set(segmentBindings.map((b) => b.marketId));
+      for (const r of cfg.deployment.segment_markets_v4 ?? []) {
+        if (!r.market || seen.has(r.market)) continue;
+        seen.add(r.market);
+        segmentBindings.push({
+          marketId: r.market,
+          packageId: cfg.packageId,
+          collateralType: r.collateral ?? cfg.collateralType,
+          version: "v4",
+        });
+      }
+    }
     if (segmentBindings.length > 0) {
       segmentCranker = new SegmentCranker(client, signer.keypair, {
         intervalMs: Number(process.env.WICK_KEEPER_SEGMENT_INTERVAL_MS ?? 400),

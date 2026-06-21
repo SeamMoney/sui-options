@@ -74,6 +74,9 @@ export interface Deployment {
   arcade_markets?: ArcadeMarketRecord[];
   pull_markets?: PullMarketRecord[];
   segment_markets?: SegmentMarketRecord[];
+  /// v4 segment markets (touch-either + rug) — the live module. Same record
+  /// shape (market / vault / collateral). Used by the keeper's v4 auto-crank.
+  segment_markets_v4?: SegmentMarketRecord[];
   // Shared singletons — required for redeem / crank paths but not for
   // lock_and_settle. Threaded via env vars if absent here.
   registry?: string;            // GlobalExposureRegistry (legacy key)
