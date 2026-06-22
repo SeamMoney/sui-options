@@ -178,10 +178,12 @@ events are `copy, drop`.
 
 ## Safety invariants (load-bearing — enforced + tested)
 
-- **Collateral invariant**, after every transition:
-  `collateral_vault == total_touch_supply == total_no_touch_supply`
+- **Collateral invariant** (vault conservation), after every transition:
+  `cumulative_in − cumulative_out == held` (held = treasury + side_bucket + Σ per-market locks)
   (test: `conservation_in_minus_out_equals_held` in `move/tests/martingaler_vault_tests.move`;
-  full property→test map in [`move/SAFETY.md`](move/SAFETY.md)). Violations are direct loss-of-funds.
+  full property→test map in [`move/SAFETY.md`](move/SAFETY.md)). The older
+  `collateral_vault == total_touch_supply == total_no_touch_supply` phrasing is a
+  retired-v1 (complete-set) artifact. Violations are direct loss-of-funds.
 - A market cannot settle both ways; settlement is idempotent; redeem consumes the
   `Position` UID so it can't double-pay; the losing side cannot redeem;
   `lock_and_settle` commits snapshot + status + fee + lock-release atomically.
