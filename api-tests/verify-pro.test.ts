@@ -79,12 +79,24 @@ function mockRes() {
     json(body: unknown) {
       cap.body = body;
     },
-    end() {
+    end(body?: string) {
       cap.ended = true;
+      if (body !== undefined) cap.body = body;
     },
   };
   return { res, cap };
 }
+
+test("handler: bare GET (no commit) serves the client-side verifier page", () => {
+  const m = mockRes();
+  handler({ method: "GET", query: {} } as any, m.res);
+  assert.equal(m.cap.status, 200);
+  assert.equal(m.cap.headers["Content-Type"], "text/html; charset=utf-8");
+  const html = String(m.cap.body);
+  assert.match(html, /<!doctype html>/i);
+  assert.match(html, /verify your round/i);
+  assert.match(html, /crypto\.subtle\.digest\("SHA-256"/); // hashes client-side
+});
 
 test("handler: GET with query params verifies (clickable-link form)", () => {
   let m = mockRes();
