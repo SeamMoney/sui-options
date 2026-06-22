@@ -40,9 +40,10 @@ Address and object-id query params are validated server-side.
 ## Why no write endpoints
 
 By design. Writes need user signing and the API has no key material; the
-SDK's `buildBuyTx`, `buildRedeemWinnerTx`, etc. return `Transaction`
-objects the client signs and submits directly. This keeps the API stateless
-and rules out an entire class of custody mistakes.
+SDK's PTB builders (`buildOpenSegmentRideV4`, `buildCloseSegmentRideV4`,
+`buildRecordSegmentV4`, …) return `Transaction` objects the client signs and
+submits directly. This keeps the API stateless and rules out an entire class of
+custody mistakes.
 
 ## Deploy
 
