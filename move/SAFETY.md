@@ -29,6 +29,7 @@ of funds.
 | Property | Test | File |
 |---|---|---|
 | Vault conservation: `Σ in − Σ out == held` | `conservation_in_minus_out_equals_held` | `martingaler_vault_tests.move` |
+| …and it holds **end-to-end through every settlement path** (deposit → fee routing → payout/forfeit), not just the vault primitive — each asserts `Σ buckets == Σ in − Σ out` after settling | rides: `rug_settles_ride_as_loss` · `abort_segment_ride_v4_past_deadline_refunds_one_to_one` · `close_upper_touch_wins_with_touched_side_upper` · `close_no_touch_within_round_yields_cashout` · `crank_expired_no_touch_yields_expired_loss` — options: `lock_and_settle_dnt_market_with_held_corridor_pays_inside_side` · `lock_and_settle_dnt_market_with_breached_corridor_pays_outside_side` · `two_sided_market_clears_correctly` | `segment_market_v4_tests` · `dnt_tests` · `market_tests` |
 | Winner paid in full from the per-market lock | `pay_winner_full_from_lock` | `martingaler_vault_tests.move` |
 | Partial pay queues the remainder (no overdraw) | `pay_winner_partial_then_queue_remainder` | `martingaler_vault_tests.move` |
 | Empty lock ⇒ full payout queued (FIFO), never minted | `pay_winner_full_queue_when_lock_empty` | `martingaler_vault_tests.move` |
