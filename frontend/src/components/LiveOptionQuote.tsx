@@ -20,6 +20,7 @@ import {
   type DeepBookPoolName,
 } from "@/lib/deepbook";
 import { PayoffDiagram } from "@/components/PayoffDiagram";
+import { displayGreeks } from "@/lib/greeksDisplay";
 
 export interface LiveOptionQuoteProps {
   readonly pool?: DeepBookPoolName;
@@ -76,6 +77,8 @@ export function LiveOptionQuote({
     ? quote({ spot, strike: spot, tauYears, sigma, side: "put" })
     : null;
   const toBps = (premium: number) => (spot > 0 ? (premium / spot) * 10_000 : 0);
+  // Short-dated greeks (θ time-decay, ν vol-sensitivity) in demo-sensible units.
+  const greekDisp = live && call ? displayGreeks(call.greeks, call.premium) : null;
 
   const mins = expirySecs >= 60 ? `${Math.round(expirySecs / 60)}m` : `${expirySecs}s`;
 
@@ -128,6 +131,20 @@ export function LiveOptionQuote({
         <span className="uppercase tracking-wide">break-even move</span>
         <span className="font-mono tabular-nums text-white/65">
           {live && call ? `±${((call.premium / spot) * 100).toFixed(2)}%` : "—"}
+        </span>
+      </div>
+
+      {/* Short-dated greeks — the two that define a 60-second option: θ (how
+          fast the premium melts) and ν (how much it moves per point of the live
+          DeepBook σ). Gamma is omitted: it blows up near expiry and misleads. */}
+      <div className="mt-1 flex items-baseline justify-between px-0.5 text-[10px] text-white/40">
+        <span className="uppercase tracking-wide" title="θ time-decay · ν vega (sensitivity to σ)">
+          θ decay · ν vol
+        </span>
+        <span className="font-mono tabular-nums text-white/65">
+          {greekDisp
+            ? `−${greekDisp.thetaPctPerSec.toFixed(1)}%/s · ${greekDisp.vegaPctPerVolPoint.toFixed(1)}%/σ-pt`
+            : "—"}
         </span>
       </div>
 
