@@ -19,7 +19,7 @@
  *   npm run audit:ride -- --market <id> --ride <id>
  */
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 
@@ -34,13 +34,6 @@ function argVal(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-if (hasFlag("-h") || hasFlag("--help") || !hasFlag("--market") || !hasFlag("--ride")) {
-  console.error(
-    "usage: npx tsx scripts/audit-ride.ts --market <SegmentMarketV4 id> --ride <id> [--rpc <url>]",
-  );
-  process.exit(2);
-}
-
 const passthrough = process.argv.slice(2); // --market/--ride/--rpc forwarded as-is
 
 function step(title: string, script: string): boolean {
@@ -52,15 +45,34 @@ function step(title: string, script: string): boolean {
   return (r.status ?? 1) === 0;
 }
 
-function norm(id: string): string {
+export function norm(id: string): string {
   const h = (id.startsWith("0x") ? id.slice(2) : id).toLowerCase().padStart(64, "0");
   return `0x${h}`;
 }
 
-type PreCheck =
+export type PreCheck =
   | { kind: "ok" }
   | { kind: "open" }
   | { kind: "mismatch"; rideMarket: string };
+
+/**
+ * Pure pre-check classifier (unit-tested): given the ride object's fields and the
+ * --market arg, decide whether to refuse the audit. Mismatch takes priority over
+ * open (auditing the wrong market is the more misleading failure). Unreadable
+ * fields → "ok" so a flaky read never blocks a real audit.
+ */
+export function classifyRide(
+  fields: { closed?: unknown; market_id?: unknown } | undefined,
+  market: string | undefined,
+): PreCheck {
+  if (!fields) return { kind: "ok" };
+  const rideMarket = typeof fields.market_id === "string" ? fields.market_id : undefined;
+  if (market && rideMarket && norm(rideMarket) !== norm(market)) {
+    return { kind: "mismatch", rideMarket };
+  }
+  if (fields.closed === false) return { kind: "open" };
+  return { kind: "ok" };
+}
 
 /**
  * One live read of the ride object, guarding two ways the aggregate audit could
@@ -85,14 +97,7 @@ async function preCheck(): Promise<PreCheck> {
       id: rideId,
       options: { showContent: true },
     })) as { data?: { content?: { fields?: { closed?: unknown; market_id?: unknown } } } };
-    const f = o?.data?.content?.fields;
-    if (!f) return { kind: "ok" }; // unreadable → let the verifiers report
-    const rideMarket = typeof f.market_id === "string" ? f.market_id : undefined;
-    if (market && rideMarket && norm(rideMarket) !== norm(market)) {
-      return { kind: "mismatch", rideMarket };
-    }
-    if (f.closed === false) return { kind: "open" };
-    return { kind: "ok" };
+    return classifyRide(o?.data?.content?.fields, market);
   } catch {
     return { kind: "ok" }; // never block a real audit on a flaky pre-check
   }
@@ -143,4 +148,16 @@ async function main(): Promise<void> {
   process.exitCode = pass ? 0 : 1;
 }
 
-void main();
+// CLI entrypoint, guarded so the module can be imported by tests without running
+// the audit (or exiting on the usage check).
+const invokedDirectly =
+  process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (invokedDirectly) {
+  if (hasFlag("-h") || hasFlag("--help") || !hasFlag("--market") || !hasFlag("--ride")) {
+    console.error(
+      "usage: npx tsx scripts/audit-ride.ts --market <SegmentMarketV4 id> --ride <id> [--rpc <url>]",
+    );
+    process.exit(2);
+  }
+  void main();
+}
