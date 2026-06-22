@@ -35,6 +35,11 @@ function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npx tsx scripts/vault-solvency.ts [--rpc <url>]   (or: npm run vault:solvency)");
+  console.log("  Proves every live MartingalerVault is solvent on-chain (vaults read from deployments/testnet.json).");
+  process.exit(0);
+}
 const RPC = arg("--rpc") ?? process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 // Fall back past a throttle/hiccup on the default public node to the archival
 // fullnode, so prove:live's solvency step doesn't fail on a transient RPC error
