@@ -51,6 +51,8 @@ const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[90m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
+/** SuiScan link so a judge can open the actual sui::random-consuming tx. */
+const suiscan = (kind: "object" | "tx", id: string): string => `https://suiscan.xyz/testnet/${kind}/${id}`;
 
 function busiestMarket(): string {
   const dep = JSON.parse(readFileSync(join(REPO_ROOT, "deployments", "testnet.json"), "utf8")) as {
@@ -147,7 +149,7 @@ async function main(): Promise<void> {
   for (const c of checks) {
     const tag = c.usesRandom ? green("✓ drew from 0x…08 Random") : red("✗ NO Random input");
     if (!c.usesRandom) bad++;
-    console.log(`  ${c.fn.padEnd(20)} ${tag}  ${dim(c.digest)}`);
+    console.log(`  ${c.fn.padEnd(20)} ${tag}  ${dim(c.digest)}  ${dim(`↗ ${suiscan("tx", c.digest)}`)}`);
   }
   console.log("");
   if (bad === 0) {
