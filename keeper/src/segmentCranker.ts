@@ -49,6 +49,30 @@ export const DEFAULT_CRANK_INTERVAL_MS = 400;
  * await any individual tx, we just refuse to schedule beyond the cap. */
 export const DEFAULT_MAX_INFLIGHT_PER_MARKET = 8;
 
+/** Hard timeout on every RPC/tx await (ms). Without it a black-hole RPC
+ * connection hangs a crank's `signAndExecuteTransaction` forever; its
+ * `.then`/`.catch` never fire, so `inflight` never decrements, and after
+ * MAX_INFLIGHT hung promises `maybeCrank` latches off permanently (returns
+ * early forever) — the chart freezes while the process looks healthy. A timeout
+ * turns the hang into a `.catch` the existing bookkeeping already handles.
+ * Env-overridable; generous default since a healthy crank is ~400ms. */
+export const DEFAULT_RPC_TIMEOUT_MS = Number(
+  process.env.WICK_KEEPER_RPC_TIMEOUT_MS ?? 20_000,
+);
+
+/** Reject `promise` if it doesn't settle within `ms`, so a hung RPC can't
+ * permanently park a crank or wedge the inflight counter. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} RPC timed out after ${ms}ms`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** Polling cadence for RideOpened / RideClosed events (ms). The Move side
  * gates correctness; this just keeps our wake/sleep decision fresh. */
 export const DEFAULT_EVENT_POLL_INTERVAL_MS = 1_500;
@@ -411,8 +435,8 @@ export class SegmentCranker {
 
     // Fire-and-forget. Do NOT await. The .then/.catch handlers update
     // telemetry asynchronously; they do not block the schedule loop.
-    this.client
-      .signAndExecuteTransaction({
+    withTimeout(
+      this.client.signAndExecuteTransaction({
         signer: this.signer,
         transaction: tx,
         // No effects requested → minimal payload, faster RPC turnaround.
@@ -420,7 +444,10 @@ export class SegmentCranker {
         // Don't wait for execution — return as soon as the fullnode
         // accepted the tx. This is what gives us pipelining at ~400ms.
         requestType: "WaitForEffectsCert",
-      })
+      }),
+      DEFAULT_RPC_TIMEOUT_MS,
+      "crank",
+    )
       .then((res) => {
         state.inflight -= 1;
         state.succeededTotal += 1;
@@ -548,12 +575,16 @@ export class SegmentCranker {
 
     while (pageCount < maxPages) {
       pageCount += 1;
-      const page = await this.client.queryEvents({
-        query: { MoveEventType: eventType },
-        cursor,
-        limit: this.opts.eventPageLimit,
-        order: isFirstPoll ? "descending" : "ascending",
-      });
+      const page = await withTimeout(
+        this.client.queryEvents({
+          query: { MoveEventType: eventType },
+          cursor,
+          limit: this.opts.eventPageLimit,
+          order: isFirstPoll ? "descending" : "ascending",
+        }),
+        DEFAULT_RPC_TIMEOUT_MS,
+        "queryEvents",
+      );
 
       if (isFirstPoll) {
         // Take the very-latest event's id as our forward cursor. We do
@@ -592,10 +623,14 @@ export class SegmentCranker {
   private async readActiveRideCount(
     marketId: string,
   ): Promise<{ count: number; eventPackageId: string | null }> {
-    const o = await this.client.getObject({
-      id: marketId,
-      options: { showContent: true, showType: true },
-    });
+    const o = await withTimeout(
+      this.client.getObject({
+        id: marketId,
+        options: { showContent: true, showType: true },
+      }),
+      DEFAULT_RPC_TIMEOUT_MS,
+      "getObject",
+    );
     if (!o.data || o.data.content?.dataType !== "moveObject") {
       throw new Error(`segment market ${marketId} not found or not a Move object`);
     }
