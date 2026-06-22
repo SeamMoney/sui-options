@@ -129,6 +129,7 @@ if (!withE2e || !withChain) {
   if (!withE2e) console.log(C.dim("    npm run judge -- --with-e2e     # watch the live UI honor the same guarantees"));
   if (!withChain) console.log(C.dim("    npm run judge -- --with-chain   # fund a burner & run a real on-chain ride, cold"));
   console.log(C.dim("    npm run judge -- --full         # everything"));
+  console.log(C.dim("    npm run safety                  # the contract's safety net, live-counted (instant)"));
 }
 console.log(C.dim("\n  Play it:   https://wick-markets.vercel.app/pro"));
 console.log(C.dim("  Verify it: https://wick-markets.vercel.app/verify"));
