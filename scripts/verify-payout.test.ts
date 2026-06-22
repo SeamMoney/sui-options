@@ -17,6 +17,7 @@ import {
   isqrtU64,
   bachelierCashoutFactor,
   cashoutPayout,
+  nearerBarrier,
   FACTOR_SCALE,
 } from "./bachelier.js";
 
@@ -76,6 +77,18 @@ test("cashoutPayout reproduces the live on-chain CASHOUT (golden: 6970)", () => 
   // spread=200bps, 27s remaining → chain paid exactly 6970.
   const p = cashoutPayout(150_000n, 996_352_353n, 1_107_866_203n, 906_435_985n, 100n, 200n, 27n);
   assert.equal(p, 6_970n);
+});
+
+test("nearerBarrier picks the closer barrier (ties favour upper), mirroring Move either-touch", () => {
+  // The verifier uses this to re-derive WHICH barrier a price is settling
+  // toward; a wrong pick would flip a touch verdict (false PASS/FAIL).
+  assert.equal(nearerBarrier(150n, 200n, 100n), 200n); // midway → tie → upper
+  assert.equal(nearerBarrier(120n, 200n, 100n), 100n); // closer to lower
+  assert.equal(nearerBarrier(180n, 200n, 100n), 200n); // closer to upper
+  assert.equal(nearerBarrier(250n, 200n, 100n), 200n); // above corridor → upper
+  assert.equal(nearerBarrier(50n, 200n, 100n), 100n); // below corridor → lower
+  // Real golden barriers from the CASHOUT ride above: spot sits nearer the lower band.
+  assert.equal(nearerBarrier(950_000_000n, 1_107_866_203n, 906_435_985n), 906_435_985n);
 });
 
 test("TOUCH_WIN: payout = stake_paid × multiplier, forfeit 0 (vault tops up, no conservation)", () => {
