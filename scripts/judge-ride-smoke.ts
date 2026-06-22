@@ -39,9 +39,10 @@ import {
 } from "../sdk/src/segmentMarketV4.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
-  console.log("usage: npm run smoke:ride   (no args; needs WICK_FAUCET_PRIVATE_KEY)");
-  console.log("  Mints a throwaway burner, funds it from the live faucet, opens → cranks → settles a");
-  console.log("  real v4 ride, then audits it with verify-v4. SPENDS REAL TESTNET GAS (and faucet TUSD).");
+  console.log("usage: npm run smoke:ride   (no args, NO wallet/key — funds via the public faucet API)");
+  console.log("  Mints a throwaway burner, funds it from the live faucet (BASE=… overrides the origin),");
+  console.log("  opens → cranks → settles a real v4 ride, then audits it with verify-v4. Spends real");
+  console.log("  testnet gas + faucet TUSD — all from the public faucet, exactly what a judge runs cold.");
   process.exit(0);
 }
 
