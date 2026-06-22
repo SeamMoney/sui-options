@@ -168,7 +168,7 @@ npm test               # == test:offline (test:live is a no-op placeholder)
 
 - Demo on Sui **testnet**, never mainnet
 - Current testnet `package_id` lives in `deployments/testnet.json` (always read it from disk — README and AGENTS may lag a redeploy)
-- Demo script: `docs/design/v2/10_demo_script_v2.md` — keep it runnable end-to-end at all times
+- Demo guide (current, judge-facing): `DEMO.md` — the no-wallet `/pro` + `/ride` 60-second walkthrough; keep it runnable end-to-end at all times. (`docs/design/v2/10_demo_script_v2.md` is the era-historical v2 *presentation* script — wallet/Arcade framing, predates the no-wallet pivot.)
 - Per-feature v2 design specs: `docs/design/v2/` (00–11). The ride primitive lives in `11_ride_streaming_primitive.md`.
 - Day-by-day milestones: `docs/hackathon-plan.md`
 - Granular agent-sized tasks: `TASKS.md`
