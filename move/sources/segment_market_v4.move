@@ -1625,6 +1625,14 @@ public fun test_only_bump_segment_index<C>(market: &mut SegmentMarketV4<C>, n: u
 }
 
 #[test_only]
+/// Override the concurrent-ride cap so a test can drive the EConcurrentRideLimit
+/// guard (set to 0 → the very next open exceeds it). Test-only; stripped from
+/// the published package.
+public fun test_only_set_max_concurrent_rides<C>(market: &mut SegmentMarketV4<C>, n: u64) {
+    market.max_concurrent_rides = n;
+}
+
+#[test_only]
 public fun test_only_force_round_current<C>(market: &mut SegmentMarketV4<C>) {
     ensure_round_current(market);
 }
