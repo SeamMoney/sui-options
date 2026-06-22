@@ -106,7 +106,13 @@ async function readState(client: ResilientClient, tableId: string, k: bigint): P
   return { price: big(s.price), home: big(s.home) };
 }
 
-interface RideBarriers { round: bigint; upper: bigint; lower: bigint }
+interface RideBarriers { marketId: string; round: bigint; upper: bigint; lower: bigint }
+
+/** Compare Sui object ids tolerant of 0x-prefix / case / leading-zero noise. */
+function sameId(a: string, b: string): boolean {
+  const norm = (s: string) => s.replace(/^0x/, "").replace(/^0+/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
 
 async function readRide(client: ResilientClient, rideId: string): Promise<RideBarriers> {
   const o = asObj(await client.getObject({ id: rideId, options: { showContent: true, showType: true } }));
@@ -115,7 +121,12 @@ async function readRide(client: ResilientClient, rideId: string): Promise<RideBa
     throw new Error(`object ${rideId} is not a SegmentRidePositionV4`);
   }
   const f = asObj(content.fields);
-  return { round: big(f.round_index), upper: big(f.upper_barrier_price), lower: big(f.lower_barrier_price) };
+  return {
+    marketId: asStr(f.market_id),
+    round: big(f.round_index),
+    upper: big(f.upper_barrier_price),
+    lower: big(f.lower_barrier_price),
+  };
 }
 
 /**
@@ -157,6 +168,14 @@ async function verify(args: Args): Promise<boolean> {
   let actual: { upper: bigint; lower: bigint } | null = null;
   if (args.ride) {
     const r = await readRide(client, args.ride);
+    // Reject a mismatched --market/--ride pair: deriving this market's barriers
+    // and comparing them to another ride's would print a bogus "the house moved
+    // the barrier". That's user error, not a dishonest chain.
+    if (!sameId(r.marketId, args.market!)) {
+      console.log(`ride ${args.ride} belongs to market ${r.marketId}, not ${args.market}.`);
+      console.log("FAIL — mismatched --market/--ride pair (not a dishonest chain). Pass the ride's own market.");
+      return false;
+    }
     round = r.round; actual = { upper: r.upper, lower: r.lower };
   } else if (args.round !== undefined) {
     round = args.round;
