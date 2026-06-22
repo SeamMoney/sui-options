@@ -2,7 +2,7 @@
   "name": "wick-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Wick Markets \u2014 Sui touch/no-touch options. Workspaces: sdk, api, keeper, frontend.",
+  "description": "Wick Markets — Sui touch/no-touch options. Workspaces: sdk, api, keeper, frontend.",
   "workspaces": [
     "sdk",
     "api",
@@ -59,7 +59,7 @@
     "test:audit-ride": "tsx --test scripts/audit-ride.test.ts",
     "test:chart-live": "tsx --test scripts/check-chart-live.test.ts",
     "test:faucet-runway": "tsx --test scripts/check-faucet-runway.test.ts",
-    "verify:offline": "npm run verify:pro-fairness && npm run verify:fairness && npm -w @wick/sdk test && npm -w @wick/api test && npm -w wick-keeper test && npm -w wick-bots test && npm run test:pro-options && npm run test:candle-vision && npm run test:verify-v4 && npm run test:audit-rugs && npm run test:rug-roll && npm run test:verify-payout && npm run test:verify-barriers && npm run test:vault-solvency && npm run test:verify-randomness && npm run test:audit-deployment && npm run test:gas-report && npm run test:live-verify && npm run test:audit-ride && npm run test:chart-live && npm run test:faucet-runway && npm run test:verify-replay && npm run test:greeks-display",
+    "verify:offline": "npm run verify:pro-fairness && npm run verify:fairness && npm -w @wick/sdk test && npm -w @wick/api test && npm -w wick-keeper test && npm -w wick-bots test && npm run test:pro-options && npm run test:candle-vision && npm run test:verify-v4 && npm run test:audit-rugs && npm run test:rug-roll && npm run test:verify-payout && npm run test:verify-barriers && npm run test:vault-solvency && npm run test:verify-randomness && npm run test:audit-deployment && npm run test:gas-report && npm run test:live-verify && npm run test:audit-ride && npm run test:chart-live && npm run test:faucet-runway && npm run test:verify-replay && npm run test:greeks-display && npm run test:safety",
     "check:treasury": "tsx scripts/treasury-health.ts",
     "check:chart-live": "tsx scripts/check-chart-live.ts",
     "check:faucet-runway": "tsx scripts/check-faucet-runway.ts",
@@ -106,9 +106,9 @@
     "bots:balances": "npm -w wick-bots run balances",
     "bots:run": "npm -w wick-bots run run",
     "bots:tick": "npm -w wick-bots run tick",
-    "test": "npm run test:offline && npm run test:live",
+    "test": "npm run test:offline && npm run test:live && npm run test:safety",
     "test:offline": "npm -w @wick/sdk test && npm -w wick-bots test && npm -w wick-keeper test && npm -w @wick/api test && npm run test:candle-vision && npm -w @sui-options/candle-vision-react test && npm run test:pro-options && npm run test:pro-fairness && npm run test:pro-pnl && npm run test:verify-v4 && npm run test:audit-rugs && npm run test:rug-roll && npm run test:verify-payout && npm run test:verify-barriers && npm run test:vault-solvency && npm run test:verify-randomness && npm run test:audit-deployment && npm run test:gas-report && npm run test:verify-replay && npm run test:greeks-display && npm run test:audit-ride && npm run test:chart-live && npm run test:faucet-runway && npm run test:live-verify",
-    "test:live": "echo 'no network-requiring unit tests \u2014 live verification runs via e2e:* and check:* targets'",
+    "test:live": "echo 'no network-requiring unit tests — live verification runs via e2e:* and check:* targets'",
     "test:move": "cd move && sui move test",
     "conformance": "npm -w @wick/sdk run conformance",
     "conformance:check": "npm run conformance && git diff --exit-code move/tests/seeded_path_conformance.move",
@@ -117,7 +117,8 @@
     "check:dist": "bash scripts/check-dist.sh",
     "safety": "node scripts/safety-report.mjs",
     "check:demo-ready": "bash scripts/check-demo-ready.sh",
-    "check:doc-counts": "bash scripts/check-doc-counts.sh"
+    "check:doc-counts": "bash scripts/check-doc-counts.sh",
+    "test:safety": "tsx --test scripts/safety-report.test.ts"
   },
   "overrides": {
     "@mysten/sui": "^2.16.0"
