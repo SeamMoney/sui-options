@@ -93,7 +93,7 @@ Per-collateral / global objects:
 - `WickTokenState` — fair-launch token state for **WICK**
 - `WickStakingPool` — stakers receive a share of the staker fee bucket
 
-See `docs/architecture.md` for full struct definitions and `docs/design/v2/` for the per-feature design specs.
+The struct summaries above are the current v2 source of truth (alongside the actual `move/sources/`). See `docs/design/v2/` for the per-feature design specs. (`docs/architecture.md` is **historical v1** — kept for context, not current; it's banner-flagged as such.)
 
 ## Lifecycle
 

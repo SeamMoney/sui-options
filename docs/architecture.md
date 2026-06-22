@@ -1,5 +1,17 @@
 # Architecture
 
+> ⚠️ **STALE — historical v1 design only.** This document predates the v2 redesign
+> and describes the **retired v1 model**: per-market `Coin<T>` AMM with
+> complete-set mint/redeem, `mark_hit` settlement, and `lp_supply`/`reserve`/
+> `total_*_supply` fields on the `Market`. The shipped product is **v2**:
+> `key`-only `Market` objects that reference a shared `MartingalerVault` by ID,
+> `Position`/`RidePosition` NFTs, and permissionless `lock_and_settle` /
+> `close_ride` settlement. For the CURRENT object model, struct fields, and the
+> collateral invariant (vault conservation, **not** the v1 supply equality below),
+> see [`AGENTS.md`](../AGENTS.md), [`CONTRACT_INTERFACE.md`](../CONTRACT_INTERFACE.md),
+> and [`move/SAFETY.md`](../move/SAFETY.md). Treat everything below as historical
+> context only.
+
 ## System Components
 
 ```text
