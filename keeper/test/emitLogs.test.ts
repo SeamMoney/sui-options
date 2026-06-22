@@ -45,10 +45,10 @@ test("emitLogs prints one NDJSON line per event then a tick-summary with the cou
   const lines = captureLogs(() => emitLogs(result as any));
   assert.equal(lines.length, 3); // 2 events + 1 summary
 
-  assert.deepEqual(JSON.parse(lines[0]), result.events[0]);
-  assert.deepEqual(JSON.parse(lines[1]), result.events[1]);
+  assert.deepEqual(JSON.parse(lines[0]!), result.events[0]);
+  assert.deepEqual(JSON.parse(lines[1]!), result.events[1]);
 
-  const summary = JSON.parse(lines[2]);
+  const summary = JSON.parse(lines[2]!);
   assert.equal(summary.action, "tick-summary");
   assert.equal(summary.actions, 2);
   assert.equal(summary.succeeded, 1);
@@ -71,5 +71,5 @@ test("emitLogs on an empty tick prints just the tick-summary line", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const lines = captureLogs(() => emitLogs(result as any));
   assert.equal(lines.length, 1);
-  assert.equal(JSON.parse(lines[0]).action, "tick-summary");
+  assert.equal(JSON.parse(lines[0]!).action, "tick-summary");
 });
