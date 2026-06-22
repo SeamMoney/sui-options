@@ -16,6 +16,8 @@ import { newState, expandSegment } from "../sdk/src/seededPath.js";
 import {
   replayAndMatch,
   decodeWalk,
+  parseOptionU64,
+  roundForRug,
   type LiveSegmentRecord,
 } from "../frontend/src/lib/liveVerify.ts";
 import { rollRugFired as frontendRoll } from "../frontend/src/lib/rugRoll.ts";
@@ -95,6 +97,30 @@ test("frontend rugRoll is byte-identical to the CLI rugRoll (no divergence)", ()
     assert.equal(a.roll, b.roll, `roll mismatch at s=${s}`);
     assert.equal(a.fired, b.fired, `fired mismatch at s=${s}`);
   }
+});
+
+test("parseOptionU64 reads every Option<u64> shape (the bare form bit us once)", () => {
+  // The live RPC shape — a bare string — is the one #472 mishandled.
+  assert.equal(parseOptionU64("13549"), 13549n);
+  assert.equal(parseOptionU64(13549), 13549n);
+  // Other observed shapes + None.
+  assert.equal(parseOptionU64({ fields: { vec: ["7"] } }), 7n);
+  assert.equal(parseOptionU64({ vec: [42] }), 42n);
+  assert.equal(parseOptionU64(null), null);
+  assert.equal(parseOptionU64(undefined), null);
+  assert.equal(parseOptionU64({ fields: { vec: [] } }), null);
+});
+
+test("roundForRug anchors to the verified segment, not a racing cached round", () => {
+  const dur = 75n;
+  // Halt at 13549 → round 180 (13549/75), regardless of any stale cached round.
+  assert.equal(roundForRug(13549n, 99999n, dur), 180n);
+  // No halt → anchor to the latest recorded segment (next-1).
+  assert.equal(roundForRug(null, 13550n, dur), 180n); // 13549/75
+  assert.equal(roundForRug(null, 75n, dur), 0n); // segment 74 → round 0
+  assert.equal(roundForRug(null, 76n, dur), 1n); // segment 75 → round 1
+  assert.equal(roundForRug(null, 0n, dur), 0n);
+  assert.equal(roundForRug(5n, 10n, 0n), 0n); // dur 0 guard
 });
 
 test("decodeWalk round-trips an on-chain WalkState struct", () => {

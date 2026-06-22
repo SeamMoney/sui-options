@@ -52,6 +52,34 @@ function bytes(v: unknown): Uint8Array {
   return new Uint8Array();
 }
 
+/**
+ * Parse a Move `Option<u64>` as the RPC renders it. Some(x) comes back as a
+ * BARE value ("13549" / 13549) on the live shape, or as `{ fields: { vec: [x] } }`
+ * / `{ vec: [x] }` on others; None is null/absent. (Mishandling the bare form is
+ * what made the house-edge verifier miss real halts — guarded by a unit test.)
+ */
+export function parseOptionU64(raw: unknown): bigint | null {
+  if (raw == null) return null;
+  if (typeof raw === "string" || typeof raw === "number" || typeof raw === "bigint") {
+    return big(raw);
+  }
+  const vec = (obj((raw as Record<string, unknown>).fields).vec ??
+    (raw as Record<string, unknown>).vec) as unknown[] | undefined;
+  return Array.isArray(vec) && vec.length > 0 ? big(vec[0]) : null;
+}
+
+/**
+ * The round_index a rug roll uses for a segment — anchored to the segment being
+ * verified (the chain's halt segment if any, else the latest recorded one), NOT
+ * the market's cached_round_index, which races the live stream. Mirrors the Move
+ * `current_round = next_segment_index / round_duration_segments`.
+ */
+export function roundForRug(ruggedAt: bigint | null, nextSegment: bigint, dur: bigint): bigint {
+  if (dur <= 0n) return 0n;
+  const anchor = ruggedAt ?? (nextSegment > 0n ? nextSegment - 1n : 0n);
+  return anchor / dur;
+}
+
 /** Decode an on-chain WalkState struct (a SegmentRecord.state_after `fields`). */
 export function decodeWalk(f: Record<string, unknown>): WalkState {
   const m = obj(obj(f.momentum).fields);
@@ -255,21 +283,7 @@ async function readRugConfig(
   // Dynamic-field object: the RugConfig struct lives at content.fields.value.fields.
   const cf = obj(obj(obj(obj(obj(d.data).content).fields).value).fields);
   if (cf.rug_chance_bps == null) return null;
-  // rugged_at_segment is an Option<u64>. The RPC renders Some(x) as a BARE
-  // value (string/number) — and, on some shapes, as { fields: { vec: [x] } }.
-  // None is null/absent. Handle every form (the bare-string case is the live one).
-  const ro = cf.rugged_at_segment as unknown;
-  let ruggedAt: bigint | null = null;
-  if (ro != null) {
-    if (typeof ro === "string" || typeof ro === "number" || typeof ro === "bigint") {
-      ruggedAt = big(ro);
-    } else {
-      const vec = (obj((ro as Record<string, unknown>).fields).vec ??
-        (ro as Record<string, unknown>).vec) as unknown[] | undefined;
-      if (Array.isArray(vec) && vec.length > 0) ruggedAt = big(vec[0]);
-    }
-  }
-  return { rugChanceBps: big(cf.rug_chance_bps), ruggedAt };
+  return { rugChanceBps: big(cf.rug_chance_bps), ruggedAt: parseOptionU64(cf.rugged_at_segment) };
 }
 
 /**
@@ -302,8 +316,7 @@ export async function verifyRoundRug(rpcUrl: string, marketId: string): Promise<
   // stream (the round can roll between our non-atomic reads). round = anchor /
   // round_duration is the exact Move formula (`current_round = next_idx / dur`),
   // so the roll's round_index matches what the chain used at record time.
-  const anchor = cfg.ruggedAt ?? (next > 0n ? next - 1n : 0n);
-  const round = dur > 0n ? anchor / dur : 0n;
+  const round = roundForRug(cfg.ruggedAt, next, dur);
   const start = round * dur;
   // If the chain claims a halt at s, we only need [start, s] to confirm s is the
   // FIRST fire of its round (an earlier suppressed fire still surfaces; a faked
