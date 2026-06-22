@@ -137,6 +137,22 @@ test("an ABORTED_REFUND ride PASSes (accepted, not derived) — never a false 'c
   assert.equal(code, 0, "an honest aborted ride must PASS (exit 0)");
 });
 
+test("rug PRECEDENCE: a ride that BOTH rugs and touches settles EXPIRED (rug beats touch)", () => {
+  // The SAME lower barrier as touchlow (which alone derives TOUCH_WIN), but with
+  // the rug armed at segment 0. The house-edge rule is rug > touch: a
+  // touched-but-rugged ride still loses ("that's how the house wins"). verify-v4
+  // must derive EXPIRED_LOSS, NOT TOUCH_WIN — a backwards precedence would
+  // false-FAIL the headline scenario. (The only verdict-precedence guard.)
+  const { code, out } = run("mock://rugtouch-v4", ["--home", "1000000000"]);
+  assert.match(out, /rug fired @ segment 0/);
+  assert.match(out, /halt applies → EXPIRED_LOSS/);
+  assert.match(out, /off-chain verdict:\s+EXPIRED_LOSS/);
+  assert.match(out, /on-chain verdict:\s+EXPIRED_LOSS/);
+  assert.match(out, /verdict:\s+match/);
+  assert.doesNotMatch(out, /off-chain verdict:\s+TOUCH_WIN/);
+  assert.equal(code, 0, "a rugged-and-touched ride must settle EXPIRED (exit 0)");
+});
+
 test("a suppressed segment (gap below the head) FAILs closed, not silent-truncated", () => {
   // The market reports next_segment_index=8 but segment 5 is missing — a hole the
   // honest chain (contiguous record_segment_v4 indices) can't produce. The
