@@ -33,6 +33,7 @@ of funds.
 | Winner paid in full from the per-market lock | `pay_winner_full_from_lock` | `martingaler_vault_tests.move` |
 | Partial pay queues the remainder (no overdraw) | `pay_winner_partial_then_queue_remainder` | `martingaler_vault_tests.move` |
 | Empty lock ⇒ full payout queued (FIFO), never minted | `pay_winner_full_queue_when_lock_empty` | `martingaler_vault_tests.move` |
+| The generic single-collateral `vault` primitive conserves every unit (deposit→withdraw round-trips exactly), rejects a zero move, and can't over-withdraw | `deposit_withdraw_round_trip_conserves_every_unit` · `deposit_balance_adds_to_held` · `deposit_zero_aborts` · `withdraw_zero_aborts` · `withdraw_more_than_held_aborts` | `vault_tests.move` |
 
 ## Settlement safety
 
