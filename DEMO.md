@@ -64,12 +64,13 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
   - verify one closed ride's settlement: `npx tsx scripts/verify-v4.ts --market <id> --ride <id>`
   - **pick your own ride to audit** — `npm run rides:recent` lists real recent closed rides off the
     chain — a touch win, a cashout, a **MARKET HALT** — each with a paste-ready verify command. Don't
-    trust our cherry-picked example: audit a ride *you* chose. (Every surfaced ride verifies honest;
-    a ride abandoned across rounds prints a "verdict not independently checkable" caveat — still a PASS,
-    never a false "chain lied".)
-  - **the COMPLETE audit in one command** — `npm run audit:ride -- --market <id> --ride <id>` runs both
-    verifiers and only passes if all four hold: honest candles · honest `MARKET HALT` · correct verdict ·
-    exact payout → `✅ COMPLETE AUDIT PASS`.
+    trust our cherry-picked example: audit a ride *you* chose. (Every surfaced ride verifies honest —
+    including rides held *across* a round boundary, which the verifier judges against the close round, so
+    they reproduce `verdict: match`; never a false "chain lied".) Each is listed with a paste-ready
+    `audit-ride` command — the COMPLETE audit, below.
+  - **the COMPLETE audit in one command** — `npm run audit:ride -- --market <id> --ride <id>` runs all
+    three verifiers and only passes if all five hold: barriers not cherry-picked · honest candles ·
+    honest `MARKET HALT` · correct verdict · exact payout → `✅ COMPLETE AUDIT PASS`.
   - **prove you were paid the exact right amount** — `npm run verify:payout -- --market <id> --ride <id>`
     re-derives `stake_paid` from on-chain state and checks the payout identity for the settlement kind
     (`TOUCH_WIN = stake × multiplier`; a `MARKET HALT` forfeits *exactly* the held stake, not a satoshi
@@ -93,8 +94,9 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
   fired on an honest roll. Tamper any key, extremum, or halt and it exits non-zero.
 - **The whole loop in one command** — `npm run smoke:ride` mints a throwaway wallet, funds it from the
   **production faucet** (the same 1 SUI + 10 TUSD a fresh player gets), opens a real touch-either ride,
-  cranks segments, settles on-chain, then hands the closed ride to `verify-v4.ts` and asserts **PASS** —
-  every step printed with a SuiScan link. Fund → play → settle → audit, cold, no wallet extension.
+  cranks segments, settles on-chain, then hands the closed ride to the COMPLETE audit (`audit-ride.ts` —
+  barriers · candles · halt · verdict · payout) and asserts **PASS** — every step printed with a SuiScan
+  link. Fund → play → settle → audit, cold, no wallet extension.
 - **Watch the house win, live** — `npm run smoke:halt` (operator wallet) opens a ride and cranks the
   chain until a real `MARKET HALT` (the v4.26 rug) fires inside the round, **wiping the ride** on-chain
   (`EXPIRED_LOSS`), then proves the freeze was an honest keccak roll via `verify-v4`. The headline "that's
