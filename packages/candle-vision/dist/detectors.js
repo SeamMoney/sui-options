@@ -130,7 +130,11 @@ function singleBarCandidates(bar) {
     const upperRejection = weightedScore({
         upperWick: scoreGreater(bar.upperPct, 0.46, 0.72),
         body: scoreLess(bar.bodyPct, 0.32, 0.5),
-        closeLocation: scoreLess(bar.closeLocation, 0.44, 0.14),
+        // graded: full credit when the close sits in the lowest 14% of the bar (a
+        // shooting star closes near its low), ramping to 0 by 0.44. (Was (0.44, 0.14)
+        // — zeroAt ≤ threshold made scoreLess collapse to a hard step at 0.44, no ramp;
+        // same polarity, just a dead gradient. Mirrors the graded hammer counterpart.)
+        closeLocation: scoreLess(bar.closeLocation, 0.14, 0.44),
         range: scoreGreater(bar.rangeRatio, 0.85, 1.8),
     });
     if (upperRejection > 0.62) {
