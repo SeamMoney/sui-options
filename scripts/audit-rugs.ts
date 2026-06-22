@@ -377,6 +377,7 @@ async function audit(args: Args): Promise<boolean> {
   const market = await readMarket(client, marketId);
 
   console.log(`market:        ${marketId}`);
+  console.log(`  suiscan:     https://suiscan.xyz/testnet/object/${marketId}`);
   console.log(`type package:  ${market.typePackage}`);
   console.log(`round length:  ${market.roundDurationSegments} segments`);
   console.log(`rug chance:    ${market.rugChanceBps} bps`);
