@@ -19,7 +19,14 @@
  * Exits non-zero if any hard check fails, so it can gate a demo runbook.
  */
 
-const RPC = process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com";
+// Tried in order: the chosen RPC (env-overridable) then the archival fullnode, so
+// a transient publicnode throttle/hiccup can't spuriously fail check:treasury —
+// and with it the whole check:all judge gate. Matches the verifiers' resilience.
+const RPCS = [
+  process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com",
+  "https://fullnode.testnet.sui.io:443",
+];
+const RPC_TIMEOUT_MS = 15_000;
 
 const TREASURY =
   "0xc9179f15614b95517c7377e721b7a9d0d56eeaea1b9074b27e2c760cdb22c298";
@@ -36,15 +43,25 @@ const MIN_TREASURY_SUI = 200;
 const MIN_SPONSOR_SUI = 5;
 
 async function rpc(method: string, params: unknown[]): Promise<any> {
-  const res = await fetch(RPC, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  if (!res.ok) throw new Error(`${method} → HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.error) throw new Error(`${method} → ${JSON.stringify(json.error)}`);
-  return json.result;
+  let last: unknown;
+  const seen = new Set<string>();
+  for (const url of RPCS.filter((u) => u && !seen.has(u) && seen.add(u))) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`${method} → HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.error) throw new Error(`${method} → ${JSON.stringify(json.error)}`);
+      return json.result;
+    } catch (e) {
+      last = e; // try the next endpoint (throttle / hang / transient error)
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last));
 }
 
 async function suiBalance(addr: string): Promise<number> {
@@ -73,7 +90,7 @@ const bad = (m: string) => {
 };
 
 async function main() {
-  console.log(`treasury health @ ${RPC}\n`);
+  console.log(`treasury health @ ${RPCS[0]}  (fallback: ${RPCS.slice(1).join(", ") || "none"})\n`);
 
   const tBal = await suiBalance(TREASURY);
   const tCoins = await suiCoinCount(TREASURY);
