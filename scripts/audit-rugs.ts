@@ -441,6 +441,15 @@ async function audit(args: Args): Promise<boolean> {
   if (cleanRounds > 0) {
     console.log(`(${cleanRounds} round(s) correctly had no halt — no segment qualified.)`);
   }
+  if (audits.length === 0) {
+    // Vacuous-pass guard (cf. #410): claiming "every round audited is honest"
+    // when ZERO rounds were audited (e.g. --max-rounds 0, or before any segment)
+    // is a false proof. Fail loud instead of exiting 0 on nothing.
+    console.log("⚠ no rounds were audited — nothing to prove.");
+    console.log("  Not asserting an honest house edge on a vacuous (0-round) audit;");
+    console.log("  widen --max-rounds or wait for the market to record segments.");
+    return false;
+  }
   if (bad.length === 0) {
     console.log(`PASS — every round audited is cryptographically honest (${halts} halt(s) verified):`);
     console.log("       • no FAKED halt — each halt's keccak roll really is below the published dice;");
