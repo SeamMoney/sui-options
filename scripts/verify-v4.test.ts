@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { rollRugFired } from "./rugRoll.js";
-import { effectiveBarriers } from "./verify-v4.js";
+import { effectiveBarriers, segmentTouches } from "./verify-v4.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "verify-v4.ts");
@@ -206,4 +206,19 @@ test("effectiveBarriers: proportional deadband margin + the lower-clamp edge cas
   // Clamp: a margin ≥ the lower barrier would underflow → loEff floors at 0,
   // never negative (loMargin = 100 × 20000/10000 = 200 ≥ lower 100).
   assert.equal(effectiveBarriers(1_000_000_000n, 100n, 20_000n).loEff, 0n);
+});
+
+test("segmentTouches: inclusive boundary on both barriers (exactly-at = touch)", () => {
+  const upEff = 1_020n, loEff = 980n;
+  // Strictly inside both barriers → no touch.
+  assert.equal(segmentTouches(990n, 1_010n, upEff, loEff), false);
+  // Just below the upper / just above the lower → still no touch.
+  assert.equal(segmentTouches(981n, 1_019n, upEff, loEff), false);
+  // High EXACTLY at the upper barrier → touch (inclusive >=).
+  assert.equal(segmentTouches(990n, 1_020n, upEff, loEff), true);
+  // Low EXACTLY at the lower barrier → touch (inclusive <=).
+  assert.equal(segmentTouches(980n, 1_010n, upEff, loEff), true);
+  // Clear wick through either side → touch.
+  assert.equal(segmentTouches(990n, 1_030n, upEff, loEff), true);
+  assert.equal(segmentTouches(970n, 1_010n, upEff, loEff), true);
 });

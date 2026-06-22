@@ -485,8 +485,10 @@ export function effectiveBarriers(
   };
 }
 
-/** Either-barrier touch over a single segment's recomputed extrema. */
-function segmentTouches(
+/** Either-barrier touch over a single segment's recomputed extrema. The boundary
+ *  is INCLUSIVE — a high/low exactly AT the effective barrier counts as a touch
+ *  (max >= upEff, min <= loEff) — which decides a borderline win vs loss. */
+export function segmentTouches(
   min: bigint,
   max: bigint,
   upEff: bigint,
