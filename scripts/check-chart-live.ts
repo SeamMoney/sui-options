@@ -25,6 +25,19 @@ const REPO_ROOT = join(here, "..");
 const DEFAULT_RPC = "https://sui-testnet-rpc.publicnode.com";
 const FALLBACK_RPC = "https://fullnode.testnet.sui.io:443";
 const DEFAULT_MAX_AGE_SEC = 180;
+const RPC_TIMEOUT_MS = 20_000;
+
+// Per-call RPC timeout so a stuck endpoint can't hang the probe (and, via
+// check:all, the whole demo-health gate) indefinitely — matches the fleet's
+// resilience pattern (verify-barriers #434, check:rugs #437, verify-randomness
+// #441). A timeout surfaces as a clear failure, not a silent stall.
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 function argVal(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -83,7 +96,7 @@ async function firstWorkingClient(rpcOverride?: string): Promise<SuiJsonRpcClien
   for (const url of urls) {
     try {
       const c = new SuiJsonRpcClient({ url, network: "testnet" });
-      await c.getLatestSuiSystemState?.().catch(() => undefined);
+      await withTimeout(Promise.resolve(c.getLatestSuiSystemState?.()), RPC_TIMEOUT_MS).catch(() => undefined);
       return c;
     } catch (e) {
       lastErr = e;
@@ -98,7 +111,7 @@ async function main(): Promise<void> {
   const maxAgeSec = Number(argVal("--max-age-sec") ?? DEFAULT_MAX_AGE_SEC);
 
   const client = await firstWorkingClient(argVal("--rpc"));
-  const o = asObj(await client.getObject({ id: market, options: { showContent: true } }));
+  const o = asObj(await withTimeout(client.getObject({ id: market, options: { showContent: true } }), RPC_TIMEOUT_MS));
   const f = asObj(asObj(asObj(o.data).content).fields);
   const next = asBig(f.next_segment_index);
   if (next <= 0n) {
@@ -108,7 +121,10 @@ async function main(): Promise<void> {
   }
   const tableId = String(asObj(asObj(asObj(f.segments).fields).id).id);
   const head = asObj(
-    await client.getDynamicFieldObject({ parentId: tableId, name: { type: "u64", value: (next - 1n).toString() } }),
+    await withTimeout(
+      client.getDynamicFieldObject({ parentId: tableId, name: { type: "u64", value: (next - 1n).toString() } }),
+      RPC_TIMEOUT_MS,
+    ),
   );
   const recordedAtMs = asBig(asObj(asObj(asObj(asObj(head.data).content).fields).value).fields.recorded_at_ms);
 
