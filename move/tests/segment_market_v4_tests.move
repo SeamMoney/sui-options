@@ -780,6 +780,10 @@ fun abort_segment_ride_v4_past_deadline_refunds_one_to_one() {
     let stake = 1_000u64;
     let escrow_amt = stake * ROUND_DURATION;
     let escrow = mint_sui(escrow_amt, &mut sc);
+    // Snapshot the vault before the ride: the escrow is deposited into the
+    // treasury on open and must come straight back out on abort, leaving the
+    // vault exactly where it started.
+    let vault_before = mv::treasury_value(&vault);
     let mut ride = sm4::open_segment_ride_v4<SUI>(
         &mut market, &mut vault, &bots,
         stake, escrow, &clk, sc.ctx(),
@@ -792,6 +796,11 @@ fun abort_segment_ride_v4_past_deadline_refunds_one_to_one() {
 
     assert!(sm4::settlement_kind(&ride) == sm4::settlement_aborted_refund(), 0);
     assert!(refund.value() == escrow_amt, 1);
+    // "Refund 1:1, never 2:1" (AGENTS.md safety property): the user-side check
+    // above proves they got 1× escrow back, but a double-withdraw could still
+    // drain a SECOND escrow from the vault while that check passed. Assert the
+    // treasury net-zeroed — the escrow round-tripped exactly once, no 2:1 leak.
+    assert!(mv::treasury_value(&vault) == vault_before, 2);
 
     test_utils::destroy(refund);
     sm4::test_only_destroy_ride(ride);
