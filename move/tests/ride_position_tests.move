@@ -393,6 +393,46 @@ fun open_ride_insufficient_escrow_aborts() {
     sc.end();
 }
 
+// Safety: a v2 ride can't open with ZERO escrow → EZeroEscrow (8). (Separate
+// deployed code from segment_market_v4, so it gets its own rejection test.)
+#[test]
+#[expected_failure(abort_code = rp::EZeroEscrow)]
+fun open_ride_zero_escrow_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut vault, vcap, mut caps, rcap, bots, bcap,
+         upo_obj, pcap, wts, wcap, pool, scap, clk) = mk_world(&mut sc);
+
+    let escrow = mint_sui(0, &mut sc);
+    let ride = rp::open_ride<SUI>(
+        &mut caps, &path, &mut vault, &bots,
+        1_000_000, escrow, &clk, sc.ctx(),
+    );
+    test_utils::destroy(ride); // unreachable
+    teardown_world(oracle, rw, path, vault, vcap, caps, rcap, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+// Safety: a ride can't open against a path its caps aren't bound to → EWrongPath (6).
+#[test]
+#[expected_failure(abort_code = rp::EWrongPath)]
+fun open_ride_wrong_path_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut vault, vcap, mut caps, rcap, bots, bcap,
+         upo_obj, pcap, wts, wcap, pool, scap, clk) = mk_world(&mut sc);
+
+    // A second, unrelated path — distinct object id, so the caps↔path binding fails.
+    let wrong_path = po::new_v2(&oracle, BARRIER_ABOVE, po::touch_above(), 0, 1, 1, 60_000, sc.ctx());
+    let escrow = mint_sui(1_000_000_000, &mut sc); // amply funded — the binding is what fails
+    let ride = rp::open_ride<SUI>(
+        &mut caps, &wrong_path, &mut vault, &bots,
+        1_000_000, escrow, &clk, sc.ctx(),
+    );
+    test_utils::destroy(ride); // unreachable
+    test_utils::destroy(wrong_path);
+    teardown_world(oracle, rw, path, vault, vcap, caps, rcap, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 #[test]
 fun aborted_market_close_returns_one_to_one_refund_no_double_pay() {
     let mut sc = ts::begin(ALICE);
