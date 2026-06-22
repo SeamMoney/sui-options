@@ -192,7 +192,10 @@ export function settlementModelFromDeployments(): SettlementModel {
 
 function usage(): never {
   console.error(
-    "usage: npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id> [--ride <id>] [--from K --to K] [--rpc <url>]",
+    "usage: npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id> [--ride <id>] [--from K --to K] [--rpc <url>] [--settlement-model v4.26|v4.27]",
+  );
+  console.error(
+    "  --settlement-model: which on-chain rules to re-derive against (default: the deployment's, currently v4.26). 'v4.27' = bounded cross-round scan + durable per-round rug (#683/#694) — strictly checks cross-round verdicts instead of softening them. Set automatically once the v4.27 package ships.",
   );
   console.error(
     "  market audit:  npx tsx scripts/verify-v4.ts --market 0x… --window 32",
