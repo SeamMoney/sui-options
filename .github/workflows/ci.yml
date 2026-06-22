@@ -105,6 +105,13 @@ jobs:
       - name: Meta / share-card / cold-load gate
         run: npm run check:meta
 
+      # The Move test count is hard-coded in several judge-facing docs (README
+      # badge + body, SAFETY.md, ADDRESSES.md, the runbook). It's drifted
+      # 553→571→605→641 as tests were added, with some docs lagging each time.
+      # Fail if any doc disagrees, so a judge never sees a count that mismatches.
+      - name: Doc Move-test counts agree
+        run: npm run check:doc-counts
+
   move:
     name: Move — sui move test
     runs-on: ubuntu-latest
