@@ -362,6 +362,7 @@ export function parseRideOpenedV4Event(json) {
         upperBarrierPrice: asBigInt(json.upper_barrier_price),
         lowerBarrierPrice: asBigInt(json.lower_barrier_price),
         stakePerSegment: asBigInt(json.stake_per_segment),
+        escrowed: asBigInt(json.escrowed),
         multiplierBps: asBigInt(json.multiplier_bps),
         openedAtMs: asBigInt(json.opened_at_ms),
     };
@@ -369,11 +370,15 @@ export function parseRideOpenedV4Event(json) {
 export function parseRideClosedV4Event(json) {
     return {
         rideId: asString(json.ride_id),
+        user: asString(json.user),
         marketId: asString(json.market_id),
         roundIndex: asBigInt(json.round_index),
         settlementKind: asNumber(json.settlement_kind),
         closedAtMs: asBigInt(json.closed_at_ms),
+        stakePaid: asBigInt(json.stake_paid),
         payout: asBigInt(json.payout),
+        forfeit: asBigInt(json.forfeit),
+        bounty: asBigInt(json.bounty),
         touchedSide: asTouchedSide(json.touched_side),
     };
 }

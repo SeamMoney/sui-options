@@ -244,16 +244,23 @@ export interface RideOpenedV4Event {
     upperBarrierPrice: bigint;
     lowerBarrierPrice: bigint;
     stakePerSegment: bigint;
+    /** Total micro-USD escrowed up front (= stake_per_segment × round_duration). */
+    escrowed: bigint;
     multiplierBps: bigint;
     openedAtMs: bigint;
 }
 export interface RideClosedV4Event {
     rideId: string;
+    user: string;
     marketId: string;
     roundIndex: bigint;
     settlementKind: number;
     closedAtMs: bigint;
+    /** Settlement breakdown (micro-USD): stake spent, jackpot paid, stake forfeited, keeper bounty. */
+    stakePaid: bigint;
     payout: bigint;
+    forfeit: bigint;
+    bounty: bigint;
     /** 0 = upper, 1 = lower, 2 = none. UI/telemetry only. */
     touchedSide: TouchedSide;
 }
