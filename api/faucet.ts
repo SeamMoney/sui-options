@@ -161,10 +161,15 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
   if (typeof recipientRaw !== "string") {
     return { status: 400, body: { error: "recipient must be a string" } };
   }
-  if (!isValidSuiAddress(recipientRaw)) {
+  // Trim before validating: isValidSuiAddress rejects an address with a trailing
+  // newline / surrounding spaces (confirmed), so a judge curling with a line-
+  // copied address hits a false "not a valid Sui address". Same input-hygiene as
+  // the verify-pro inputs (#713). Internal junk still fails validation.
+  const recipientTrimmed = recipientRaw.trim();
+  if (!isValidSuiAddress(recipientTrimmed)) {
     return { status: 400, body: { error: "recipient is not a valid Sui address" } };
   }
-  const recipient = normalizeSuiAddress(recipientRaw);
+  const recipient = normalizeSuiAddress(recipientTrimmed);
 
   // ---- Rate limit (per-recipient) ------------------------------------------
   const now = Date.now();

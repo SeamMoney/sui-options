@@ -95,10 +95,13 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
   if (typeof recipientRaw !== "string") {
     return { status: 400, body: { error: "recipient must be a string" } };
   }
-  if (!isValidSuiAddress(recipientRaw)) {
+  // Trim before validating (mirrors api/faucet.ts): a line-copied address with a
+  // trailing newline / spaces is rejected by isValidSuiAddress, so trim first.
+  const recipientTrimmed = recipientRaw.trim();
+  if (!isValidSuiAddress(recipientTrimmed)) {
     return { status: 400, body: { error: "recipient is not a valid Sui address" } };
   }
-  const recipient = normalizeSuiAddress(recipientRaw);
+  const recipient = normalizeSuiAddress(recipientTrimmed);
 
   const now = Date.now();
   const prev = lastDrip.get(recipient);
