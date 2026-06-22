@@ -168,14 +168,20 @@ export async function verifyLiveMarket(
     return { marketId, packageId, totalSegments: Number(nextIdx), rows: [], allMatch: true };
   }
 
-  const pred = await readRecord(client, tableId, from - 1n);
+  // Read the predecessor + the whole window CONCURRENTLY (one round-trip, not
+  // ~9 sequential) so the page responds in ~1-2s, not 5+. Then assemble in
+  // order, stopping at the first gap (so a missing record can't shift k's).
+  const ks: bigint[] = [];
+  for (let k = from - 1n; k < to; k++) ks.push(k);
+  const fetched = await Promise.all(ks.map((k) => readRecord(client, tableId, k)));
+  const pred = fetched[0];
   if (!pred) throw new Error("predecessor segment unavailable; market may be too young");
 
   const records: LiveSegmentRecord[] = [];
-  for (let k = from; k < to; k++) {
-    const rec = await readRecord(client, tableId, k);
+  for (let i = 1; i < fetched.length; i++) {
+    const rec = fetched[i];
     if (!rec) break;
-    records.push({ k: Number(k), key: rec.key, min: rec.min, max: rec.max, stateAfter: rec.stateAfter });
+    records.push({ k: Number(ks[i]!), key: rec.key, min: rec.min, max: rec.max, stateAfter: rec.stateAfter });
   }
   const { rows, allMatch } = replayAndMatch(pred.stateAfter, records);
   return { marketId, packageId, totalSegments: Number(nextIdx), rows, allMatch };
@@ -204,15 +210,16 @@ export async function verifyBusiestLiveMarket(
 ): Promise<LiveVerifyResult> {
   if (marketIds.length === 0) throw new Error("no live v4 markets configured");
   const client = new SuiJsonRpcClient({ url: rpcUrl, network: "testnet" });
+  // Probe every market's segment count CONCURRENTLY, then pick the busiest.
+  const counts = await Promise.all(marketIds.map((id) => segmentCount(client, id)));
   let best: string | null = null;
   let bestN = 1n;
-  for (const id of marketIds) {
-    const n = await segmentCount(client, id);
-    if (n > bestN) {
-      bestN = n;
+  marketIds.forEach((id, i) => {
+    if (counts[i]! > bestN) {
+      bestN = counts[i]!;
       best = id;
     }
-  }
+  });
   if (!best) throw new Error("no live market has recorded segments yet — try the CLI (prove:live)");
   return verifyLiveMarket(rpcUrl, best, window);
 }
