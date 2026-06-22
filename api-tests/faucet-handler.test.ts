@@ -99,3 +99,16 @@ test("POST with a string-encoded JSON body is parsed before validation", async (
   assert.equal(cap.status, 400);
   assert.match((cap.body as { error: string }).error, /not a valid Sui address/);
 });
+
+test("POST with a line-copied address (trailing newline) is trimmed, passes validation", async () => {
+  // isValidSuiAddress rejects whitespace, so a judge curling a line-copied
+  // address would false-fail "not a valid Sui address". The handler trims it
+  // first; assert it gets PAST address validation (it then fails downstream on
+  // the missing faucet wallet in this no-env test — NOT on the address itself).
+  const addr = "0x" + "1".repeat(64);
+  const cap = await call({ method: "POST", body: { recipient: `${addr}\n` } });
+  assert.ok(
+    !/not a valid Sui address/.test((cap.body as { error?: string }).error ?? ""),
+    `trimmed whitespace address must pass validation; got ${cap.status} ${JSON.stringify(cap.body)}`,
+  );
+});
