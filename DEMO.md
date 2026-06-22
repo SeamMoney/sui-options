@@ -37,6 +37,28 @@ Everything below is live on testnet — no install, no wallet needed to play.
 **Why it's credible:** real options math · real on-chain CLOB price (DeepBook v3 indexer mid) · honest
 live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the price is a real market.
 
+The whole pricing pipeline, end to end:
+
+```mermaid
+flowchart LR
+    DB["DeepBook v3 CLOB<br/>SUI · BTC · DEEP pools"]
+    DB -->|"live mid"| MID["mark price"]
+    DB -->|"trade tape"| SIG["σ — realized vol"]
+    STK["strike (ATM)<br/>+ τ ≈ 60s"]
+    MID --> BS["Black-Scholes engine<br/>@sui-options/pro-options"]
+    SIG --> BS
+    STK --> BS
+    BS -->|"premium + Δ + ±% to win"| TAP["one-tap UP / DOWN"]
+    MID -.->|"ticks each sample"| PNL["live P&amp;L<br/>mark-to-market"]
+    BS -.-> PNL
+    PNL ==>|"CLOSE or auto-settle @60s<br/>SAME formula + inputs"| SET["settled P&amp;L<br/>= the live number you watched"]
+    classDef live fill:#10b981,stroke:#065f46,color:#062b22;
+    class DB live;
+    classDef result fill:#1e293b,stroke:#10b981,color:#e2e8f0;
+    class SET result;
+    classDef default fill:#0b1220,stroke:#334155,color:#e2e8f0;
+```
+
 ---
 
 ## Also worth a look
