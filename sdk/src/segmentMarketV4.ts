@@ -449,17 +449,24 @@ export interface RideOpenedV4Event {
   upperBarrierPrice: bigint;
   lowerBarrierPrice: bigint;
   stakePerSegment: bigint;
+  /** Total micro-USD escrowed up front (= stake_per_segment × round_duration). */
+  escrowed: bigint;
   multiplierBps: bigint;
   openedAtMs: bigint;
 }
 
 export interface RideClosedV4Event {
   rideId: string;
+  user: string;
   marketId: string;
   roundIndex: bigint;
   settlementKind: number;
   closedAtMs: bigint;
+  /** Settlement breakdown (micro-USD): stake spent, jackpot paid, stake forfeited, keeper bounty. */
+  stakePaid: bigint;
   payout: bigint;
+  forfeit: bigint;
+  bounty: bigint;
   /** 0 = upper, 1 = lower, 2 = none. UI/telemetry only. */
   touchedSide: TouchedSide;
 }
@@ -597,6 +604,7 @@ export function parseRideOpenedV4Event(
     upperBarrierPrice: asBigInt(json.upper_barrier_price),
     lowerBarrierPrice: asBigInt(json.lower_barrier_price),
     stakePerSegment: asBigInt(json.stake_per_segment),
+    escrowed: asBigInt(json.escrowed),
     multiplierBps: asBigInt(json.multiplier_bps),
     openedAtMs: asBigInt(json.opened_at_ms),
   };
@@ -607,11 +615,15 @@ export function parseRideClosedV4Event(
 ): RideClosedV4Event {
   return {
     rideId: asString(json.ride_id),
+    user: asString(json.user),
     marketId: asString(json.market_id),
     roundIndex: asBigInt(json.round_index),
     settlementKind: asNumber(json.settlement_kind),
     closedAtMs: asBigInt(json.closed_at_ms),
+    stakePaid: asBigInt(json.stake_paid),
     payout: asBigInt(json.payout),
+    forfeit: asBigInt(json.forfeit),
+    bounty: asBigInt(json.bounty),
     touchedSide: asTouchedSide(json.touched_side),
   };
 }
