@@ -76,8 +76,9 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
     it. The read-only counterpart to `smoke:ride` — nothing to fund, a real ride proven end-to-end.
   - **statistical honesty, not a cherry-pick** — `npm run audit:sweep` (read-only) verifies the **last
     10 closed rides** in bulk — candles reproduce, verdicts match, every `MARKET HALT` an honest roll —
-    and reports `✅ N/N real rides PROVABLY HONEST`. `-- --n 20` for more. Don't trust our one example;
-    audit the whole recent tape.
+    and reports `✅ N/N real rides PROVABLY HONEST`. `-- --n 20` for more, or `-- --full` to run the
+    COMPLETE 3/3 (barriers + payout too) on every ride. Don't trust our one example; audit the whole
+    recent tape.
   - **prove you were paid the exact right amount** — `npm run verify:payout -- --market <id> --ride <id>`
     re-derives `stake_paid` from on-chain state and checks the payout identity for the settlement kind
     (`TOUCH_WIN = stake × multiplier`; a `MARKET HALT` forfeits *exactly* the held stake, not a satoshi
