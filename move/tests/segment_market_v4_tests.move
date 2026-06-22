@@ -484,6 +484,59 @@ fun ride_cannot_touch_win_on_a_later_rounds_segment() {
     sc.end();
 }
 
+/// Regression (v4.26) — the complement to
+/// `ride_cannot_touch_win_on_a_later_rounds_segment`: the bound on close's scan
+/// must INCLUDE the LAST segment of the ride's OWN round, so it can't rob a
+/// legitimate winner with an off-by-one. Here the touch lands on the ride's
+/// round's FINAL segment (ROUND_DURATION - 1) and the ride is closed cross-round;
+/// it must still settle TOUCH_WIN. Together the two tests pin the scan's upper
+/// bound at EXACTLY `ride_round_end_segment` (exclusive).
+#[test]
+fun in_round_touch_still_wins_on_a_cross_round_close() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow_amt = stake * ROUND_DURATION;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots,
+        stake, escrow, &clk, sc.ctx(),
+    );
+    let upper = sm4::cached_upper_barrier<SUI>(&market);
+    let margin = upper * DEADBAND_BPS / 10_000;
+
+    // Roll into round 1 — the ride is now cross-round / expired.
+    sm4::test_only_bump_segment_index<SUI>(&mut market, ROUND_DURATION + 1);
+    sm4::test_only_set_cached_round_index<SUI>(&mut market, 1);
+
+    // The touch lands on the LAST segment of the ride's OWN round
+    // (ROUND_DURATION - 1) — INSIDE [0, ROUND_DURATION), so the bound must keep it.
+    let st = sp::state_with(upper + margin, false, 0, VOL_REGIME_INIT, HOME_PRICE);
+    sm4::test_only_insert_segment_at<SUI>(
+        &mut market, ROUND_DURATION - 1, x"cd", st, HOME_PRICE, upper + margin + 1, 2_000,
+    );
+
+    clk.increment_for_testing(1_000);
+    let payout = sm4::close_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    // The in-round touch DOES count: TOUCH_WIN with a jackpot above the escrow.
+    assert!(sm4::settlement_kind(&ride) == sm4::settlement_touch_win(), 0);
+    assert!(payout.value() > escrow_amt, 1);
+
+    test_utils::destroy(payout);
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 7 — close: no-touch + within round → CASHOUT with touched_side=2
 /// (NONE). Record a segment that does NOT touch either barrier and close
 /// before round end → Bachelier cashout path.
