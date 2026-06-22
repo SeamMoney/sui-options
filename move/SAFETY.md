@@ -58,6 +58,7 @@ of funds.
 | Either-touch resolves to the correct barrier | `close_upper_touch_wins…` · `close_lower_touch_wins…` · `nearer_barrier_picks_closer` | `segment_market_v4_tests.move` |
 | Cash-out within the round pays the Bachelier curve | `close_no_touch_within_round_yields_cashout` | `segment_market_v4_tests.move` |
 | Aborted ride refunds escrow 1:1 past the deadline — and an abort BEFORE the deadline is rejected (no early bail-out on a losing ride) | `abort_segment_ride_v4_past_deadline_refunds_one_to_one` · `abort_segment_ride_v4_before_deadline_rejected` | `segment_market_v4_tests.move` |
+| `crank_expired` only settles a genuinely-expired, non-touched ride — it rejects a still-live ride (ENotExpired) and a touched/winning ride (ETouchedMustSelfClose), so no one can force a loss before its time or rob a winner of a self-close | `crank_expired_segment_ride_v4_before_expiry_rejected` · `crank_expired_rejects_touched_ride_must_self_close` | `segment_market_v4_tests.move` |
 | No NEW ride can open on an aborted market | `open_segment_ride_v4_rejects_aborted_market` | `segment_market_v4_tests.move` |
 | Per-round payout is capped | `either_max_payout_cap_enforced` | `segment_market_v4_tests.move` |
 | Zero-value escrow / settlement is rejected | `deposit_ride_escrow_zero_value_aborts` · `withdraw_for_ride_settlement_zero_amount_aborts` | `martingaler_vault_tests.move` |
