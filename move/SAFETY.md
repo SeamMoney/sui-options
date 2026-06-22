@@ -57,12 +57,13 @@ of funds.
 | Touch wins ties at the close boundary | `both_barriers_touch_same_segment_upper_wins_tie_break` | `segment_market_v4_tests.move` |
 | Either-touch resolves to the correct barrier | `close_upper_touch_wins…` · `close_lower_touch_wins…` · `nearer_barrier_picks_closer` | `segment_market_v4_tests.move` |
 | Cash-out within the round pays the Bachelier curve | `close_no_touch_within_round_yields_cashout` | `segment_market_v4_tests.move` |
-| Aborted ride refunds escrow 1:1 past the deadline | `abort_segment_ride_v4_past_deadline_refunds_one_to_one` | `segment_market_v4_tests.move` |
+| Aborted ride refunds escrow 1:1 past the deadline — and an abort BEFORE the deadline is rejected (no early bail-out on a losing ride) | `abort_segment_ride_v4_past_deadline_refunds_one_to_one` · `abort_segment_ride_v4_before_deadline_rejected` | `segment_market_v4_tests.move` |
 | No NEW ride can open on an aborted market | `open_segment_ride_v4_rejects_aborted_market` | `segment_market_v4_tests.move` |
 | Per-round payout is capped | `either_max_payout_cap_enforced` | `segment_market_v4_tests.move` |
 | Zero-value escrow / settlement is rejected | `deposit_ride_escrow_zero_value_aborts` · `withdraw_for_ride_settlement_zero_amount_aborts` | `martingaler_vault_tests.move` |
 | Stake-per-segment must be within [min, max] | `open_segment_ride_v4_rejects_stake_below_min` · `open_segment_ride_v4_rejects_stake_above_max` | `segment_market_v4_tests.move` |
-| Ride opens only against its own vault, with funded escrow | `open_segment_ride_v4_rejects_wrong_vault` · `open_segment_ride_v4_rejects_zero_escrow` | `segment_market_v4_tests.move` |
+| Ride opens only against its own vault, with funded escrow (non-zero AND ≥ stake × round_duration) | `open_segment_ride_v4_rejects_wrong_vault` · `open_segment_ride_v4_rejects_zero_escrow` · `open_segment_ride_v4_rejects_insufficient_escrow` | `segment_market_v4_tests.move` |
+| Concurrent-ride cap is enforced on open | `open_segment_ride_v4_rejects_when_concurrent_cap_reached` | `segment_market_v4_tests.move` |
 | Ride settles only against the market it opened on | `close_segment_ride_v4_rejects_wrong_market` | `segment_market_v4_tests.move` |
 
 ## House edge (v4.26 rug) safety
@@ -91,6 +92,7 @@ a player has opened a ride.
 |---|---|---|
 | Economic configs are immutable (no production setter for multiplier / offset / deadband / spread / sigma / max-payout / stake bounds) | **Code inspection** — `grep` the module for `market.<field> =` finds only the bootstrap constructor; there is no `set_*` / `update_*` entry function | `segment_market_v4.move` |
 | Rug chance is frozen after `enable_rug` (no production setter) | **Code inspection** — the sole writer of `rug_chance_bps` post-enable is `#[test_only] test_only_set_rug_chance_bps`, absent from the published bytecode | `segment_market_v4.move` |
+| `enable_rug` is one-shot — a second call cannot re-install the config and wipe a live `rugged_at_segment` (halt is immutable once armed) | `enable_rug_twice_rejected` | `segment_market_v4_tests.move` |
 | A ride is paid against the market's CONFIGURED rate, not a quietly-lowered one | the ride snapshots `multiplier_bps`/barriers at open; the off-chain audit re-checks the snapshot against the live market — `ride.multiplier == market.multiplier` and `barriers == spot ± offset` | `scripts/verify-payout.ts` (#457) · `scripts/verify-barriers.ts` (#335) |
 
 ## Adversarial / liveness
