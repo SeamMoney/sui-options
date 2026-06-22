@@ -535,9 +535,20 @@ export function useSegmentRideV4(
         // cranker, crank_expired, or the user themselves in another tab).
         const liveOrphan = owned.data?.find((o) => {
           const fields =
-            (o.data?.content as { fields?: { closed?: boolean } } | undefined)
-              ?.fields;
-          return fields?.closed === false;
+            (o.data?.content as
+              | { fields?: { closed?: boolean; market_id?: string } }
+              | undefined)?.fields;
+          // Only adopt an orphan from THIS market. The burner key is persisted
+          // across markets (localStorage) and close() builds the tx with the
+          // CONFIGURED market — so adopting a foreign-market ride aborts
+          // EWrongMarket, and since every refresh re-runs this sweep and
+          // re-adopts it (open() then early-returns on positionIdRef), the user
+          // is permanently locked out of riding this market. Match market_id.
+          return (
+            fields?.closed === false &&
+            String(fields?.market_id ?? "").toLowerCase() ===
+              market.market.toLowerCase()
+          );
         })?.data?.objectId;
         if (liveOrphan && !positionIdRef.current && mountedRef.current) {
           positionIdRef.current = liveOrphan;
@@ -557,7 +568,7 @@ export function useSegmentRideV4(
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [packageId, client, sender]);
+  }, [packageId, client, sender, market.market]);
 
   // ── Derived market parameters ────────────────────────────────────────
   const stakePerSegmentMicroUsd: bigint =
