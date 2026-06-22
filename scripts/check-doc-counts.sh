@@ -14,10 +14,14 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 # Pull the count from every phrasing used in the docs:
-#   "641 / 641 ... tests"  ·  "641 Move tests"  ·  "Total tests: 641"
-#   shields badge "move%20tests-641%2F641"
+#   "641 / 641 ... tests"  ·  "641/641 passing"  ·  "641 Move tests"
+#   "Total tests: 641"  ·  shields badge "move%20tests-641%2F641"
+# The "passing" form is move/SAFETY.md's ("641/641 passing"). Without it SAFETY.md
+# is silently UNMONITORED here — a false-pass if it were ever the lone laggard.
+# sync:count already rewrites that form (sync-move-count.mjs), so this just keeps
+# the GUARD's coverage matched to what the sync touches.
 counts=$(grep -rhoE \
-  "[0-9]{3} ?/ ?[0-9]{3} (Move )?tests|[0-9]{3} Move tests|Total tests: [0-9]{3}|move%20tests-[0-9]{3}" \
+  "[0-9]{3} ?/ ?[0-9]{3} (Move )?(tests|passing)|[0-9]{3} Move tests|Total tests: [0-9]{3}|move%20tests-[0-9]{3}" \
   --include="*.md" . 2>/dev/null \
   | grep -v node_modules \
   | grep -oE "[0-9]{3}" | sort -u)
