@@ -1485,3 +1485,45 @@ fun open_segment_ride_v4_enforces_per_user_cap() {
     teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
     sc.end();
 }
+
+// Safety: stake-per-segment must sit within [min_stake, max_stake]. Below-min
+// (dust) is rejected with EStakeOutOfRange (=6).
+#[test]
+#[expected_failure(abort_code = 6, location = wick::segment_market_v4)]
+fun open_segment_ride_v4_rejects_stake_below_min() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let bad_stake = MIN_STAKE - 1;
+    let escrow = mint_sui(bad_stake * ROUND_DURATION + ROUND_DURATION, &mut sc);
+    let ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, bad_stake, escrow, &clk, sc.ctx(),
+    );
+
+    sm4::test_only_destroy_ride(ride); // unreachable
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+// Safety: above-max stake is rejected with EStakeOutOfRange (=6) too.
+#[test]
+#[expected_failure(abort_code = 6, location = wick::segment_market_v4)]
+fun open_segment_ride_v4_rejects_stake_above_max() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(1_000_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let bad_stake = MAX_STAKE + 1;
+    let escrow = mint_sui(bad_stake * ROUND_DURATION, &mut sc);
+    let ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, bad_stake, escrow, &clk, sc.ctx(),
+    );
+
+    sm4::test_only_destroy_ride(ride); // unreachable
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
