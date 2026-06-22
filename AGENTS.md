@@ -151,6 +151,15 @@ Run from the repo root:
 
 It checks branch, worktree, `sui move test`, frontend `tsc --noEmit`, keeper `tsc --noEmit`. **Do not commit if preflight fails.** Period.
 
+Preflight gates **builds + Move tests**, not the TypeScript **unit** suites (verify-v4, verify-payout, the keeper/sdk/api/bots tests, …). While GitHub Actions CI is unavailable, those are only as green as someone's last manual run — so before merging a TS change also run:
+
+```bash
+npm run test:offline   # every deterministic unit suite, no network (cold-runnable)
+npm test               # the above + test:live (needs the live testnet demo up)
+```
+
+`test:offline` is the cold gate: it never touches the network, so a red result is a real code regression, not a flaky market. Run `npm test` (or `npm run test:live`) when the testnet demo is up to also confirm the chart is alive, the faucet has runway, and the on-chain verify/audit still pass.
+
 ## Sibling workspaces — do not bleed into them
 
 - `/Users/maxmohammadi/aptos-prop-amm` — separate Aptos research workspace (Decibel, D, Aptos AMM patterns)
