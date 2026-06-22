@@ -51,7 +51,7 @@ if (!Number.isFinite(N) || N < 100) {
 // Each rule rewrites only the count digits inside a count-specific context.
 const rules = [
   { re: /move%20tests-\d{3,4}%2F\d{3,4}/g, to: () => `move%20tests-${N}%2F${N}` }, // shields badge
-  { re: /(\d{3,4})(\s*\/\s*)(\d{3,4})(\s+(?:Move\s+)?tests)/g, to: (_m, _a, sep, _b, suf) => `${N}${sep}${N}${suf}` }, // "695 / 695 Move tests"
+  { re: /(\d{3,4})(\s*\/\s*)(\d{3,4})(\*{0,2}\s+(?:Move\s+)?tests)/g, to: (_m, _a, sep, _b, suf) => `${N}${sep}${N}${suf}` }, // "695 / 695 Move tests" + bolded "**695 / 695** Move tests" (README:250 main claim — the \*{0,2} keeps markdown bold from blocking the rewrite)
   { re: /(\d{3,4})(\s+Move tests)/g, to: (_m, _a, suf) => `${N}${suf}` }, // "695 Move tests"
   { re: /(Total tests:\s*)\d{3,4}(;\s*passed:\s*)\d{3,4}/g, to: (_m, a, b) => `${a}${N}${b}${N}` }, // runbook expect line
   { re: /(\d{3,4})\s*\/\s*(\d{3,4})(\s+passing)/g, to: (_m, _a, _b, suf) => `${N}/${N}${suf}` }, // SAFETY "695/695 passing"
