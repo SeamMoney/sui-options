@@ -290,6 +290,23 @@ fun lock_and_settle_dnt_market_with_held_corridor_pays_inside_side() {
     assert!(alice_payout.value() > STAKE, 1);
     assert!(bob_payout.value() == 0, 2);
 
+    // Vault-level conservation through a FULL DNT settlement (two deposits → fee
+    // routing → a two-sided leveraged payout). conservation_in_minus_out_equals_held
+    // proves this for the vault primitive in isolation; this proves a real DNT
+    // lifecycle preserves it: every bucket still sums to exactly
+    // cumulative_in − cumulative_out, so the leveraged payout + fees neither
+    // minted nor leaked collateral.
+    let mkt_id = object::id(&mkt);
+    let held = mv::treasury_value(&vault)
+        + mv::side_bucket_value(&vault)
+        + mv::protocol_fees_value(&vault)
+        + mv::staker_fees_value(&vault)
+        + mv::insurance_fees_value(&vault)
+        + mv::queue_total(&vault)
+        + mv::lock_value(&vault, mkt_id)
+        + mv::abort_pool_value(&vault, mkt_id);
+    assert!(mv::cumulative_in(&vault) - mv::cumulative_out(&vault) == (held as u128), 3);
+
     test_utils::destroy(alice_payout);
     test_utils::destroy(bob_payout);
     test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
@@ -341,6 +358,20 @@ fun lock_and_settle_dnt_market_with_breached_corridor_pays_outside_side() {
     // Outside wins → leveraged payout. Inside loses → 0.
     assert!(bob_payout.value() > STAKE, 1);
     assert!(alice_payout.value() == 0, 2);
+
+    // Same vault-level conservation as the held case, mirrored for the BROKEN
+    // corridor (outside wins): every bucket still sums to exactly
+    // cumulative_in − cumulative_out — the leveraged payout + fees conserved.
+    let mkt_id = object::id(&mkt);
+    let held = mv::treasury_value(&vault)
+        + mv::side_bucket_value(&vault)
+        + mv::protocol_fees_value(&vault)
+        + mv::staker_fees_value(&vault)
+        + mv::insurance_fees_value(&vault)
+        + mv::queue_total(&vault)
+        + mv::lock_value(&vault, mkt_id)
+        + mv::abort_pool_value(&vault, mkt_id);
+    assert!(mv::cumulative_in(&vault) - mv::cumulative_out(&vault) == (held as u128), 3);
 
     test_utils::destroy(alice_payout);
     test_utils::destroy(bob_payout);
