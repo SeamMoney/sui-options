@@ -6,7 +6,7 @@ ones that protect funds. This file maps each safety property (the list in
 "The collateral invariant") to the named test(s) that prove it, so an auditor or
 judge can run a specific test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **682/682 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **683/683 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -71,7 +71,7 @@ of funds.
 | Property | Test | File |
 |---|---|---|
 | A settled ride cannot be re-settled (no double-pay), on ALL three paths | `close_segment_ride_v4_twice_aborts_already_closed` · `crank_expired_segment_ride_v4_twice_aborts_already_closed` · `abort_segment_ride_v4_twice_aborts_already_closed` | `segment_market_v4_tests.move` |
-| The v2 streaming-ride primitive (`ride_position`: open_ride / close_ride / crank) is settlement-safe too — open is guarded (after-expiry, funded + sufficient escrow, own-path binding), a settled ride can't be double-closed and an aborted-market close refunds 1:1 (no double-pay), and crank rejects a still-live (ENotExpired) or touched (must-self-close) ride; touch pays the multiplier, no-touch cashes out in-round, expiry refunds escrow only | `close_ride_twice_aborts` · `aborted_market_close_returns_one_to_one_refund_no_double_pay` · `open_ride_zero_escrow_aborts` · `open_ride_insufficient_escrow_aborts` · `open_ride_wrong_path_aborts` · `open_ride_after_expiry_aborts` · `crank_expired_ride_before_expiry_aborts` · `crank_when_touched_aborts` · `close_ride_with_touch_pays_multiplier` · `close_ride_without_touch_returns_cashout` · `close_ride_after_expiry_no_touch_returns_escrow_refund_only` | `ride_position_tests.move` |
+| The v2 streaming-ride primitive (`ride_position`: open_ride / close_ride / crank) is settlement-safe too — open is guarded (after-expiry, funded + sufficient escrow, own-path binding), a settled ride can't be double-closed and an aborted-market close refunds 1:1 (no double-pay), crank rejects a still-live (ENotExpired) or touched (must-self-close) ride, and a ride settles only against its OWN bound oracle (a foreign oracle aborts — no outcome manipulation); touch pays the multiplier, no-touch cashes out in-round, expiry refunds escrow only | `close_ride_twice_aborts` · `aborted_market_close_returns_one_to_one_refund_no_double_pay` · `close_ride_against_foreign_oracle_aborts` · `open_ride_zero_escrow_aborts` · `open_ride_insufficient_escrow_aborts` · `open_ride_wrong_path_aborts` · `open_ride_after_expiry_aborts` · `crank_expired_ride_before_expiry_aborts` · `crank_when_touched_aborts` · `close_ride_with_touch_pays_multiplier` · `close_ride_without_touch_returns_cashout` · `close_ride_after_expiry_no_touch_returns_escrow_refund_only` | `ride_position_tests.move` |
 | The candle stream can't be cranked on an empty market, and a crank can't under-pay an insolvent vault | `record_segment_v4_rejects_when_no_active_rides` (ENoActiveRides) · `crank_expired_rejects_when_treasury_insufficient` (EInsufficientTreasuryForCrank) | `segment_market_v4_tests.move` |
 | Touch wins ties at the close boundary | `both_barriers_touch_same_segment_upper_wins_tie_break` | `segment_market_v4_tests.move` |
 | Either-touch resolves to the correct barrier | `close_upper_touch_wins…` · `close_lower_touch_wins…` · `nearer_barrier_picks_closer` | `segment_market_v4_tests.move` |
