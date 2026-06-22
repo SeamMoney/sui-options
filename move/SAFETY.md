@@ -13,7 +13,7 @@ immutable-config rules, and determinism — each mapped to the named test(s) (or
 compile-time guarantee) that prove it, so an auditor or judge can run a specific
 test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **687/687 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **688/688 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -86,6 +86,7 @@ of funds.
 | Aborted ride refunds escrow 1:1 past the deadline — and an abort BEFORE the deadline is rejected (no early bail-out on a losing ride) | `abort_segment_ride_v4_past_deadline_refunds_one_to_one` · `abort_segment_ride_v4_before_deadline_rejected` | `segment_market_v4_tests.move` |
 | `crank_expired` only settles a genuinely-expired, non-touched ride — it rejects a still-live ride (ENotExpired) and a touched/winning ride (ETouchedMustSelfClose), so no one can force a loss before its time or rob a winner of a self-close | `crank_expired_segment_ride_v4_before_expiry_rejected` · `crank_expired_rejects_touched_ride_must_self_close` | `segment_market_v4_tests.move` |
 | A ride held ACROSS its round boundary cannot escape its round's outcome — `close`'s touch scan is bounded to the ride's OWN round (`scan_to = min(next_segment_index, ride_round_end_segment)`, matching `crank`), so a rugged ride can't "touch-win" on a LATER round's segment and collect a jackpot instead of its dealt EXPIRED_LOSS (cross-round rug-escape loss-of-funds fix, #683) | `ride_cannot_touch_win_on_a_later_rounds_segment` · `in_round_touch_still_wins_on_a_cross_round_close` · `crank_ignores_a_later_rounds_touch_and_expires` | `segment_market_v4_tests.move` |
+| …and a rugged ride can't escape its rug via a touch settled CROSS-ROUND either — the per-round rug record is **durable**: each rug fire is mirrored into a `Table<round_index, rug_segment>` dynamic field that SURVIVES the round-roll (the live `RugConfig.rugged_at_segment` clears on roll), so `decide_settlement` still enforces the rug when a ride that touched in its round is settled in a LATER round (closes the touched-then-rugged escape, v4.27 fix #694) | `rugged_ride_cannot_escape_via_in_round_touch_held_cross_round` | `segment_market_v4_tests.move` |
 | No NEW ride can open on an aborted market | `open_segment_ride_v4_rejects_aborted_market` | `segment_market_v4_tests.move` |
 | Per-round payout is capped | `either_max_payout_cap_enforced` | `segment_market_v4_tests.move` |
 | Aggregate correlated-market exposure (PWE) decays on the EWMA half-life so caps free up on schedule, register/read round-trips, and a decrease floors at 0 (no u128 underflow) | `ewma_halves_at_one_half_life` · `ewma_quarters_at_two_half_lives` · `ewma_linear_fraction_at_half_a_half_life` · `read_pwe_decays_over_time` · `decrease_floors_at_zero` | `global_exposure_registry_tests.move` |
