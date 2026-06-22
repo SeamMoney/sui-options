@@ -25,7 +25,25 @@ counts=$(grep -rhoE \
 distinct=$(printf '%s\n' "$counts" | grep -c .)
 
 if [ "$distinct" -le 1 ]; then
-  echo "✓ Move test count is consistent across all docs: ${counts:-<none stated>}"
+  # The docs agree with EACH OTHER. Now also check they match REALITY — the
+  # number of #[test] functions in the Move source. This catches the other half
+  # of the drift: when a test is added/removed and EVERY doc lags together (so the
+  # consistency check above still passes), a judge running `sui move test` sees a
+  # number no doc states. The #[test] count is an exact proxy for the `sui move
+  # test` total — #[test_only] helpers are excluded by the literal `]`, and there
+  # are no commented-out tests (verified: the proxy == the suite total). Cheap:
+  # a grep, no compile.
+  actual=$(grep -rhoE '#\[test\]' move/sources move/tests 2>/dev/null | wc -l | tr -d ' ')
+  if [ -n "$counts" ] && [ "$counts" != "$actual" ]; then
+    echo "✗ every doc agrees on ${counts} Move tests, but move/ source has ${actual} #[test] functions."
+    echo ""
+    echo "  The docs are STALE vs the source — a test was added/removed without a doc sync"
+    echo "  (the agree-with-each-other check can't catch this; that's why this reality check exists)."
+    echo "  Confirm with 'sui move test' (from move/), then make EVERY doc match ${actual}:"
+    echo "  README (badge + body), move/SAFETY.md, deployments/ADDRESSES.md, docs/runbooks/v4.26_deploy_runbook.md."
+    exit 1
+  fi
+  echo "✓ Move test count is consistent across all docs AND matches move/ source: ${counts:-<none stated>}${counts:+ (= ${actual} #[test] functions)}"
   exit 0
 fi
 
