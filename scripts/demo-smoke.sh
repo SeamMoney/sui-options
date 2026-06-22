@@ -55,6 +55,14 @@ case "$vp" in
   *)                  bad "POST /api/verify-pro → $vp";;
 esac
 
+# A bare GET serves the clickable client-side verifier page (a judge can verify
+# in their browser with no clone/curl). Confirm it's the page, not JSON/404.
+page=$(curl -s -m 20 "$BASE/api/verify-pro")
+case "$page" in
+  *"verify your round"*) ok "GET /api/verify-pro → serves the client-side verifier page";;
+  *)                     bad "GET /api/verify-pro → not the verifier page";;
+esac
+
 # DeepBook mark indexer (Wick Pro prices options off this live mid).
 mid=$(curl -s -m 20 "$INDEXER/orderbook/SUI_USDC?level=1" \
   | python3 -c "import json,sys
