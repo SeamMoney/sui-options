@@ -142,6 +142,11 @@ export interface MarketInfo {
 
 export async function readMarket(client: ResilientClient, marketId: string): Promise<MarketInfo> {
   const o = asObject(await client.getObject({ id: marketId, options: { showContent: true, showType: true } }));
+  if (o.data == null) {
+    throw new Error(
+      `object ${marketId} was not found on-chain. Check the --market id — it must be the exact 0x-prefixed id of a live SegmentMarketV4 (copy it from deployments/testnet.json or SuiScan).`,
+    );
+  }
   const content = asObject(asObject(o.data).content);
   const type = asString(content.type);
   const m = /::segment_market_v4::SegmentMarketV4<(.+)>$/.exec(type);
