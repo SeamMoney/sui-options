@@ -204,6 +204,41 @@ fun cannot_open_with_zero_stake() {
     sc.end();
 }
 
+// Safety: a position must be opened against the market's OWN vault — passing a
+// different vault aborts EWrongMarket, so stakes can't be routed to an
+// unrelated collateral pool. Completes the touch-market open-guard coverage
+// alongside cannot_open_after_expiry / _with_zero_stake.
+#[test]
+#[expected_failure(abort_code = market::EWrongMarket)]
+fun cannot_open_against_wrong_vault() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, mut clk) =
+        h::setup_full_world(&mut sc);
+    h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let bundle = h::setup_c35_bundle(&mut sc, &clk);
+
+    // A second, unrelated vault — not the one the market is bound to.
+    let (mut other_vault, other_vcap) = mv::init_for_testing<SUI>(sc.ctx());
+
+    let stake = h::mint_sui(STAKE, &mut sc);
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut other_vault, &rconf, &mut reg, &bundle, &path,
+        market::side_touch(), stake, SPOT, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(pos); // unreachable
+    test_utils::destroy(other_vault); test_utils::destroy(other_vcap);
+    test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
+    test_utils::destroy(vault); test_utils::destroy(vcap);
+    test_utils::destroy(rconf); test_utils::destroy(rcap);
+    test_utils::destroy(reg); test_utils::destroy(regcap);
+    test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
+    market::destroy_for_testing(mkt);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
 #[test]
 #[expected_failure(abort_code = market::EStillActive)]
 fun cannot_redeem_when_active() {
