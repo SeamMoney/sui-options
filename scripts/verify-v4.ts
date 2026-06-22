@@ -72,12 +72,25 @@ const FALLBACK_RPCS = [
   "https://fullnode.testnet.sui.io:443",
 ];
 const DEFAULT_VOL_REGIME_INIT = 1_000_000n;
+const RPC_TIMEOUT_MS = 20_000;
+
+/** Reject if a promise hasn't settled in `ms` — turns a HANGING node (not an
+ *  error, just a non-responding socket) into a thrown timeout so the resilient
+ *  client falls back to the next endpoint instead of appearing stuck. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 /**
- * An RpcClient that tries several endpoints in order, falling back only on a
- * THROWN error (RPC down / throttled). A successful `{ data: null }` (a segment
- * that genuinely isn't recorded) is returned as-is — no fallback — so the
- * fail-closed gap detection is preserved; only real RPC failures retry.
+ * An RpcClient that tries several endpoints in order, falling back on a THROWN
+ * error (RPC down / throttled) OR a per-call timeout (a hanging node). A
+ * successful `{ data: null }` (a segment that genuinely isn't recorded) is
+ * returned as-is — no fallback — so the fail-closed gap detection is preserved;
+ * only real RPC failures/hangs retry.
  */
 function makeResilientClient(urls: string[]): RpcClient {
   const seen = new Set<string>();
@@ -88,7 +101,7 @@ function makeResilientClient(urls: string[]): RpcClient {
     let last: unknown;
     for (const c of clients) {
       try {
-        return await fn(c);
+        return await withTimeout(fn(c), RPC_TIMEOUT_MS);
       } catch (e) {
         last = e;
       }
