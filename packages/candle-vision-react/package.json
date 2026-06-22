@@ -18,7 +18,9 @@
     "prebuild": "npm --prefix ../candle-vision run build",
     "build": "tsc",
     "pretypecheck": "npm --prefix ../candle-vision run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm --prefix ../candle-vision run build",
+    "test": "tsx --tsconfig ./tsconfig.json --test test/*.test.ts"
   },
   "peerDependencies": {
     "@sui-options/candle-vision": "^0.1.0",
