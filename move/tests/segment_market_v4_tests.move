@@ -679,6 +679,58 @@ fun crank_expired_no_touch_yields_expired_loss() {
     sc.end();
 }
 
+/// Regression (v4.26) — the CRANK path's touch scan is bounded to the ride's own
+/// round too (line ~1035), so a cross-round crank can't be derailed by a LATER
+/// round's touch. The crank-side analog of
+/// `ride_cannot_touch_win_on_a_later_rounds_segment`: with a next-round touch
+/// present, an UNBOUNDED scan would set `touched` and trip ETouchedMustSelfClose,
+/// blocking the permissionless crank; the bounded scan ignores it and settles
+/// EXPIRED_LOSS. (The existing no-touch crank test never exercises this bound.)
+#[test]
+fun crank_ignores_a_later_rounds_touch_and_expires() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow_amt = stake * ROUND_DURATION;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots,
+        stake, escrow, &clk, sc.ctx(),
+    );
+    let upper = sm4::cached_upper_barrier<SUI>(&market);
+    let margin = upper * DEADBAND_BPS / 10_000;
+
+    // Roll past the ride's round end, then land a barrier touch on a round-1
+    // segment (ROUND_DURATION) — OUTSIDE the ride's round [0, ROUND_DURATION).
+    sm4::test_only_bump_segment_index<SUI>(&mut market, ROUND_DURATION + 5);
+    let st = sp::state_with(upper + margin, false, 0, VOL_REGIME_INIT, HOME_PRICE);
+    sm4::test_only_insert_segment_at<SUI>(
+        &mut market, ROUND_DURATION, x"ef", st, HOME_PRICE, upper + margin + 1, 2_000,
+    );
+    clk.increment_for_testing(2_000);
+
+    sc.next_tx(KEEPER);
+    let bounty = sm4::crank_expired_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    // The next round's touch is ignored: the crank settles EXPIRED_LOSS — it does
+    // NOT abort with ETouchedMustSelfClose.
+    assert!(sm4::is_closed(&ride), 0);
+    assert!(sm4::settlement_kind(&ride) == sm4::settlement_expired_loss(), 1);
+
+    test_utils::destroy(bounty);
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 // Safety: crank_expired settles a ride as EXPIRED_LOSS only AFTER the round has
 // ended — calling it on a still-live ride aborts ENotExpired (=12). Without it a
 // ride could be force-settled as a loss before its time, robbing a would-be
