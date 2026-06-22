@@ -239,6 +239,43 @@ fun cannot_open_against_wrong_vault() {
     sc.end();
 }
 
+// Safety: a position must be opened against the market's OWN path observation —
+// passing a different path aborts EWrongPath, so settlement can't be evaluated
+// against an unrelated barrier record. This + cannot_open_against_wrong_vault /
+// _after_expiry / _with_zero_stake = full coverage of the touch-open abort guards.
+#[test]
+#[expected_failure(abort_code = market::EWrongPath)]
+fun cannot_open_against_wrong_path() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, mut clk) =
+        h::setup_full_world(&mut sc);
+    h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let bundle = h::setup_c35_bundle(&mut sc, &clk);
+
+    // A second path observation — distinct id from the one the market is bound to.
+    let other_path = po::new_v2(
+        &oracle, h::default_barrier_above(), po::touch_above(), 0, 1, 1, 60_000, sc.ctx(),
+    );
+
+    let stake = h::mint_sui(STAKE, &mut sc);
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &other_path,
+        market::side_touch(), stake, SPOT, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(pos); // unreachable
+    test_utils::destroy(other_path);
+    test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
+    test_utils::destroy(vault); test_utils::destroy(vcap);
+    test_utils::destroy(rconf); test_utils::destroy(rcap);
+    test_utils::destroy(reg); test_utils::destroy(regcap);
+    test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
+    market::destroy_for_testing(mkt);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
 #[test]
 #[expected_failure(abort_code = market::EStillActive)]
 fun cannot_redeem_when_active() {
