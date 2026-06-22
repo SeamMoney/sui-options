@@ -165,6 +165,13 @@ Once funded, the next call to `/api/faucet` succeeds without a redeploy
 - **Public Sui RPC.** Defaults to `https://sui-testnet-rpc.publicnode.com`
   (PublicNode — the Mysten public fullnode throttles under load). Override
   with the `WICK_API_RPC` env var, or swap to a paid RPC.
+- **Single-gas-coin contention → intermittent 500s (~10-20%).** The handler
+  already picks a *random* usable gas coin per attempt (`setGasPayment`), but that
+  only engages with **≥2 usable coins**; if the wallet is one big coin, concurrent
+  drips equivocate on it. **One-time fix (no code change):**
+  `WICK_FAUCET_PRIVATE_KEY=… npx tsx scripts/split-faucet-coins.ts 12` splits the
+  wallet into ~12 coins (transferred back to itself — funds never leave) so the
+  anti-contention picker spreads load and the 500s stop.
 
 ### Local testing
 
