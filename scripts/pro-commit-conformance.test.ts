@@ -19,6 +19,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import { webcrypto } from "node:crypto";
 import { independentCommit } from "./pro-commit.js";
 import { proRoundCommit, verifyProRound } from "../sdk/src/proFairness.js";
 
@@ -57,4 +58,30 @@ test("SDK verifyProRound accepts a CLI-computed commit and rejects a tampered on
   assert.equal(verifyProRound(commit, seed, params), true, "SDK must accept the CLI's commit (HONEST)");
   assert.equal(verifyProRound(commit, seed + 1, params), false, "tampered seed → rejected");
   assert.equal(verifyProRound(commit.toUpperCase(), seed, params), true, "case-insensitive on the published commit");
+});
+
+test("browser Web Crypto (verify-pro.html / api page) === node:crypto + @noble (3rd surface)", async () => {
+  // scripts/verify-pro.html (the README's LEAD verifier, '/verify in your
+  // browser') computes the commit as:
+  //   crypto.subtle.digest("SHA-256", new TextEncoder().encode(seed + ":" + params))
+  // (verify-pro.html:61-73). Node's webcrypto.subtle IS the same Web Crypto API
+  // the browser runs, so it's a faithful in-process proxy. This closes the third
+  // crypto implementation in the 'N surfaces, one SHA-256, same answer' claim —
+  // a Web-Crypto-specific UTF-8/encoding divergence would silently break the
+  // most-used judge verifier, and nothing tested it.
+  const sha256HexWebCrypto = async (str: string): Promise<string> => {
+    const buf = await webcrypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+    return Buffer.from(buf).toString("hex");
+  };
+  for (const [seed, params] of CASES) {
+    const browser = await sha256HexWebCrypto(`${seed}:${params}`); // exactly verify-pro.html's input
+    assert.equal(
+      browser,
+      independentCommit(seed, params),
+      `Web Crypto must agree with node:crypto for seed=${seed} params=${params}`,
+    );
+    assert.equal(browser, proRoundCommit(seed, params), "Web Crypto must also agree with @noble (SDK)");
+  }
+  // And the golden vector holds in Web Crypto too.
+  assert.equal(await sha256HexWebCrypto(`${GOLDEN_SEED}:${GOLDEN_PARAMS}`), GOLDEN_COMMIT);
 });
