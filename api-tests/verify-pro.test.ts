@@ -96,6 +96,7 @@ test("handler: bare GET (no commit) serves the client-side verifier page", () =>
   assert.match(html, /<!doctype html>/i);
   assert.match(html, /verify your round/i);
   assert.match(html, /crypto\.subtle\.digest\("SHA-256"/); // hashes client-side
+  assert.match(html, /hashchange/); // shareable-link: #commit=…&seed=…&params=… pre-fills + auto-verifies
 });
 
 test("handler: GET with query params verifies (clickable-link form)", () => {
