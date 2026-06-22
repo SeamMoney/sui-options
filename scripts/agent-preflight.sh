@@ -56,11 +56,26 @@ if [ -f move/Move.toml ]; then
   (cd move && sui move test) || { red "preflight: move tests failed."; exit 2; }
 fi
 
-# 4. Build the SDK BEFORE typechecking dependent packages.
-#    The frontend imports @wick/sdk through sdk/dist (the published-package
-#    layout, not the source tree). If sdk/dist is missing or stale, the
-#    frontend typecheck fails with cross-package errors that have nothing to
-#    do with frontend code — masking real frontend errors in turn.
+# 4. Build the workspace packages the frontend resolves through dist BEFORE
+#    typechecking it. The frontend imports @wick/sdk AND @sui-options/pro-options
+#    + @sui-options/candle-vision(-react) through their published dist layout
+#    (file: deps; the only tsconfig path alias is @/* -> ./src). If any of those
+#    dist trees is missing or stale, the frontend typecheck either fails with
+#    cross-package errors unrelated to frontend code, or — worse — passes against
+#    stale types. sdk was covered here originally; the other three were the same
+#    gap, left open. Build them all. (check:dist separately guards that the
+#    COMMITTED dist matches a fresh build.)
+if [ -f package.json ] && grep -q '"build:packages"' package.json; then
+  if [ ! -d node_modules ]; then
+    red "preflight: root node_modules missing. run 'npm install' at the repo root before committing."
+    exit 3
+  fi
+  note "preflight: building workspace packages the frontend resolves via dist (pro-options, candle-vision*)..."
+  npm run --silent build:packages || {
+    red "preflight: workspace package build failed. fix it before dependent packages can typecheck cleanly."
+    exit 3
+  }
+fi
 if [ -f sdk/package.json ]; then
   if [ ! -d sdk/node_modules ] && [ ! -d node_modules ]; then
     red "preflight: sdk/node_modules and root node_modules are both missing. run 'npm install' at the repo root before committing."
