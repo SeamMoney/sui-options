@@ -609,6 +609,37 @@ fun gated_market_accepts_open_on_allowed_side() {
     sc.end();
 }
 
+// Safety: a market cannot be created with ZERO volatility — EZeroSigma (=15).
+// Sigma drives the Black-Scholes / touch-probability pricing; a zero would make
+// every quote degenerate (collapse to intrinsic / a 0-or-1 touch probability),
+// so the guard rejects it at creation rather than ship a mispriced market.
+#[test]
+#[expected_failure(abort_code = 15, location = wick::market)]
+fun create_v4_rejects_zero_sigma() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, _legacy_mkt, vault, vcap, rconf, rcap, reg, regcap, frtr, frcap, clk) =
+        h::setup_full_world(&mut sc);
+
+    let mkt = market::create_v4<SUI>(
+        string::utf8(b"ZEROSIG"), &oracle, &path, &vault,
+        18_000, // valid payout 1.8x (clears EBadMultiplier)
+        0,      // correlation bucket
+        0,      // sigma = 0 → abort EZeroSigma
+        market::side_no_touch(),
+        sc.ctx(),
+    );
+
+    market::destroy_for_testing(mkt); // unreachable
+    test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
+    test_utils::destroy(_legacy_mkt);
+    test_utils::destroy(vault); test_utils::destroy(vcap);
+    test_utils::destroy(rconf); test_utils::destroy(rcap);
+    test_utils::destroy(reg); test_utils::destroy(regcap);
+    test_utils::destroy(frtr); test_utils::destroy(frcap);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
 #[test]
 #[expected_failure(abort_code = 16, location = wick::market)]
 fun gated_market_rejects_open_on_vault_side() {
