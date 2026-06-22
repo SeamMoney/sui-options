@@ -18,6 +18,7 @@ use sui::test_scenario as ts;
 use sui::test_utils;
 use wick::pull_oracle_driver as pod;
 use wick::wick_oracle;
+use wick::random_walk_driver as rwd;
 
 const ALICE: address = @0xA;
 const NOW: u64 = 1_000_000;
@@ -107,6 +108,48 @@ fun push_price_rejects_wrong_keeper_cap() {
 
     test_utils::destroy(rogue);
     test_utils::destroy(oracle); test_utils::destroy(feed); test_utils::destroy(cap);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+// Safety: pushing into an oracle whose driver isn't the pull/Lazer kind is
+// rejected → ENotPullDriver (=0). A pull feed must be backed by a genuine pull
+// oracle, not e.g. the random-walk demo driver.
+#[test]
+#[expected_failure(abort_code = 0, location = wick::pull_oracle_driver)]
+fun push_price_rejects_non_pull_oracle() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, mut feed, cap, clk) = setup(&mut sc);
+    // A random-walk oracle has driver_kind != lazer → the driver check fires first.
+    let (mut rw_oracle, rw) = rwd::new_for_testing(
+        string::utf8(b"RW"), 64_000_000_000, 100, 60_000, &clk, sc.ctx(),
+    );
+    pod::push_price(&mut feed, &mut rw_oracle, &cap, 64_000_000_000, NOW, b"att", &clk, sc.ctx());
+
+    test_utils::destroy(oracle); test_utils::destroy(feed); test_utils::destroy(cap);
+    test_utils::destroy(rw_oracle); test_utils::destroy(rw);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+// Safety: a feed bound to oracle A cannot push into oracle B → EConfigOracleMismatch
+// (=1). This is what stops a market from settling against a spoofed/foreign feed
+// — the binding between a feed and its oracle is enforced on every push.
+#[test]
+#[expected_failure(abort_code = 1, location = wick::pull_oracle_driver)]
+fun push_price_rejects_feed_bound_to_a_different_oracle() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle1, mut feed1, cap1, clk) = setup(&mut sc);
+    // A second, independent pull oracle (also Lazer, so it passes the driver
+    // check) — feed1 is NOT bound to it.
+    let (mut oracle2, feed2, cap2) = pod::new_for_testing(
+        string::utf8(b"ETH-USD"), string::utf8(b"lazer:eth-usd"), 9_999_999_999_999, sc.ctx(),
+    );
+    pod::push_price(&mut feed1, &mut oracle2, &cap1, 64_000_000_000, NOW, b"att", &clk, sc.ctx());
+
+    test_utils::destroy(oracle1); test_utils::destroy(oracle2);
+    test_utils::destroy(feed1); test_utils::destroy(feed2);
+    test_utils::destroy(cap1); test_utils::destroy(cap2);
     clk.destroy_for_testing();
     sc.end();
 }
