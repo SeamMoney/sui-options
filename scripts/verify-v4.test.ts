@@ -15,7 +15,12 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { rollRugFired } from "./rugRoll.js";
-import { deriveSettlementKind, effectiveBarriers, segmentTouches } from "./verify-v4.js";
+import {
+  deriveSettlementKind,
+  effectiveBarriers,
+  segmentTouches,
+  settlementModelFromDeployments,
+} from "./verify-v4.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "verify-v4.ts");
@@ -319,4 +324,12 @@ test("v4.27 mode: a within-round no-touch CASHOUT still PASSes", () => {
   assert.match(out, /off-chain verdict: CASHOUT/);
   assert.match(out, /PASS — the chain was honest/);
   assert.equal(code, 0);
+});
+
+// The live /verify reads its default settlement model from deployments/testnet.json
+// so the v4.27 upgrade flips it in lockstep (one trigger). Pin that it reflects
+// the CURRENT deployment (v4.26) — if this ever read "v4.27" before the package
+// actually upgraded, the live verifier would false-FAIL honest cross-round rides.
+test("settlementModelFromDeployments reflects the current deployment (v4.26)", () => {
+  assert.equal(settlementModelFromDeployments(), "v4.26");
 });

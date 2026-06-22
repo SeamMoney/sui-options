@@ -1,6 +1,7 @@
 {
   "network": "testnet",
   "package_id": "0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924",
+  "settlementModel": "v4.26",
   "publisher": "0xfad710377f820b10097f7ac445bc56e738db2bce712f898072061e0591049455",
   "publish_digest": "7kUBQmP6kFfN1ePFDz9iNYQKRDkFiXdzwqYZ46rgSMiV",
   "published_at": "20260520T050846Z",
