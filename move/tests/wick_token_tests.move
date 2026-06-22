@@ -276,3 +276,29 @@ fun mint_transfers_coin_to_loser_address() {
     clk.destroy_for_testing();
     sc.end();
 }
+
+#[test]
+/// Pin the supply invariant: total_supply (the real TreasuryCap coin supply)
+/// always equals cumulative_minted (the telemetry accumulator), across a mix of
+/// mints to different losers. The WICK audit verified these move in lockstep but
+/// no test asserted the cross-invariant directly — a future mint that bumped one
+/// without the other would silently desync supply.
+fun supply_tracks_cumulative_minted_across_mixed_mints() {
+    let mut sc = ts::begin(ALICE);
+    let (mut state, cap, clk) = init_state(&mut sc);
+
+    // $7 (BOB) + $13 (CAROL), is_bot_eligible=true, both in the flat region and
+    // under the per-address daily cap → both mint a real amount.
+    let m1 = wt::test_mint_to_loser(&mut state, BOB, 7_000_000, true, &clk, sc.ctx());
+    let m2 = wt::test_mint_to_loser(&mut state, CAROL, 13_000_000, true, &clk, sc.ctx());
+    assert!(m1 > 0, 0);
+    assert!(m2 > 0, 1);
+    assert!(wt::total_supply(&state) == m1 + m2, 2);
+    assert!(wt::cumulative_minted(&state) == ((m1 + m2) as u128), 3);
+    assert!((wt::total_supply(&state) as u128) == wt::cumulative_minted(&state), 4);
+
+    test_utils::destroy(state);
+    test_utils::destroy(cap);
+    clk.destroy_for_testing();
+    sc.end();
+}
