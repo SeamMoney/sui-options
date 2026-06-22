@@ -100,7 +100,7 @@ a player has opened a ride.
 | Concurrent-ride cap holds at the max | `concurrent_open_cap_holds_at_max_concurrent_rides` | `segment_market_adversarial.move` |
 | Per-user ride cap bounds one account's exposure | `open_segment_ride_v4_enforces_per_user_cap` | `segment_market_v4_tests.move` |
 | One barrier's cap exhaustion leaves the other open | `per_barrier_cap_exhaustion_keeps_other_barrier_open` | `segment_market_adversarial.move` |
-| A ride spanning a round boundary is settled by a permissionless backup crank | `ride_spans_round_boundary_and_permissionless_backup_crank_settles` | `segment_market_adversarial.move` |
+| A ride held across a round boundary can always be settled by its OWNER — `crank_expired_segment_ride_v4` adds no admin/time gate beyond ownership, so the player reclaims their own escrow without the house, an indexer, or anyone's cooperation (censorship-resistant: the house cannot block your settlement). The ride is an OWNED object (the SDK `transferObjects([ride], sender)` at open), so the function takes `&mut` an owned ride — the owner self-settles; a third party CANNOT crank someone else's ride (the test's "permissionless" means no gate *beyond* ownership). Corollary: a truly-abandoned ride can be settled only by its owner returning — no third-party reaper exists — so abandoned rides are owner-recoverable but not externally cleanable. | `ride_spans_round_boundary_and_permissionless_backup_crank_settles` | `segment_market_adversarial.move` |
 
 ## Determinism (the auditability backbone)
 
