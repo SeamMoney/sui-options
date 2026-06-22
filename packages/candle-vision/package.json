@@ -81,7 +81,7 @@
   "scripts": {
     "build": "tsc && node ../../scripts/patch-esm-imports.mjs dist",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/release-regression.ts && tsx --test test/features.test.ts && tsx --test test/scanner-stats.test.ts && tsx --test test/trade-decision.test.ts && tsx --test test/normalize-candles.test.ts && tsx --test test/event-candle-range.test.ts && tsx --test test/registry.test.ts && tsx --test test/stream.test.ts",
+    "test": "tsx test/release-regression.ts && tsx --test test/features.test.ts && tsx --test test/scanner-stats.test.ts && tsx --test test/trade-decision.test.ts && tsx --test test/normalize-candles.test.ts && tsx --test test/event-candle-range.test.ts && tsx --test test/registry.test.ts && tsx --test test/stream.test.ts && tsx --test test/presets.test.ts",
     "prepack": "npm run build && npm run test"
   },
   "peerDependencies": {
