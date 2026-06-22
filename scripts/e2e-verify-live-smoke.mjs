@@ -82,6 +82,21 @@ try {
     pass ? `${segs ?? "?"} live segments reproduced` : reachErr ? "RPC unreachable (transient)" : "no verdict",
   );
   check("the live replay table renders chain hi/lo columns", /chain hi/i.test(body));
+
+  // The "dishonest house" toggle must flip the SAME live verifier to FAIL —
+  // proving it catches a lie on real data, not just always-PASS. Only meaningful
+  // when the live PASS actually came back (skip on a transient RPC failure).
+  if (pass) {
+    await page.getByRole("checkbox").last().check().catch(() => {});
+    await page.waitForTimeout(800);
+    const tampered = await page.locator("body").innerText();
+    check(
+      "the dishonest-house toggle is caught on live data",
+      /caught the tampered candle/.test(tampered),
+      "verdict flips to ✗ when a fetched candle is forged",
+    );
+  }
+
   check("no uncaught page/console errors", errors.length === 0, `${errors.length} errors`);
   errors.slice(0, 5).forEach((e) => console.log(`      · ${e}`));
 
