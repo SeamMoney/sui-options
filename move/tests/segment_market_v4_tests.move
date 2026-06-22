@@ -661,6 +661,53 @@ fun post_rug_open_keeps_its_win_under_the_durable_read() {
     sc.end();
 }
 
+/// Storage-bound (v4.27 #694): the durable per-round rug history is RECLAIMED
+/// once a round fully settles. When the round's last unsettled ride closes (or
+/// is cranked), `decrement_unsettled_rides` takes the round's count to 0 and
+/// drops its `Table<round, rug_seg>` entry, so the history can't grow without
+/// bound. Pin that the entry exists once recorded and is gone after the only
+/// ride of its round settles. (Open bumps the unsettled count; close decrements
+/// it — so a single-ride round reclaims on that close.)
+#[test]
+fun rug_history_entry_dropped_when_round_fully_settles() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    sm4::enable_rug<SUI>(&mut market, 150);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow_amt = stake * ROUND_DURATION;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots,
+        stake, escrow, &clk, sc.ctx(),
+    );
+
+    // Round 0 was rugged at segment 2 (ride entry 0 ≤ 2 → rugged).
+    sm4::test_only_record_rug_history<SUI>(&mut market, 0, 2, sc.ctx());
+    assert!(sm4::test_only_rug_history_contains<SUI>(&market, 0), 0); // recorded
+
+    // The round's only ride settles (within-round close → EXPIRED_LOSS via the
+    // durable rug). Its decrement takes round 0's unsettled count to 0.
+    clk.increment_for_testing(1_000);
+    let payout = sm4::close_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+    assert!(sm4::settlement_kind(&ride) == sm4::settlement_expired_loss(), 1);
+    // The history entry is reclaimed — no unbounded growth.
+    assert!(!sm4::test_only_rug_history_contains<SUI>(&market, 0), 2);
+
+    test_utils::destroy(payout);
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 7 — close: no-touch + within round → CASHOUT with touched_side=2
 /// (NONE). Record a segment that does NOT touch either barrier and close
 /// before round end → Bachelier cashout path.
