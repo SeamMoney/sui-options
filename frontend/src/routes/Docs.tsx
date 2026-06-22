@@ -271,7 +271,7 @@ const DOCS: Doc[] = [
         <li><b>Mark</b> — an option's current fair value (used for Sell to close).</li>
         <li><b>Spread</b> — the house's transparent cut on premiums and marks.</li>
         <li><b>Commit-reveal</b> — hash-commit the path up front, reveal the seed after, so fairness is verifiable.</li>
-        <li><b>Rug</b> — a rare down-jump candle that contributes to the house edge.</li>
+        <li><b>Rug / Market halt</b> — a rare, provably-fair per-segment roll that HALTS the round and forfeits open ride escrow (not a price candle); it's the disclosed house edge.</li>
         <li><b>Greeks</b> — Δ Θ Γ vega: an option's sensitivities to price, time, and vol.</li>
       </ul>
     </>,

@@ -303,11 +303,22 @@ export function WickProLive() {
     [spot, stakeUsd, sigma],
   );
 
+  // Synchronous re-entrancy guard: a rapid double-tap of UP/DOWN can fire twice
+  // before React re-renders the controls, so the `position` state guard reads stale
+  // null both times and the second tap overwrites the first — silently dropping a
+  // leg (its premium never banked). Mirror /ride's busyRef. Cleared on the next
+  // render whenever `position` changes, after which the state guard takes over.
+  const openingRef = useRef(false);
+  useEffect(() => {
+    openingRef.current = false;
+  }, [position]);
+
   const openPosition = useCallback(
     (side: OptionSide) => {
-      if (position) return;
+      if (position || openingRef.current) return;
       const pos = buildPosition(side);
       if (!pos) return;
+      openingRef.current = true;
       haptic(12); // confirm tap — the bet landed
       setSettled(null);
       setPosition(pos);
