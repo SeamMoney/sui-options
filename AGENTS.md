@@ -168,7 +168,7 @@ It checks branch, worktree, `sui move test`, frontend `tsc --noEmit`, keeper `ts
 
 ### Current testnet state (2026-05-25, post-v4.26)
 
-- **Move package**: `0x10c3384310549ca77b881ecc3f956abef5553c913b855e0062233fc9320e7a4e` (will rev on v4.26 upgrade landing — read `deployments/testnet.json:upgrade_history` for truth)
+- **Move package**: `0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924` (v4.26, upgraded 2026-05-25 from `0x10c3…`) — source of truth `deployments/testnet.json`; every object verified live in `deployments/ADDRESSES.md`. The detailed object IDs below this line are a 2026-05-25 snapshot and may lag a redeploy — trust `testnet.json`/`ADDRESSES.md`.
 - **TUSD test stablecoin**: `0x204d595c…::tusd::TUSD` (1B minted to publisher, 100M seeded into MartingalerVault<TUSD>). Faucet wallet holds the TreasuryCap so `/api/faucet-tusd` mints on demand.
 - **Active markets**:
   - SUI legacy: `0xa72a36…` (kept for fallback, no rug)
@@ -176,4 +176,4 @@ It checks branch, worktree, `sui move test`, frontend `tsc --noEmit`, keeper `ts
   - TUSD + rug (pending Phase 1.5): bootstrap with `scripts/bootstrap-tusd-market-rugged.sh` once the rug Move upgrade lands
 - **Sponsor wallet**: `0x02e3f17c…` (0.3 SUI, SponsorPolicy initialized at `0x00d868c659dd…`, not yet wired to user txs — that's v4.22 work)
 - **House edge model**: doc 26 — per-segment rug-pull at `rug_chance_bps = 150` (1.5%). Monte Carlo at `scripts/simulate_v4_house_edge.py` predicts +3.4% house edge with current ±10% / 1.75× kept. See `scripts/verify-v4.26-rug.mjs` for on-chain validation harness.
-- **v4 design spec doc 25** (touch-either always-open) shipped on testnet at commit `b1e9a2c`. **v4.26 (rug-pull house edge)** spec at `docs/design/v2/26_rug_pull_house_edge_v4.md` — Move work in flight.
+- **v4 design spec doc 25** (touch-either always-open) shipped on testnet at commit `b1e9a2c`. **v4.26 (rug-pull house edge)** spec at `docs/design/v2/26_rug_pull_house_edge_v4.md` — **shipped on testnet** (package `0x1fdf…`, v4.26, upgraded 2026-05-25).
