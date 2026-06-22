@@ -48,9 +48,11 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 - **[/ride](https://wick-markets.vercel.app/ride)** — the original tap-hold touch/no-touch game.
   Real **on-chain** rides: one-tap faucet (free testnet SUI + TUSD, no wallet) → hold the chart →
   segments recorded on-chain from `sui::random`.
-- **[/verify](https://wick-markets.vercel.app/verify)** — replay any closed ride live in your browser
+- **[/verify](https://wick-markets.vercel.app/verify)** — replay a sample ride in your browser
   from its on-chain keys; toggle **"dishonest house"** to watch the verifier catch a tampered candle.
-  Or audit the **live v4 chain** from a terminal, no wallet, no indexer:
+  **One click also verifies the LIVE chain** — it reads the busiest market's most recent candles
+  straight off the on-chain segment table and confirms each reproduces from its key (prune-proof, no
+  indexer). Or audit the **live v4 chain** from a terminal, no wallet, no indexer:
   - instant offline demo (honest PASS, then a tampered-segment FAIL):
     `npm run verify:fairness` · `npm run verify:fairness:tamper`
   - **audit the live chain, zero args** (auto-picks a live market from `deployments/testnet.json`):
