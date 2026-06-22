@@ -52,6 +52,15 @@ test("input validation: bad commit / non-object / missing fields → 400", () =>
   assert.equal(handle({ commit: engine.commit, seed: 1 }).status, 400); // missing paramsJson
 });
 
+test("oversized paramsJson is rejected (hashing-DoS guard)", () => {
+  const huge = "x".repeat(8193);
+  const out = handle({ commit: engine.commit, seed: 1, paramsJson: huge });
+  assert.equal(out.status, 400);
+  assert.match((out.body as { error: string }).error, /too large/);
+  // a within-limit params (even if not matching) still computes, returns 200
+  assert.equal(handle({ commit: engine.commit, seed: 1, paramsJson: "x".repeat(8192) }).status, 200);
+});
+
 // ── HTTP handler (CORS / method / body parsing) ─────────────────────────────
 function mockRes() {
   const cap: { status: number; body?: unknown; ended: boolean; headers: Record<string, string> } = {

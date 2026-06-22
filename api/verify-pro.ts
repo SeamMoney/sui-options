@@ -59,6 +59,11 @@ export function handle(rawBody: unknown): JsonResponse {
   if (typeof paramsJson !== "string") {
     return { status: 400, body: { error: "paramsJson must be a string (the exact revealed params)" } };
   }
+  // A real /pro paramsJson is ~200 bytes. Cap the input so an oversized string
+  // can't turn this open, key-less endpoint into a hashing-DoS vector.
+  if (paramsJson.length > 8192) {
+    return { status: 400, body: { error: "paramsJson too large (max 8192 chars; a real round's is ~200)" } };
+  }
 
   const recomputed = commitOf(seedNum, paramsJson);
   return {
