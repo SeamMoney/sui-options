@@ -44,6 +44,11 @@ const EXPIRY_SECONDS = 60;
 const STAKE_USD = 5;
 const BUCKET_MS = 60_000;
 const EPSILON = 1e-9;
+// Cap each DeepBook indexer call so a SLOW (not erroring) indexer degrades to the
+// offline fallback in fetchLive instead of hanging verify:pro — and thus check:all
+// — indefinitely. The watched==settlement identity is spot-independent (proved in
+// verify-pro-pnl.test.ts), so the proof still PASSES on the fallback spot.
+const DEEPBOOK_TIMEOUT_MS = 8_000;
 
 interface Live {
   spot: number;
@@ -52,7 +57,7 @@ interface Live {
 }
 
 async function getJson(path: string): Promise<unknown> {
-  const res = await fetch(`${INDEXER}${path}`);
+  const res = await fetch(`${INDEXER}${path}`, { signal: AbortSignal.timeout(DEEPBOOK_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`deepbook ${path} → HTTP ${res.status}`);
   return res.json();
 }
