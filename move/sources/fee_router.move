@@ -229,13 +229,21 @@ public fun accrue<C>(
     });
 }
 
-// === Crank — permissionless drain ===
+// === Crank — package-scoped drain ===
 
-/// Drain all pending of a specific bucket. Returns the Balance<C> for the
-/// caller to route to its final destination (staking pool, insurance vault,
-/// protocol treasury). Bucket 0 (LP) returns zero — LP fees were already
-/// forwarded inline by `accrue`.
-public fun crank_bucket<C>(
+/// Drain all pending of a specific bucket, returning the Balance<C> for an
+/// in-package router to forward to its final destination (staking pool,
+/// insurance vault, protocol treasury). Bucket 0 (LP) returns zero — LP fees
+/// were already forwarded inline by `accrue`.
+///
+/// SECURITY: `public(package)`, NOT `public`. The `FeeRouter` is a SHARED
+/// object, so a `public` version let ANY wallet pass `&mut router`, drain the
+/// staker/insurance/protocol buckets, and keep the returned `Balance` (this
+/// function routes to no fixed recipient). Scoped to same-package callers,
+/// matching `withdraw_protocol` — an external attacker can no longer pocket
+/// accrued protocol fees. (The on-chain `FeeRouter` must be redeployed for this
+/// to take effect on the live object.)
+public(package) fun crank_bucket<C>(
     router: &mut FeeRouter<C>,
     bucket: u8,
 ): Balance<C> {
