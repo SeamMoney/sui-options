@@ -11,8 +11,20 @@ Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
 
-`collateral_vault == total_touch_supply == total_no_touch_supply` after every
-state transition. Bugs here are direct loss of funds.
+User collateral is escrowed in the `MartingalerVault`, so the load-bearing
+property is **vault conservation**: every unit deposited is either still held by
+the vault or was paid out — never minted, never lost. After every state
+transition `cumulative_in − cumulative_out == held`, where
+`held = treasury + side_bucket + Σ per-market locks`. Bugs here are direct loss
+of funds.
+
+> **On the `vault == touch_supply == no_touch_supply` phrasing in AGENTS.md:** that
+> is inherited from the retired v1 *complete-set* model (mint a set → equal
+> touch/no-touch supplies). v2 has no complete sets — a depositor stakes into ONE
+> side via `deposit_open`, so `touch_stakes` and `no_touch_stakes` are independent
+> accumulators (a touch-only market simply has `no_touch_stakes == 0`). The
+> conservation the package actually enforces and tests is the vault identity above,
+> not a cross-side supply equality.
 
 | Property | Test | File |
 |---|---|---|
@@ -28,6 +40,7 @@ state transition. Bugs here are direct loss of funds.
 | A market cannot settle both ways (HIT ⟂ EXPIRED) | `crank_expired_no_touch_yields_expired_loss` + `close_upper_touch_wins_with_touched_side_upper` | `segment_market_v4_tests.move` |
 | DNT corridor settles one way only (HELD ⟂ BROKEN) | `lock_and_settle_dnt_held_idempotent_cannot_flip_to_broken` + `lock_and_settle_dnt_market_with_held_corridor_pays_inside_side` + `lock_and_settle_dnt_market_with_breached_corridor_pays_outside_side` | `dnt_tests.move` |
 | Settlement is idempotent (repeat = no-op / revert) | `lock_and_settle_idempotent` · `release_idempotent_on_already_released` · `prune_settled_segments_v4_is_idempotent` | `market_tests` · `martingaler_vault_tests` · `segment_market_v4_tests` |
+| `lock_and_settle` is atomic — snapshot, status, fee accrual, and lock release commit together | **Guaranteed by Sui's transaction model**: a Move call commits in full or aborts in full, so there is no partial-commit state a unit test could observe. The settle path's combined effects are exercised end-to-end by the close/crank tests, and `lock_and_settle_idempotent` proves a repeat call cannot re-mutate | `segment_market_v4_tests.move` |
 | Losing side cannot redeem (receives zero) | `loser_receives_zero` | `market_tests.move` |
 | A touch/no-touch open is fully guarded (funded stake, before expiry, own vault + path, valid side) | `cannot_open_with_zero_stake` · `cannot_open_after_expiry` · `cannot_open_against_wrong_vault` · `cannot_open_against_wrong_path` · `cannot_open_with_invalid_side` | `market_tests.move` |
 | Repeated `redeem` cannot double-pay | **Guaranteed by Move's linear types** — `redeem` consumes `position: Position` *by value* (`market.move`), so re-redeeming the same position is a compile-time use-after-move, never a runtime path; `cannot_redeem_when_active` guards the not-yet-settled case | `market.move` · `market_tests.move` |
