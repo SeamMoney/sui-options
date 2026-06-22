@@ -10,7 +10,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { barriersFromSpot, roundRollSpotSource, sameId } from "./verify-barriers.js";
+import { barriersFromSpot, roundRollSpotSource, sameId, readMarket, readRide } from "./verify-barriers.js";
 
 test("reproduces real on-chain barriers (golden vectors, ±10% / 1000bps)", () => {
   // round 17, spot @ round-roll = state_after(1274).price
@@ -67,4 +67,12 @@ test("sameId normalizes 0x-prefix / case / leading-zero padding (the ride∈mark
   // Genuinely different ids stay different (so a mismatched --market/--ride IS caught).
   assert.ok(!sameId("0xabc", "0xabd"));
   assert.ok(!sameId("0x54e915", "0xa72a36"));
+});
+
+test("read* on a non-existent id give a clear 'not found' error (the judge-typo case)", async () => {
+  // A typo'd id makes getObject return { data: null }; the verifier must say
+  // "not found — check the id", not "is not a SegmentMarketV4 (type: undefined)".
+  const missing = { getObject: async () => ({ data: null }) } as unknown as Parameters<typeof readMarket>[0];
+  await assert.rejects(() => readMarket(missing, "0xtypo"), /was not found on-chain/);
+  await assert.rejects(() => readRide(missing, "0xtypo"), /was not found on-chain/);
 });
