@@ -66,6 +66,7 @@ of funds.
 | Ride opens only against its own vault, with funded escrow (non-zero AND ≥ stake × round_duration) | `open_segment_ride_v4_rejects_wrong_vault` · `open_segment_ride_v4_rejects_zero_escrow` · `open_segment_ride_v4_rejects_insufficient_escrow` | `segment_market_v4_tests.move` |
 | Concurrent-ride cap is enforced on open | `open_segment_ride_v4_rejects_when_concurrent_cap_reached` | `segment_market_v4_tests.move` |
 | Ride settles only against the market it opened on | `close_segment_ride_v4_rejects_wrong_market` | `segment_market_v4_tests.move` |
+| Segment storage is reclaimed (pruned) only when SAFE — round past the settlement lag, every ride in it settled, archived to Walrus, and not already pruned. In particular a round with an UNSETTLED ride cannot be pruned, so the keys a player needs to settle and a judge needs to verify are never deleted out from under them | `prune_settled_segments_v4_aborts_when_too_soon` · `prune_settled_segments_v4_rejects_unsettled_rides` · `prune_settled_segments_v4_is_idempotent` · `prune_settled_segments_v4_succeeds_after_lag_and_archive` | `segment_market_v4_tests.move` |
 
 ## House edge (v4.26 rug) safety
 
