@@ -63,7 +63,43 @@ import {
 import { rollRugFired } from "./rugRoll.js";
 
 const DEFAULT_RPC = "https://sui-testnet-rpc.publicnode.com";
+// Tried in order after the chosen --rpc, so a transient throttle/hiccup on the
+// default public node falls through to the archival fullnode instead of
+// hard-failing the headline verify:fairness:live (matches verify-payout /
+// audit-rugs / verify-barriers). Dedup handles the default already being here.
+const FALLBACK_RPCS = [
+  "https://sui-testnet-rpc.publicnode.com",
+  "https://fullnode.testnet.sui.io:443",
+];
 const DEFAULT_VOL_REGIME_INIT = 1_000_000n;
+
+/**
+ * An RpcClient that tries several endpoints in order, falling back only on a
+ * THROWN error (RPC down / throttled). A successful `{ data: null }` (a segment
+ * that genuinely isn't recorded) is returned as-is — no fallback — so the
+ * fail-closed gap detection is preserved; only real RPC failures retry.
+ */
+function makeResilientClient(urls: string[]): RpcClient {
+  const seen = new Set<string>();
+  const clients = urls
+    .filter((u) => u && !seen.has(u) && seen.add(u))
+    .map((url) => new SuiJsonRpcClient({ url, network: "testnet" }));
+  async function tryAll<T>(fn: (c: SuiJsonRpcClient) => Promise<T>): Promise<T> {
+    let last: unknown;
+    for (const c of clients) {
+      try {
+        return await fn(c);
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last instanceof Error ? last : new Error(String(last));
+  }
+  return {
+    getObject: (a) => tryAll((c) => c.getObject(a as never)),
+    getDynamicFieldObject: (a) => tryAll((c) => c.getDynamicFieldObject(a as never)),
+  };
+}
 const DEFAULT_WINDOW = 32;
 
 // v4 settlement enum — `segment_market_v4.move` SETTLEMENT_* constants.
@@ -662,7 +698,7 @@ async function verify(args: Args): Promise<boolean> {
             : "honest";
   const client: RpcClient = synthetic
     ? buildSyntheticClient(synthMode)
-    : (new SuiJsonRpcClient({ url: args.rpc, network: "testnet" }) as unknown as RpcClient);
+    : makeResilientClient([args.rpc, ...FALLBACK_RPCS]);
 
   const marketId = synthetic
     ? SYNTH_MARKET
