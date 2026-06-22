@@ -98,7 +98,15 @@ function weightedScore(parts: Record<string, number>, weights?: Record<string, n
 }
 
 function matchFrom(config: MatchConfig): MultiCandlePatternMatch[] {
-  const confidence = weightedScore(config.parts, config.weights);
+  // A pattern named for a defining feature (a gap, a doji) must actually HAVE it.
+  // The weighted average alone let context terms carry e.g. "Downside Gap Three
+  // Methods" or a Tasuki Gap over threshold with NO gap (the namesake part scored
+  // ~0 but was only weighted, never required). Gate the score on the MINIMUM of any
+  // part whose key names such a defining feature (gap* / doji), so a near-zero
+  // namesake kills the match. Patterns with no such part are unaffected (gate = 1).
+  const gateParts = Object.entries(config.parts).filter(([k]) => /gap|doji/i.test(k));
+  const gate = gateParts.length ? Math.min(...gateParts.map(([, v]) => clamp01(v))) : 1;
+  const confidence = clamp01(gate * weightedScore(config.parts, config.weights));
   if (confidence < (config.threshold ?? DEFAULT_THRESHOLD)) return [];
   const start = config.bars[0];
   const end = config.bars[config.bars.length - 1];
