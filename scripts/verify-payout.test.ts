@@ -310,6 +310,15 @@ test("readMarket: rejects a non-market object type", async () => {
   await assert.rejects(() => readMarket(mockObject("0x2::coin::Coin", {}), "0xmkt"));
 });
 
+test("read* on a non-existent id give a clear 'not found' error (the judge-typo case)", async () => {
+  // A typo'd / wrong id makes getObject return { data: null }. The verifier must
+  // say "not found — check the id", not the misleading "is not a SegmentMarketV4
+  // (type: undefined)" that conflates a typo with a real wrong-type object.
+  const missing = { getObject: async () => ({ data: null }) } as never;
+  await assert.rejects(() => readRide(missing, "0xtypo"), /was not found on-chain/);
+  await assert.rejects(() => readMarket(missing, "0xtypo"), /was not found on-chain/);
+});
+
 test("deriveStakePaid: segments-held cap, escrow cap, and zero-hold all hold", () => {
   // Normal: held 8 segments (entry 2 → close index 10), 100/seg, escrow ample.
   assert.deepEqual(deriveStakePaid(10n, 2n, 75n, 100n, 1_000_000n), { segmentsHeld: 8n, stakePaid: 800n });

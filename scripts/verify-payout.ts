@@ -289,6 +289,11 @@ export function cashoutSecondsRemaining(
 
 export async function readRide(client: GetObject, id: string): Promise<{ ride: Ride; marketId: string }> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
+  if (o.data == null) {
+    throw new Error(
+      `object ${id} was not found on-chain. Check the --ride id — it must be the exact 0x-prefixed id of a closed SegmentRidePositionV4 (e.g. from a RideClosedV4 event or 'npm run rides:recent').`,
+    );
+  }
   const content = asObj(asObj(o.data).content);
   if (!/::segment_market_v4::SegmentRidePositionV4$/.test(asStr(content.type))) {
     throw new Error(`object ${id} is not a SegmentRidePositionV4 (type: ${asStr(content.type)})`);
@@ -324,6 +329,11 @@ export async function readMarket(
   multiplierBps: bigint;
 }> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
+  if (o.data == null) {
+    throw new Error(
+      `object ${id} was not found on-chain. Check the --market id — it must be the exact 0x-prefixed id of a live SegmentMarketV4 (copy it from deployments/testnet.json or SuiScan).`,
+    );
+  }
   const content = asObj(asObj(o.data).content);
   const type = asStr(content.type);
   const m = /::segment_market_v4::SegmentMarketV4<(.+)>$/.exec(type);
