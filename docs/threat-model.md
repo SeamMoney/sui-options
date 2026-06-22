@@ -62,6 +62,16 @@ What we claim:
 - Closed rides can be replayed with `npx tsx scripts/verify-v4.ts --market ... --ride ...`;
   the CLI recomputes candles/extremes from on-chain keys and compares its
   verdict to the on-chain `RideClosedV4.settlement_kind`.
+- The **complete settlement** of a closed ride is verifiable in one command —
+  `npm run audit:ride -- --market <id> --ride <id>` — which re-derives all five
+  dimensions a skeptic could question: (1) the round's TOUCH **barriers** are not
+  cherry-picked — they derive from the walk price at round-roll (spot ±
+  `barrier_offset_bps`), itself from the on-chain keys (`scripts/verify-barriers.ts`);
+  (2) the candles (above); (3) the MARKET HALT roll (rug section); (4) the
+  settlement verdict; and (5) the exact **payout amount** with its conservation
+  identity (`scripts/verify-payout.ts`). `npm run rides:recent` prints a
+  paste-ready `audit:ride` command for one ride of each outcome (touch win /
+  cashout / MARKET HALT / expiry).
 
 What we do not claim:
 
