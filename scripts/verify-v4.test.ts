@@ -263,3 +263,38 @@ test("deriveSettlementKind: full precedence rug > touch > time-expiry > cashout"
   // No segment in window (maxK null) → next = entry 2 < 75 → CASHOUT, not expiry.
   assert.equal(deriveSettlementKind(false, false, null, r, DUR), 2);
 });
+
+// ── v4.27 settlement-model (Move #683 bounded scan + #694 durable per-round rug) ──
+// Default mode is v4.26 (the deployed chain). `--settlement-model v4.27` re-derives
+// against the upgraded rules, under which cross-round verdicts are DETERMINISTIC and
+// strictly checked (no softening). These pin: (a) within-round is byte-identical so
+// it still PASSes, and (b) the v4.27 verifier strictly REJECTS the exact escapes
+// #683/#694 fix — a cross-round ride that "wins" on a LATER round's touch, or is
+// wiped by a LATER round's rug — verdicts the upgraded chain would never settle. (A
+// genuine v4.27-chain PASS on a cross-round ride awaits a v4.27 synthetic fixture;
+// these cover the in-round identity + the strict escape-rejection logic.)
+test("v4.27 mode: a within-round TOUCH_WIN still PASSes (in-round rules unchanged)", () => {
+  const { code, out } = run("mock://touch-v4", ["--settlement-model", "v4.27"]);
+  assert.match(out, /off-chain verdict: TOUCH_WIN/);
+  assert.match(out, /PASS — the chain was honest/);
+  assert.equal(code, 0);
+});
+
+test("v4.27 mode: a later-round TOUCH escape is strictly REJECTED (not softened)", () => {
+  // Bounded touch scan → no in-round win → the chain's TOUCH_WIN doesn't reconcile.
+  const { code, out } = run("mock://crosswin-v4", ["--settlement-model", "v4.27"]);
+  assert.match(out, /verdict:\s+MISMATCH/);
+  assert.match(out, /FAIL/);
+  assert.doesNotMatch(out, /not independently checkable/);
+  assert.equal(code, 1);
+});
+
+test("v4.27 mode: a later-round RUG escape is strictly REJECTED (not softened)", () => {
+  // Rug read for the ride's OWN round → a later round's rug doesn't apply → the
+  // chain's EXPIRED_LOSS doesn't reconcile under v4.27.
+  const { code, out } = run("mock://crossloss-v4", ["--settlement-model", "v4.27"]);
+  assert.match(out, /verdict:\s+MISMATCH/);
+  assert.match(out, /FAIL/);
+  assert.doesNotMatch(out, /not independently checkable/);
+  assert.equal(code, 1);
+});

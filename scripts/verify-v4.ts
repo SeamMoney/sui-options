@@ -157,7 +157,20 @@ interface Args {
   to?: bigint;
   window: number;
   home?: bigint;
+  settlementModel?: SettlementModel;
 }
+
+// Which on-chain settlement rules to re-derive against. "v4.26" = the DEPLOYED
+// chain (unbounded touch scan + rug read for the close round). "v4.27" = the
+// upgraded chain after Move #683 (touch scan bounded to the ride's round) +
+// #694 (durable per-round rug, applied by ride.round_index). Default v4.26 so
+// the live /verify stays correct against the current deployment; flip to v4.27
+// (via `--settlement-model v4.27`) once the package upgrade ships — then the
+// cross-round verdicts become deterministic and are STRICTLY checked (no
+// softening), so the verifier proves them rather than declaring them
+// "not independently checkable". v4.26 behaviour is byte-for-byte unchanged.
+type SettlementModel = "v4.26" | "v4.27";
+let SETTLEMENT_MODEL: SettlementModel = "v4.26";
 
 function usage(): never {
   console.error(
@@ -209,6 +222,12 @@ function parseArgs(argv: string[]): Args {
       i++;
     } else if (arg === "--home" && next) {
       out.home = BigInt(next);
+      i++;
+    } else if (arg === "--settlement-model" && next) {
+      if (next !== "v4.26" && next !== "v4.27") {
+        throw new Error(`--settlement-model must be v4.26 or v4.27, got: ${next}`);
+      }
+      out.settlementModel = next;
       i++;
     } else if (arg === "-h" || arg === "--help") {
       usage();
@@ -660,9 +679,13 @@ async function verifySegments(
     if (ride && eff) {
       inWindow = k >= ride.entrySegmentIndex && rec.recordedAtMs <= ride.closedAtMs;
       if (inWindow) {
-        maxInWindowK = k;
-        touched = segmentTouches(r.min, r.max, eff.upEff, eff.loEff);
-        touchedInWindow = touchedInWindow || touched;
+        maxInWindowK = k; // the real next_segment@close — uncapped (expiry check)
+        // v4.27 (#683): a touch only counts within the ride's OWN round. Under
+        // v4.26 the chain's scan is unbounded, so we count later-round touches too.
+        if (SETTLEMENT_MODEL === "v4.26" || k < rideRoundEnd) {
+          touched = segmentTouches(r.min, r.max, eff.upEff, eff.loEff);
+          touchedInWindow = touchedInWindow || touched;
+        }
       }
     }
 
@@ -723,23 +746,36 @@ async function findRoundRug(
 ): Promise<{ ruggedSeg: bigint; roll: bigint; round: bigint } | null> {
   if (rug.rugChanceBps <= 0n) return null;
   const dur = market.roundDurationSegments;
-  // `decide_settlement` reads `rugged_at_segment` for the round the market is in
-  // AT CLOSE (`ensure_round_current` clears it on every round-roll), and the rug
-  // roll's keccak preimage includes the round index. So the rug that can catch
-  // this ride is the CLOSE round's first qualifier — NOT the entry round's. For
-  // an in-round close this is the entry round, i.e. today's behaviour.
-  const closeRound = dur > 0n ? scanEnd / dur : ride.roundIndex;
-  const roundStart = closeRound * dur;
-  for (let k = roundStart; k < scanEnd; k++) {
+  // v4.26: `decide_settlement` reads `rugged_at_segment` for the round the market
+  // is in AT CLOSE (`ensure_round_current` clears it on every round-roll), so the
+  // rug that catches this ride is the CLOSE round's first qualifier. v4.27 (#694):
+  // the rug is DURABLE per-round and applied by `ride.round_index`, surviving the
+  // roll — so the catching rug is the RIDE'S OWN round's first qualifier. The rug
+  // roll's keccak preimage includes that round index either way. For an in-round
+  // close both reduce to the entry round (today's behaviour).
+  const rugRound =
+    SETTLEMENT_MODEL === "v4.27"
+      ? ride.roundIndex
+      : dur > 0n
+        ? scanEnd / dur
+        : ride.roundIndex;
+  const roundStart = rugRound * dur;
+  // v4.27: bound the rug scan to the ride's round (up to this ride's close, so a
+  // within-round close only sees rugs that fired before it).
+  const roundEnd = (rugRound + 1n) * dur;
+  const scanTo =
+    SETTLEMENT_MODEL === "v4.27" ? (roundEnd < scanEnd ? roundEnd : scanEnd) : scanEnd;
+  for (let k = roundStart; k < scanTo; k++) {
     const rec = await readSegment(client, market.segmentsTableId, k);
     if (!rec) continue;
-    const r = rollRugFired(rec.key, marketId, closeRound, rug.rugChanceBps);
-    if (r.fired) return { ruggedSeg: k, roll: r.roll, round: closeRound };
+    const r = rollRugFired(rec.key, marketId, rugRound, rug.rugChanceBps);
+    if (r.fired) return { ruggedSeg: k, roll: r.roll, round: rugRound };
   }
   return null;
 }
 
 async function verify(args: Args): Promise<boolean> {
+  SETTLEMENT_MODEL = args.settlementModel ?? "v4.26";
   const synthetic = args.rpc.startsWith("mock://");
   const synthMode: SynthMode = args.rpc.includes("rugtouch")
     ? "rugtouch"
@@ -930,9 +966,15 @@ async function verify(args: Args): Promise<boolean> {
     // tampered candle is an integrity FAIL, and a chain claiming a touch that
     // verify CAN reproduce in-round still matches (or FAILs if it can't and the
     // direction isn't this cross-round signature).
+    // v4.27: under the upgraded rules the cross-round verdict is DETERMINISTIC
+    // (bounded touch scan + durable per-round rug, both re-derived above), so it
+    // is strictly checkable — no softening. The chain must match our derivation,
+    // else it FAILs (this is what catches a v4.26-style escape on a v4.27 chain).
     const crossRoundClose =
-      (ride.settlementKind === SETTLEMENT_EXPIRED_LOSS && derived !== SETTLEMENT_EXPIRED_LOSS) ||
-      (ride.settlementKind === SETTLEMENT_TOUCH_WIN && derived !== SETTLEMENT_TOUCH_WIN && !touchedInWindow);
+      SETTLEMENT_MODEL === "v4.27"
+        ? false
+        : (ride.settlementKind === SETTLEMENT_EXPIRED_LOSS && derived !== SETTLEMENT_EXPIRED_LOSS) ||
+          (ride.settlementKind === SETTLEMENT_TOUCH_WIN && derived !== SETTLEMENT_TOUCH_WIN && !touchedInWindow);
     const verdictCheckable = verdictMatch || !crossRoundClose;
     const pass = allIntegrityOk && rugRollOk && (verdictMatch || crossRoundClose);
 
