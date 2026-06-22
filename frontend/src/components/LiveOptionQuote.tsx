@@ -130,7 +130,7 @@ export function LiveOptionQuote({
       <div className="mt-2 flex items-baseline justify-between px-0.5 text-[10px] text-white/40">
         <span className="uppercase tracking-wide">break-even move</span>
         <span className="font-mono tabular-nums text-white/65">
-          {live && call ? `±${((call.premium / spot) * 100).toFixed(2)}%` : "—"}
+          {live && call && spot > 0 ? `±${((call.premium / spot) * 100).toFixed(2)}%` : "—"}
         </span>
       </div>
 
