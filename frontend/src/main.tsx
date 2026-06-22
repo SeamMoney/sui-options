@@ -22,8 +22,26 @@ const PATHNAME = typeof window !== "undefined" ? window.location.pathname : "/";
 // Every other route — the Wick Pro submission (/pro, /pro-sim), the provable-
 // fairness verifier, docs, candle-vision, the coach — is wallet-free and skips
 // the heavy Dynamic + dapp-kit stack entirely, so they all load fast.
-const WALLET_ROUTES = new Set(["/", "/ride", "/degen", "/ride-test"]);
-const NEEDS_WALLET = WALLET_ROUTES.has(PATHNAME);
+//
+// This MUST be the complement of App.tsx's routing: App renders <Ride/> (which
+// needs the wallet) as its DEFAULT for any unmatched path. So the wallet check
+// is "is this NOT a wallet-free route", not an allow-list of exact wallet paths.
+// The old allow-list ({"/", "/ride", "/degen", "/ride-test"}) missed every
+// unknown path (e.g. a mistyped URL): App still rendered <Ride/>, but without
+// WalletProviders mounted, so Ride's wallet hooks threw → the ErrorBoundary
+// "WICK APP HIT A WALL" crash screen on any unrecognized URL.
+const WALLET_FREE_ROUTES = new Set([
+  "/pro",
+  "/pro-sim",
+  "/verify",
+  "/candle-vision",
+  "/coach",
+]);
+const IS_WALLET_FREE =
+  WALLET_FREE_ROUTES.has(PATHNAME) ||
+  PATHNAME === "/docs" ||
+  PATHNAME.startsWith("/docs/");
+const NEEDS_WALLET = !IS_WALLET_FREE;
 
 // On wallet routes, kick off the wallet-stack + Ride downloads immediately
 // (in parallel with React init) instead of waiting for the Suspense boundary
