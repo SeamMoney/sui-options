@@ -54,3 +54,28 @@ for (const doc of DOCS) {
     assert.deepEqual(broken, [], `broken relative links in ${doc}:\n  ${broken.join("\n  ")}`);
   });
 }
+
+/** Extract `npm run <script>` names the docs tell a judge to run. The `[a-z]`
+ *  start excludes flag tokens like `-w` / `--silent` that follow `npm run`. */
+function npmRunCommands(md: string): string[] {
+  const out: string[] = [];
+  const re = /npm run ([a-z][a-z0-9:_-]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(md)) !== null) out.push(m[1]!);
+  return [...new Set(out)];
+}
+
+test("every 'npm run X' the README + DEMO tell a judge to run exists in package.json", () => {
+  // A fleet rename of an npm script (e.g. verify:fairness → verify:ride) would
+  // leave the docs pointing at a script that 'npm run' can't find — the judge's
+  // very first copy-paste fails with "Missing script". Pin the doc ⇄ scripts link.
+  const scripts: Record<string, string> = JSON.parse(
+    readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
+  ).scripts;
+  const md = `${readFileSync(join(REPO_ROOT, "README.md"), "utf8")}\n${readFileSync(
+    join(REPO_ROOT, "DEMO.md"),
+    "utf8",
+  )}`;
+  const missing = npmRunCommands(md).filter((c) => !(c in scripts));
+  assert.deepEqual(missing, [], `README/DEMO reference npm scripts that don't exist: ${missing.join(", ")}`);
+});
