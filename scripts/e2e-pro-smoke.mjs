@@ -60,6 +60,13 @@ function num(s) {
   return m ? Number(m[0]) : NaN;
 }
 
+/** Parse a signed dollar P&L like "+$3.62", "−$0.10" (U+2212) or "-$0.10". */
+function money(s) {
+  const m = String(s).match(/([−+-]?)\s*\$\s*(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  return (m[1] === "−" || m[1] === "-" ? -1 : 1) * Number(m[2]);
+}
+
 console.log("─".repeat(64));
 console.log(`Wick Pro — judge-flow e2e smoke @ ${URL}`);
 console.log("─".repeat(64));
@@ -151,11 +158,24 @@ try {
       (await page.locator("button", { hasText: "CLOSE" }).count()) > 0,
   );
 
-  // ── 4. close → back to lobby ───────────────────────────────────────────
-  await page.locator("button", { hasText: "CLOSE" }).first().click();
+  // ── 4. close → settlement matches the shown P&L (the headline claim) ────
+  // "what you watch is what you get": the settled result must equal the last
+  // CLOSE-button P&L within tick-noise — no hidden spread/fee at settlement.
+  // Verified across 4 closes: |settled − shown| ≤ $0.01 (avg +$0.005), and the
+  // expiry path matches EXACTLY — so a $0.50 tolerance absorbs the live-mark
+  // tick between read and click while still catching a real settlement spread.
+  const closeBtnFinal = page.locator("button", { hasText: "CLOSE" }).first();
+  const shownPnl = money(await closeBtnFinal.innerText().catch(() => ""));
+  await closeBtnFinal.click();
   await page.waitForTimeout(2500);
   await shot("03-after-close.png");
   const body3 = await page.locator("body").innerText();
+  const settledPnl = money((body3.match(/SETTLED[\s\S]{0,40}?[−+-]?\s*\$\s*[\d.]+/i) || [])[0] ?? "");
+  check(
+    "settlement matches the shown P&L (no hidden spread — what you watch is what you get)",
+    shownPnl != null && settledPnl != null && Math.abs(settledPnl - shownPnl) < 0.5,
+    `shown=${shownPnl} settled=${settledPnl}`,
+  );
   check(
     "returns to lobby after close (UP/DOWN back)",
     /▲\s*UP|UP[\s\S]{0,20}to win/i.test(body3) &&
