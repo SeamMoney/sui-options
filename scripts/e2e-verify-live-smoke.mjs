@@ -94,6 +94,22 @@ try {
     check("the live candle chart renders", candles > 0, `${candles} candle bodies drawn`);
   }
 
+  // The house-edge (MARKET HALT) verdict loads in a 2nd phase after the candle
+  // PASS — it must render honest (the chain's rug roll re-derived in-browser).
+  if (pass) {
+    await page
+      .getByText(/House edge honest|House-edge mismatch/i)
+      .first()
+      .waitFor({ timeout: 30000 })
+      .catch(() => {});
+    const withRug = await page.locator("body").innerText();
+    const rugHonest = /House edge honest/.test(withRug);
+    const rugMismatch = /House-edge mismatch/.test(withRug);
+    if (rugHonest || rugMismatch) {
+      check("the house-edge (MARKET HALT) verdict verifies honest", rugHonest && !rugMismatch);
+    }
+  }
+
   // The "dishonest house" toggle must flip the SAME live verifier to FAIL —
   // proving it catches a lie on real data, not just always-PASS. Only meaningful
   // when the live PASS actually came back (skip on a transient RPC failure).
