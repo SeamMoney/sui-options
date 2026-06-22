@@ -472,7 +472,7 @@ async function readSegment(
 
 // ── Touch + settlement (mirror of segment_market_v4.move) ───────────────────
 
-function effectiveBarriers(
+export function effectiveBarriers(
   upper: bigint,
   lower: bigint,
   deadbandBps: bigint,

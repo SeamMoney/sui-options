@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { rollRugFired } from "./rugRoll.js";
+import { effectiveBarriers } from "./verify-v4.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "verify-v4.ts");
@@ -189,4 +190,20 @@ test("rollRugFired: the round index is part of the hash domain", () => {
     rollRugFired(k, RUG_MARKET, 6n, 150n).roll,
     rollRugFired(k, RUG_MARKET, 7n, 150n).roll,
   );
+});
+
+test("effectiveBarriers: proportional deadband margin + the lower-clamp edge case", () => {
+  // 20bps deadband on ±10% barriers around 1e9: up margin 2e6, lo margin 1.8e6.
+  assert.deepEqual(effectiveBarriers(1_000_000_000n, 900_000_000n, 20n), {
+    upEff: 1_002_000_000n,
+    loEff: 898_200_000n,
+  });
+  // Zero deadband ⇒ effective barriers equal the raw barriers.
+  assert.deepEqual(effectiveBarriers(1_000_000_000n, 900_000_000n, 0n), {
+    upEff: 1_000_000_000n,
+    loEff: 900_000_000n,
+  });
+  // Clamp: a margin ≥ the lower barrier would underflow → loEff floors at 0,
+  // never negative (loMargin = 100 × 20000/10000 = 200 ≥ lower 100).
+  assert.equal(effectiveBarriers(1_000_000_000n, 100n, 20_000n).loEff, 0n);
 });
