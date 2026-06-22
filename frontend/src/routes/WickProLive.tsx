@@ -346,7 +346,18 @@ export function WickProLive() {
   // with the same stake. No result toast — flipping stays instant; the booked
   // P&L shows up in the session chip.
   const flip = useCallback(() => {
-    if (!position || spot === null) return;
+    // Re-entrancy guard (mirror openPosition's openingRef): two fast FLIP taps
+    // read the SAME stale `position` and would book its P&L into the session
+    // TWICE (and double the win/loss tally). Cleared on the next render when
+    // `position` changes.
+    if (!position || spot === null || openingRef.current) return;
+    // Build the opposite leg FIRST and bail if it can't be built — otherwise the
+    // current leg is booked below but stays live (no setPosition) and is booked
+    // AGAIN at close/expiry.
+    const opp: OptionSide = position.side === "call" ? "put" : "call";
+    const next = buildPosition(opp);
+    if (!next) return;
+    openingRef.current = true;
     // Realize the current leg at the same (spot, time) the headline painted, so
     // the booked figure equals what was on screen (same as CLOSE).
     const { spot: s, nowMs: t } = paintedRef.current;
@@ -361,9 +372,6 @@ export function WickProLive() {
     } else {
       haptic(12);
     }
-    const opp: OptionSide = position.side === "call" ? "put" : "call";
-    const next = buildPosition(opp);
-    if (!next) return;
     setSettled(null);
     setPosition(next);
   }, [position, spot, sigma, buildPosition]);
