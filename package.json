@@ -97,7 +97,8 @@
     "conformance": "npm -w @wick/sdk run conformance",
     "conformance:check": "npm run conformance && git diff --exit-code move/tests/seeded_path_conformance.move",
     "typecheck": "npm -w frontend run typecheck && npm -w @wick/api run typecheck && npm -w wick-keeper run typecheck && npm -w wick-bots run typecheck",
-    "ci": "npm run build:packages && npm run build:sdk && npm run typecheck && npm test && npm run build:frontend"
+    "ci": "npm run build:packages && npm run build:sdk && npm run check:dist && npm run typecheck && npm test && npm run build:frontend",
+    "check:dist": "bash scripts/check-dist.sh"
   },
   "overrides": {
     "@mysten/sui": "^2.16.0"
