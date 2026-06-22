@@ -219,6 +219,7 @@ export function Verify() {
                   simulate a dishonest house
                 </label>
               </div>
+              <LiveVerifyChart rows={liveView.rows} />
               <div className="overflow-x-auto rounded-lg border border-slate-800">
                 <table className="w-full text-xs">
                   <thead className="bg-[#0d0f13] text-slate-400">
@@ -366,6 +367,79 @@ function VerifyChart({ rows }: { rows: VerifyRow[] }) {
                         vectorEffect="non-scaling-stroke"
                       />
                     ))}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The LIVE replay as a candle chart (barrier-free — this is market-level candle
+ * integrity, not a single ride): each candle's body is open→close, the wick is
+ * the CHAIN-REPORTED high/low, and any candle the chain misreported (match ===
+ * false, e.g. under the dishonest-house toggle) is boxed in amber. The visual
+ * proof that the live chain's chart reproduces from its own on-chain keys.
+ */
+function LiveVerifyChart({
+  rows,
+}: {
+  rows: { k: number; open: bigint; high: bigint; low: bigint; close: bigint; chainHigh: bigint; chainLow: bigint; match: boolean }[];
+}) {
+  if (rows.length === 0) return null;
+  const W = 200;
+  const H = 80;
+  const n = rows.length;
+  const num = (b: bigint) => Number(b);
+  const highs = rows.map((r) => num(r.chainHigh));
+  const lows = rows.map((r) => num(r.chainLow));
+  const top = Math.max(...highs);
+  const bot = Math.min(...lows);
+  const span = Math.max(1, top - bot);
+  const hi = top + span * 0.08;
+  const lo = bot - span * 0.08;
+  const range = hi - lo;
+  const y = (v: number) => ((hi - v) / range) * H;
+  const cw = W / n;
+  const bw = Math.max(1.4, cw * 0.55);
+  return (
+    <div className="mb-4 rounded-lg border border-slate-800 bg-[#0d0f13] p-3">
+      <div className="mb-2 text-[10px] uppercase tracking-wider text-slate-500">
+        live candles · chain-reported, replayed from the on-chain keys
+      </div>
+      <div className="h-[160px] w-full">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full" aria-hidden>
+          {rows.map((r, i) => {
+            const x = i * cw + cw / 2;
+            const o = num(r.open);
+            const c = num(r.close);
+            const up = c >= o;
+            const color = up ? "#22c55e" : "#f43f5e";
+            const oy = y(o);
+            const cy = y(c);
+            return (
+              <g key={r.k}>
+                {!r.match && (
+                  <rect x={x - cw / 2} y={0} width={cw} height={H} fill="#f59e0b" opacity={0.2} />
+                )}
+                <line
+                  x1={x}
+                  x2={x}
+                  y1={y(num(r.chainHigh))}
+                  y2={y(num(r.chainLow))}
+                  stroke={r.match ? color : "#f59e0b"}
+                  strokeWidth={0.6}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <rect
+                  x={x - bw / 2}
+                  y={Math.min(oy, cy)}
+                  width={bw}
+                  height={Math.max(0.5, Math.abs(cy - oy))}
+                  fill={r.match ? color : "#f59e0b"}
+                />
               </g>
             );
           })}
