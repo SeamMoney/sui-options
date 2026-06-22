@@ -560,6 +560,34 @@ fun crank_expired_no_touch_yields_expired_loss() {
     sc.end();
 }
 
+// Safety: crank_expired settles a ride as EXPIRED_LOSS only AFTER the round has
+// ended — calling it on a still-live ride aborts ENotExpired (=12). Without it a
+// ride could be force-settled as a loss before its time, robbing a would-be
+// touch-win. Mirror of the happy path with NO bump past round end.
+#[test]
+#[expected_failure(abort_code = 12, location = wick::segment_market_v4)]
+fun crank_expired_segment_ride_v4_before_expiry_rejected() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    // Ride is freshly opened (segment 0), round NOT ended → crank must reject.
+    let bounty = sm4::crank_expired_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(bounty); // unreachable
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 9 — both-barriers-touch-in-same-segment → TOUCH_WIN with
 /// touched_side=0 (UPPER WINS per doc 25 §9 tie-break).
 ///
