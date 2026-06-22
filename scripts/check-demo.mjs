@@ -49,7 +49,8 @@ const BASE = (process.argv[2] || process.env.PRO_URL || "https://wick-markets.ve
 const results = [];
 function check(name, ok, detail = "") {
   results.push({ name, ok });
-  const tag = ok ? "\x1b[32mPASS\x1b[0m" : "\x1b[31mFAIL\x1b[0m";
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+  const tag = ok ? (useColor ? "\x1b[32mPASS\x1b[0m" : "PASS") : (useColor ? "\x1b[31mFAIL\x1b[0m" : "FAIL");
   console.log(`  [${tag}] ${name}${detail ? ` — ${detail}` : ""}`);
 }
 
