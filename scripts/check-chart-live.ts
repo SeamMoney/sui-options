@@ -129,7 +129,13 @@ async function main(): Promise<void> {
   const recordedAtMs = asBig(asObj(asObj(asObj(asObj(head.data).content).fields).value).fields.recorded_at_ms);
 
   const { live, ageSec } = classifyFreshness(recordedAtMs, Date.now(), maxAgeSec);
-  const round = String(f.cached_round_index ?? "?");
+  // Derive the round from the head segment index, not `cached_round_index` —
+  // the cached field lags/races the live round on a round-roll (the bug class
+  // fixed in the frontend verifier, #488). Falls back to the cached field only
+  // if round_duration is unavailable. Display-only here, but keeps the shown
+  // round consistent with the head segment number.
+  const roundDur = asBig(f.round_duration_segments);
+  const round = roundDur > 0n ? ((next - 1n) / roundDur).toString() : String(f.cached_round_index ?? "?");
   if (live) {
     console.log(`✓ chart-live — head segment #${next - 1n} (round ${round}) recorded ${ageSec}s ago (≤ ${maxAgeSec}s). The /ride chart is MOVING.`);
     process.exitCode = 0;
