@@ -6,7 +6,7 @@ ones that protect funds. This file maps each safety property (the list in
 "The collateral invariant") to the named test(s) that prove it, so an auditor or
 judge can run a specific test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **600/600 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **601/601 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -29,7 +29,7 @@ state transition. Bugs here are direct loss of funds.
 | DNT corridor settles one way only (HELD ⟂ BROKEN) | `lock_and_settle_dnt_held_idempotent_cannot_flip_to_broken` + `lock_and_settle_dnt_market_with_held_corridor_pays_inside_side` + `lock_and_settle_dnt_market_with_breached_corridor_pays_outside_side` | `dnt_tests.move` |
 | Settlement is idempotent (repeat = no-op / revert) | `lock_and_settle_idempotent` · `release_idempotent_on_already_released` · `prune_settled_segments_v4_is_idempotent` | `market_tests` · `martingaler_vault_tests` · `segment_market_v4_tests` |
 | Losing side cannot redeem (receives zero) | `loser_receives_zero` | `market_tests.move` |
-| A touch/no-touch position must be funded (no zero-stake open) | `cannot_open_with_zero_stake` (open after expiry also blocked: `cannot_open_after_expiry`) | `market_tests.move` |
+| A touch/no-touch open is fully guarded (funded stake, before expiry, own vault) | `cannot_open_with_zero_stake` · `cannot_open_after_expiry` · `cannot_open_against_wrong_vault` | `market_tests.move` |
 | Repeated `redeem` cannot double-pay | **Guaranteed by Move's linear types** — `redeem` consumes `position: Position` *by value* (`market.move`), so re-redeeming the same position is a compile-time use-after-move, never a runtime path; `cannot_redeem_when_active` guards the not-yet-settled case | `market.move` · `market_tests.move` |
 | Fees route to the right buckets only on a winning redeem | `fee_routes_to_router_buckets_on_winner_redeem` | `market_tests.move` |
 | Aborted market refunds 1:1, never 2:1, no fee | `aborted_path_routes_to_pool_no_fee` · `route_lock_to_abort_refund_pool` | `market_tests` · `martingaler_vault_tests` |
