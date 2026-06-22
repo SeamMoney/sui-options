@@ -1233,6 +1233,11 @@ fun rug_settles_ride_as_loss() {
     let stake = 1_000u64;
     let escrow_amt = stake * ROUND_DURATION;
     let escrow = mint_sui(escrow_amt, &mut sc);
+    // Snapshot the vault BEFORE the ride. The escrow round-trips (deposited on
+    // open, the unused part returned on close), so the only net change a
+    // rug-wipe should leave behind is the forfeited stake, retained as the
+    // house's winnings.
+    let vault_before = mv::treasury_value(&vault);
     let mut ride = sm4::open_segment_ride_v4<SUI>(
         &mut market, &mut vault, &bots,
         stake, escrow, &clk, sc.ctx(),
@@ -1259,6 +1264,13 @@ fun rug_settles_ride_as_loss() {
     //                        = 0 + (escrow - stake) = escrow - stake.
     assert!(sm4::settlement_kind(&ride) == sm4::settlement_expired_loss(), 2);
     assert!(payout.value() == escrow_amt - stake, 3);
+
+    // Conservation through the rug-wipe (the load-bearing invariant on the
+    // house-edge path): the vault retained EXACTLY the forfeited stake — no
+    // value created or destroyed, and the forfeit was not misrouted out of the
+    // treasury (e.g. to a fee bucket). Without this, a refactor could leak the
+    // house's winnings while the user-side payout assertion above still passed.
+    assert!(mv::treasury_value(&vault) == vault_before + stake, 4);
 
     test_utils::destroy(payout);
     sm4::test_only_destroy_ride(ride);
