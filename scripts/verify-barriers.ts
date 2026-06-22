@@ -80,6 +80,8 @@ class ResilientClient {
 }
 
 function asObj(v: unknown): Record<string, unknown> { return v && typeof v === "object" ? (v as Record<string, unknown>) : {}; }
+/** SuiScan explorer link so a judge can cross-check the audited object. */
+const suiscan = (kind: "object" | "tx", id: string): string => `https://suiscan.xyz/testnet/${kind}/${id}`;
 function asStr(v: unknown): string { return typeof v === "string" ? v : String(v); }
 function big(v: unknown): bigint {
   if (typeof v === "bigint") return v;
@@ -219,7 +221,7 @@ async function verify(args: Args): Promise<boolean> {
 
   const d = await deriveBarriers(client, market, round);
 
-  console.log(`market:   ${args.market}`);
+  console.log(`market:   ${args.market}  ↗ ${suiscan("object", args.market!)}`);
   console.log(`round:    ${round} · offset ${market.offsetBps}bps · round-roll spot ${fmt(d.spot)}`);
   console.log(`derived:  upper ${fmt(d.upper)} / lower ${fmt(d.lower)}  (spot ± ${market.offsetBps}bps)`);
 
