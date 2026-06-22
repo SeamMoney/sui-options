@@ -6,7 +6,7 @@ ones that protect funds. This file maps each safety property (the list in
 "The collateral invariant") to the named test(s) that prove it, so an auditor or
 judge can run a specific test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **672/672 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **675/675 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -56,6 +56,7 @@ of funds.
 | Vault fee-bucket money-out is isolated — a withdrawal from one bucket drains ONLY its own bucket (no cross-bucket drain), and a zero-accrue / empty withdraw yields nothing (no phantom money-out) | `accrue_routes_by_bucket_id_and_each_withdraw_drains_only_its_own` · `accrue_zero_is_a_noop_and_empty_withdraw_yields_zero` | `martingaler_vault_fees_tests.move` |
 | Aborted market refunds 1:1, never 2:1, no fee | `aborted_path_routes_to_pool_no_fee` · `route_lock_to_abort_refund_pool` | `market_tests` · `martingaler_vault_tests` |
 | Aborting twice is rejected (no double refund) | `route_lock_to_abort_twice_aborts` | `martingaler_vault_tests.move` |
+| Aborted-market LP seed-recovery is admin-gated and abort-only — only the holding admin cap can drain the abort-pool RESIDUE (the LP seed left after 1:1 bettor refunds) into the treasury, and only on an actually-aborted market | `recover_seed_drains_the_abort_pool_residue_into_treasury` · `recover_seed_rejects_a_non_aborted_market` · `recover_seed_rejects_a_foreign_admin_cap` | `martingaler_vault_seed_recovery_tests.move` |
 
 ## Ride (v4 streaming) safety
 
