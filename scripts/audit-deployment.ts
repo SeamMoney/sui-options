@@ -54,6 +54,8 @@ function loadMarkets(): MarketEntry[] {
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[90m${s}\x1b[0m`;
+/** SuiScan link so a judge can open each audited market on the explorer. */
+const suiscan = (kind: "object" | "tx", id: string): string => `https://suiscan.xyz/testnet/${kind}/${id}`;
 
 interface Result {
   name: string;
@@ -112,7 +114,7 @@ function main(): void {
     results.push(r);
     const tag =
       r.status === "PASS" ? green("✓ HONEST") : r.status === "EMPTY" ? dim("· idle (no segments)") : red("✗ FAIL");
-    console.log(`${tag}  ${dim(`${r.segments} seg · ${r.market.slice(0, 12)}…`)}`);
+    console.log(`${tag}  ${dim(`${r.segments} seg · ${r.market.slice(0, 12)}…`)}  ${dim(`↗ ${suiscan("object", r.market)}`)}`);
   }
 
   const failed = results.filter((r) => r.status === "FAIL");
