@@ -1,10 +1,11 @@
 #!/usr/bin/env tsx
 /**
  * recent-rides — list real, recent closed rides on the live v4 market(s), one of
- * each outcome, each with a ready-to-paste `verify-v4` command. So a judge can
- * verify rides THEY pick (a touch win, a cashout, a MARKET HALT) — not just the
+ * each outcome, each with a ready-to-paste `audit-ride` command (the COMPLETE
+ * audit: barriers · candles · MARKET HALT · verdict · payout). So a judge can
+ * fully verify rides THEY pick (a touch win, a cashout, a MARKET HALT) — not the
  * single example we hardcoded into `npm run verify:halt`. Proves the chain is
- * busy AND that the audit holds for any outcome.
+ * busy AND that the whole audit holds for any outcome.
  *
  *   npx tsx scripts/recent-rides.ts            # or: npm run rides:recent
  *   npx tsx scripts/recent-rides.ts --each 2   # up to 2 of each outcome
@@ -191,7 +192,7 @@ async function main() {
         r.touchedSide === TOUCHED_LOWER ? " (touched lower)" : "";
       console.log(`  ride ${r.rideId}${side}`);
       console.log(`    payout=${r.payout}  ${r.marketName}  ${r.txDigest ? scan("tx", r.txDigest) : ""}`);
-      console.log(`    \x1b[36mnpx tsx scripts/verify-v4.ts --market ${r.marketId} --ride ${r.rideId}\x1b[0m`);
+      console.log(`    \x1b[36mnpx tsx scripts/audit-ride.ts --market ${r.marketId} --ride ${r.rideId}\x1b[0m`);
     }
     console.log("");
   }
@@ -200,7 +201,7 @@ async function main() {
     console.log("No closed rides found on the live v4 markets yet — run `npm run smoke:ride` to make one.");
     return;
   }
-  console.log(`\x1b[90mPick any ride above and run its command — it replays the chain's own keys and proves the settlement honest.\x1b[0m`);
+  console.log(`\x1b[90mPick any ride above and run its command — the COMPLETE audit (barriers · candles · MARKET HALT · verdict · payout), all re-derived from the chain's own keys.\x1b[0m`);
 }
 
 main().catch((e) => { console.error(String(e?.stack ?? e)); process.exit(1); });
