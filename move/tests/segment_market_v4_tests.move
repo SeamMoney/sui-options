@@ -588,6 +588,47 @@ fun crank_expired_segment_ride_v4_before_expiry_rejected() {
     sc.end();
 }
 
+// Safety / player-protection: a ride that TOUCHED a barrier (won) cannot be
+// force-settled as a loss via the permissionless crank_expired — it must
+// self-close to claim. The guard `assert!(!touched, ETouchedMustSelfClose=13)`
+// stops a cranker robbing a winner even after round end.
+#[test]
+#[expected_failure(abort_code = 13, location = wick::segment_market_v4)]
+fun crank_expired_rejects_touched_ride_must_self_close() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    // Record a segment whose high pierces the upper deadbanded barrier — won.
+    let upper = sm4::cached_upper_barrier<SUI>(&market);
+    let margin = upper * DEADBAND_BPS / 10_000;
+    let st = sp::state_with(upper + margin, false, 0, VOL_REGIME_INIT, HOME_PRICE);
+    sm4::test_only_record_segment<SUI>(
+        &mut market, x"de", st, HOME_PRICE, upper + margin + 1, 2_000,
+    );
+
+    // Even past round end, the touched ride must self-close — crank rejects it.
+    sm4::test_only_bump_segment_index<SUI>(&mut market, ROUND_DURATION + 5);
+    clk.increment_for_testing(2_000);
+    let bounty = sm4::crank_expired_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(bounty); // unreachable
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 9 — both-barriers-touch-in-same-segment → TOUCH_WIN with
 /// touched_side=0 (UPPER WINS per doc 25 §9 tie-break).
 ///
