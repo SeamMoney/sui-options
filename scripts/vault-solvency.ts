@@ -47,7 +47,20 @@ interface VaultRpc {
   getObject(a: { id: string; options?: { showContent?: boolean; showType?: boolean } }): Promise<unknown>;
 }
 
-/** getObject across several endpoints, falling back only on a thrown RPC error. */
+const RPC_TIMEOUT_MS = 20_000;
+
+/** Reject if a call hasn't settled in `ms` — a hanging node becomes a thrown
+ *  timeout so the client falls back instead of appearing stuck. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
+/** getObject across several endpoints, falling back on a thrown RPC error or a
+ *  per-call timeout (a hanging node). */
 function makeResilientClient(urls: string[]): VaultRpc {
   const seen = new Set<string>();
   const clients = urls
@@ -58,7 +71,7 @@ function makeResilientClient(urls: string[]): VaultRpc {
       let last: unknown;
       for (const c of clients) {
         try {
-          return await c.getObject(a as never);
+          return await withTimeout(c.getObject(a as never), RPC_TIMEOUT_MS);
         } catch (e) {
           last = e;
         }
