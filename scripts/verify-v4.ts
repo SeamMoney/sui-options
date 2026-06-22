@@ -50,6 +50,20 @@
  * round (`= scanEnd / round_duration`). For the common in-round close this
  * reduces to "entry round, scan to round end" exactly. (Fixed in #299; before
  * it, late-closed rides false-FAILed "the chain lied".)
+ *
+ * v4.27 DEPLOY-SAFETY (Move PRs #683 bounded-scan + #694 durable per-round rug):
+ * those fixes change ONLY cross-round verdicts, and ONLY by turning a previously
+ * escaping TOUCH_WIN into the EXPIRED_LOSS the round actually dealt. Within-round
+ * settlement is byte-identical, so the strict in-round check is unaffected. And
+ * every cross-round v4.27 verdict is EXPIRED_LOSS, which the `crossRoundClose`
+ * softening below already accepts as honest-but-not-re-derivable (`chain
+ * EXPIRED_LOSS && derived != EXPIRED_LOSS`). => THIS VERIFIER NEEDS NO CHANGE to
+ * stay correct across the v4.27 upgrade: it passes both the deployed v4.26 chain
+ * and a v4.27 chain. (An OPTIONAL future enhancement could tighten the softening
+ * to a strict check under v4.27 — bound the touch scan to the ride's round here
+ * and read the rug by `ride.roundIndex` — but that is a stronger /verify, not a
+ * correctness requirement. Same conclusion for the recent-rides MARKET-HALT
+ * label, which keys on the ride's own `round_index`.)
  */
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
