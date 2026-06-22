@@ -24,7 +24,8 @@ const C = {
 };
 
 // Each proof: an npm script + the one-line claim it establishes on live state.
-// Ordered as the fairness chain of custody: random keys → honest candles → solvent vault.
+// Ordered as the fairness chain of custody: random keys → honest markets → a
+// real ride proven end-to-end → every halt honest → solvent vault.
 const steps = [
   {
     script: "verify:randomness",
@@ -37,6 +38,18 @@ const steps = [
     title: "Every live market is provably fair",
     proves:
       "each deployed v4 market's recorded candles reproduce from those on-chain keys — the house can't fake or alter a candle",
+  },
+  {
+    script: "audit:latest",
+    title: "The newest real ride is COMPLETELY honest",
+    proves:
+      "the most recent closed ride passes the full audit — barriers not cherry-picked · candles · MARKET HALT · verdict · payout — every dimension re-derived from the chain",
+  },
+  {
+    script: "check:rugs",
+    title: "Every MARKET HALT was an honest roll",
+    proves:
+      "the v4.26 rug fired only on an honest keccak roll and at the FIRST qualifying segment, every round — the house could neither fake a halt nor suppress one (the house edge is audited, not asserted)",
   },
   {
     script: "vault:solvency",
@@ -67,11 +80,12 @@ for (const step of steps) {
 const failed = results.filter((r) => !r.ok);
 console.log("─".repeat(64));
 if (failed.length === 0) {
-  console.log(C.green(C.bold("PASS — the live protocol is provably fair AND solvent.")));
+  console.log(C.green(C.bold("PASS — the live protocol is provably fair AND solvent (keys → markets → a real ride → every halt → the vault).")));
   console.log(C.dim("    deeper proofs:"));
-  console.log(C.dim("    npm run verify:halt    # re-derive a real MARKET HALT and prove it was an honest roll"));
+  console.log(C.dim("    npm run audit:sweep    # bulk-audit the last 10 real rides — statistical honesty, not a cherry-pick"));
+  console.log(C.dim("    npm run rides:recent   # pick your OWN ride to audit (a touch win, a cashout, a MARKET HALT)"));
   console.log(C.dim("    npm run gas:report     # real on-chain gas economics, priced off the live DeepBook mid"));
-  console.log(C.dim("    npm run smoke:ride     # fund a burner & run a real ride cold, then audit it"));
+  console.log(C.dim("    npm run smoke:ride     # fund a burner & run a real ride cold, then audit it end-to-end"));
   process.exit(0);
 } else {
   console.log(C.red(`FAIL — ${failed.length}/${results.length} live proof(s) failed: ${failed.map((r) => r.step.script).join(", ")}`));
