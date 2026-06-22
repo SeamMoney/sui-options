@@ -32,6 +32,11 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 // PublicNode prunes tx bodies; the Mysten fullnode keeps them. Default there.
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npx tsx scripts/gas-report.ts [--rpc <url>]   (or: npm run gas:report)");
+  console.log("  Reports the real on-chain gas cost of each v4 ride operation (open/crank/close). Read-only.");
+  process.exit(0);
+}
 const RPC = arg("--rpc") ?? process.env.WICK_API_RPC ?? "https://fullnode.testnet.sui.io";
 // USD-per-SUI for the USD line (the SUI figures are the on-chain truth). When
 // not pinned with --sui-usd we use the live DeepBook SUI/USDC mid — the same
