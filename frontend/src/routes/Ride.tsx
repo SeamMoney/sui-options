@@ -104,6 +104,16 @@ function fmtSui(mist: bigint | null): string {
   return (Number(mist) / 1_000_000_000).toFixed(3);
 }
 
+// Signed USD P&L with the sign decided AFTER rounding: a value that rounds to
+// zero (the ride-start cashout spread, a near-flat cashout) renders "$0.00",
+// never the misleading "-$0.00". Mirrors WickPro's fmtSignedUsd — the #682
+// bug-class, which Ride.tsx's inline displays had missed.
+function fmtSignedUsd(n: number): string {
+  const s = Math.abs(n).toFixed(2);
+  if (parseFloat(s) === 0) return `$${s}`;
+  return `${n < 0 ? "-" : "+"}$${s}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // CenterHeroV3 — the legacy hero kept for the fallback path.
 // ─────────────────────────────────────────────────────────────────────────
@@ -160,7 +170,7 @@ function CenterHeroV3(props: {
     sub = "your position is going on-chain — ~1-2 seconds";
   } else if (phase === "riding") {
     kicker = "You're riding — release to cash out";
-    big = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
+    big = fmtSignedUsd(pnl);
     tone = pnl >= 0 ? "win" : "loss";
     sub = `$${stakePaid.toFixed(2)} staked · ${multiplierX.toFixed(
       1,
@@ -256,7 +266,7 @@ function CenterHeroV4(props: {
     // after ~2.5s).
     const winning = lastClosedPnl >= 0;
     kicker = winning ? "Ride closed — nice" : "Ride closed";
-    big = winning ? `+$${lastClosedPnl.toFixed(2)}` : `-$${Math.abs(lastClosedPnl).toFixed(2)}`;
+    big = fmtSignedUsd(lastClosedPnl);
     sub = "ready when you are — tap and hold again";
     tone = winning ? "win" : "loss";
   } else if (phase === "idle" && !isReady) {
@@ -285,7 +295,7 @@ function CenterHeroV4(props: {
     // EITHER side wins so the user understands why their PnL goes up
     // regardless of direction.
     kicker = "LET GO TO CLOSE";
-    big = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
+    big = fmtSignedUsd(pnl);
     tone = pnl >= 0 ? "win" : "loss";
     sub = `Either GREEN or RED touch wins ${multiplierX.toFixed(2)}× · $${stakePaid.toFixed(2)} staked`;
   } else {
@@ -719,7 +729,10 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
             settlementToast.payoutRaw !== undefined && (() => {
               const netRaw = settlementToast.payoutRaw - settlementToast.stakePaidRaw;
               const netUsd = Number(netRaw) / 1_000_000;
-              const sign = netRaw > 0n ? "+" : netRaw < 0n ? "−" : "";
+              // Sign after rounding: a tiny net that rounds to $0.00 must not
+              // render "−$0.00" (or "+$0.00"). Matches fmtSignedUsd's guard.
+              const sign =
+                Math.abs(netUsd) < 0.005 ? "" : netRaw > 0n ? "+" : "−";
               const tone = netRaw > 0n
                 ? "text-emerald-300"
                 : netRaw < 0n
