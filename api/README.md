@@ -210,7 +210,7 @@ Responses:
 
 | Status | Body                                              | Meaning                              |
 |--------|---------------------------------------------------|--------------------------------------|
-| `200`  | `{ digest, amount_raw: "10000000", recipient }`   | Minted 10 TUSD, tx confirmed onchain |
+| `200`  | `{ digest, amount_raw: "50000000", recipient }`   | Minted 50 TUSD, tx confirmed onchain |
 | `400`  | `{ error: "recipient is not a valid Sui address" }`| Validation failed                    |
 | `429`  | `{ error: "rate-limited", retry_after_ms }`        | Per-recipient 90s cooldown hit       |
 | `500`  | `{ error: … }`                                     | Mint build/sign error                |
@@ -218,7 +218,7 @@ Responses:
 
 Fixed parameters (edit them in `api/faucet-tusd.ts`, not here):
 
-- Drip amount: `10_000_000` raw = **10 TUSD** (6 decimals) — ~66 rides at $0.15 max stake
+- Drip amount: `50_000_000` raw = **50 TUSD** (6 decimals) — clears the ~12.375 TUSD per-ride escrow gate; ~4 full rides per drip
 - Per-recipient cooldown: **90 seconds** (in-process map)
 
 Same `WICK_FAUCET_PRIVATE_KEY` env var as the SUI faucet — see above. Defaults to

@@ -12,9 +12,10 @@
  * Success:  200 { digest, amount_raw, recipient }
  * Errors:   400 | 429 | 500 | 503
  *
- * Drips 10 TUSD per request by default (10_000_000 raw at 6 decimals).
- * That's enough for ~66 user rides at $0.15 max stake. Rate-limited
- * per recipient with the same 90s cooldown as /api/faucet.
+ * Drips 50 TUSD per request by default (50_000_000 raw at 6 decimals).
+ * Each /ride escrows max_stake × round × 1.1 ≈ 12.375 TUSD on the live rug
+ * market, so 50 TUSD clears the funding gate and covers a multi-ride session
+ * (~4 full rides). Rate-limited per recipient with the same 90s cooldown.
  */
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
@@ -37,7 +38,17 @@ const TUSD_PACKAGE_ID =
 const TUSD_TREASURY_CAP =
   "0x7db5b3edead4f503ce8ef19ace6eca26e961edd08871042ad5de6f870a369b11";
 
-const DRIP_RAW = 10_000_000n; // 10 TUSD (6 decimals)
+// 2026-06-22 — bumped 10 → 50 TUSD. CRITICAL: the live rug market escrows
+// `max_stake_per_segment (150000) × round_duration (75) × 1.1 = 12.375 TUSD`
+// per ride (useSegmentRideV4 stakes at MAX per-segment, v4.30), and the /ride
+// funding gate (Ride.tsx escrowThresholdRaw) blocks play until the burner holds
+// that much TUSD. At a 10 TUSD drip a judge funded BELOW the threshold — the
+// "Get free funds" overlay never cleared and they could not start a ride at all
+// (reproduced in a headless browser: funded 10 TUSD + 2 SUI, overlay persisted).
+// TUSD is MINTED on demand from the TreasuryCap (no wallet-runway limit, same
+// one-mint gas cost), so drip generously: 50 TUSD clears the 12.375 gate with
+// room for a full multi-ride evaluation session.
+const DRIP_RAW = 50_000_000n; // 50 TUSD (6 decimals)
 const COOLDOWN_MS = 90 * 1000;
 // The mint tx is paid for in SUI (the TreasuryCap mints TUSD but gas is SUI),
 // so the faucet wallet must still hold enough SUI gas. Headroom for one mint.
