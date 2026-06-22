@@ -18,6 +18,8 @@ import {
   decodeWalk,
   type LiveSegmentRecord,
 } from "../frontend/src/lib/liveVerify.ts";
+import { rollRugFired as frontendRoll } from "../frontend/src/lib/rugRoll.ts";
+import { rollRugFired as cliRoll } from "./rugRoll.js";
 
 // Build N honest segment records from a seed: each record is exactly what the
 // chain WOULD publish (extrema + carried state from expandSegment), so a
@@ -75,6 +77,24 @@ test("empty record set is vacuously consistent", () => {
   const { rows, allMatch } = replayAndMatch(seed, []);
   assert.equal(rows.length, 0);
   assert.equal(allMatch, true);
+});
+
+test("frontend rugRoll is byte-identical to the CLI rugRoll (no divergence)", () => {
+  const market = "0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282";
+  // Sweep keys × rounds × chances and assert the two ports never disagree —
+  // a fairness verdict on /verify must match the validated CLI bit-for-bit.
+  for (let s = 0; s < 40; s++) {
+    const key = new Uint8Array(32);
+    key[0] = s;
+    key[15] = (s * 13 + 7) & 0xff;
+    key[31] = (s * 91 + 5) & 0xff;
+    const round = BigInt(s % 9);
+    const chance = BigInt([0, 150, 5000, 10000][s % 4]!);
+    const a = frontendRoll(key, market, round, chance);
+    const b = cliRoll(key, market, round, chance);
+    assert.equal(a.roll, b.roll, `roll mismatch at s=${s}`);
+    assert.equal(a.fired, b.fired, `fired mismatch at s=${s}`);
+  }
 });
 
 test("decodeWalk round-trips an on-chain WalkState struct", () => {
