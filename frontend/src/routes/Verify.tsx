@@ -5,8 +5,8 @@
  * in CI) over a sample ride, in your browser, and shows the segment-by-segment
  * replay: recomputed high/low vs the chain's claim, the barrier touch, and the
  * final verdict. Flip "Simulate a dishonest house" to watch the verifier catch
- * a tampered extremum (red FAIL). The same logic verifies real rides via
- * `npx tsx scripts/verify.ts`.
+ * a tampered extremum (red FAIL). The same logic verifies real LIVE v4 rides
+ * via `scripts/verify-v4.ts` (and `npm run prove:live` for the whole chain).
  */
 import { useMemo, useState } from "react";
 import {
@@ -95,9 +95,14 @@ export function Verify() {
             <VerifyChart rows={outcome.rows} />
             <ReplayTable rows={outcome.rows} />
             <footer className="mt-6 text-xs text-slate-500 leading-relaxed">
-              The same replay verifies any real closed ride from on-chain data:
+              The same byte-identical replay verifies the LIVE chain from a terminal —
+              one command audits every market&apos;s candles and the vault&apos;s solvency:
               <pre className="mt-2 overflow-x-auto rounded bg-[#0d0f13] border border-slate-800 p-3 text-slate-300">
-                npx tsx scripts/verify.ts --market &lt;id&gt; --ride &lt;id&gt;
+                npm run prove:live
+              </pre>
+              …or audit a single closed v4 ride end-to-end:
+              <pre className="mt-2 overflow-x-auto rounded bg-[#0d0f13] border border-slate-800 p-3 text-slate-300">
+                npx tsx scripts/verify-v4.ts --market &lt;id&gt; --ride &lt;id&gt;
               </pre>
               <p className="mt-4">
                 This page proves the <b className="text-slate-300">provably-fair synthetic mode</b>.
