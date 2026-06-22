@@ -39,7 +39,7 @@ crossed the barrier — not any off-chain tick.
 
 Two market families in `testnet.json`:
 
-- `segment_markets[]` — the **live v4 segment-market arcade** (added in the
+- `segment_markets_v4[]` — the **live v4 segment-market arcade** (added in the
   2026-05-24 upgrade; v4.26 adds the rug edge). This is the **active demo
   path** — a recently-traded market is
   `0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282`
