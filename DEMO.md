@@ -12,7 +12,8 @@ Everything below is live on testnet — no install, no wallet needed to play.
 > Narrower checks if you want them: `npm run smoke:demo` (curl-only, ~5s, live demo green) ·
 > `npm run check:routes` (headless browser over every route + the unknown-route fallback) ·
 > `npm run verify:offline` (the fairness + correctness proofs with **zero network**, for a
-> judge behind a firewall or on a plane).
+> judge behind a firewall or on a plane) · `npm run safety` (instant contract-safety
+> summary — every abort guard + conservation assertion, live-counted from the Move suite).
 
 ---
 

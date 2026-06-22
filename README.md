@@ -116,6 +116,8 @@ npm run judge       # live demo up · ride fairness (honest+tamper+rug) · live 
 npm run ci          # the same checks .github/workflows/ci.yml runs
 npm test            # just the TS unit suites
 npm run test:move   # just `sui move test` (needs the Sui CLI)
+npm run safety      # instant contract-safety summary: every abort guard +
+                    # conservation assertion, live-counted from the Move suite
 
 # 3. run the deterministic-walk conformance harness on your machine
 #    (10k vectors, Move↔TS rolling digest must match exactly)
