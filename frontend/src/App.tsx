@@ -103,6 +103,13 @@ export default function App() {
     ); // synthetic commit/reveal provably-fair variant
   return (
     <Suspense fallback={<RouteFallback />}>
+      {/* Semantic page heading for the document outline / a11y / SEO — kept
+          here in the router so it covers every internal Ride state (RideV4 /
+          RideV3 / between-rounds) without threading it through the game
+          component. Visually hidden so the full-screen chart UI is untouched. */}
+      <h1 className="sr-only">
+        Wick — tap-hold touch / no-touch rides on Sui, with provably-fair on-chain candles
+      </h1>
       <Ride />
     </Suspense>
   ); // default
