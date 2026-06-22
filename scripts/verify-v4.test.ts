@@ -96,6 +96,17 @@ test("cross-round TOUCH_WIN (later-round touch) PASSes with caveat, not 'chain l
   assert.equal(code, 0, "a cross-round TOUCH_WIN must PASS (exit 0)");
 });
 
+test("a suppressed segment (gap below the head) FAILs closed, not silent-truncated", () => {
+  // The market reports next_segment_index=8 but segment 5 is missing — a hole the
+  // honest chain (contiguous record_segment_v4 indices) can't produce. The
+  // verifier must refuse to pass, not silently stop scanning at the gap.
+  const { code, out } = run("mock://gap-v4");
+  assert.match(out, /segment 5 is missing/);
+  assert.match(out, /gap below the recorded head/);
+  assert.match(out, /FAIL — the chain lied/);
+  assert.equal(code, 1, "a segment dropped below the head must exit non-zero");
+});
+
 // ── MARKET HALT (rug) roll — golden vectors captured live from testnet ──────
 // market 0x54e915…5282 (package 0x10c33843…7a4e), rug_chance_bps = 150. The
 // chain independently armed `rugged_at_segment = 458` for round 6; our keccak

@@ -525,7 +525,23 @@ async function verifySegments(
 
   for (let k = from; k < to; k++) {
     const rec = await readSegment(client, market.segmentsTableId, k);
-    if (!rec) break; // ran off the end of recorded history
+    if (!rec) {
+      // A missing segment AT OR ABOVE the recorded head is just the end of
+      // history — stop. But a missing segment BELOW the head
+      // (k < next_segment_index) is impossible on an honest chain:
+      // record_segment_v4 assigns contiguous indices, so a hole here means the
+      // chain dropped a segment it claims exists (tampering, or a prune trying
+      // to hide a touch). Fail CLOSED rather than silently truncating the scan.
+      if (k < market.nextSegmentIndex) {
+        console.error(
+          `\n  segment ${k} is missing although the market reports ` +
+            `next_segment_index=${market.nextSegmentIndex} — a gap below the recorded head. ` +
+            `The chain dropped a segment it claims exists; the audit cannot pass.`,
+        );
+        allIntegrityOk = false;
+      }
+      break; // can't carry the walk state across a gap either way
+    }
     // Bound the scan. We integrity-check at least the entry round (so a tampered
     // candle anywhere in it is caught), then keep going while segments are still
     // in the ride's window (`recorded_at_ms <= closed_at_ms`, monotonic) so a
@@ -641,7 +657,9 @@ async function verify(args: Args): Promise<boolean> {
         ? "rug"
         : args.rpc.includes("tamper")
           ? "tamper"
-          : "honest";
+          : args.rpc.includes("gap")
+            ? "gap"
+            : "honest";
   const client: RpcClient = synthetic
     ? buildSyntheticClient(synthMode)
     : (new SuiJsonRpcClient({ url: args.rpc, network: "testnet" }) as unknown as RpcClient);
@@ -886,7 +904,7 @@ async function verify(args: Args): Promise<boolean> {
 // a later-round touch won it — state the verifier can't reconstruct). The
 // in-round derivation is CASHOUT, so the verdict mismatches; the verifier must
 // PASS with "not independently checkable", NOT cry "chain lied".
-type SynthMode = "honest" | "tamper" | "rug" | "crossloss" | "crosswin";
+type SynthMode = "honest" | "tamper" | "rug" | "crossloss" | "crosswin" | "gap";
 
 const SYNTH_MARKET = "0x" + "5e6".padEnd(64, "0");
 const SYNTH_RIDE = "0x" + "47de".padEnd(64, "0");
@@ -910,6 +928,7 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
   const rug = mode === "rug";
   const crossloss = mode === "crossloss";
   const crosswin = mode === "crosswin";
+  const gap = mode === "gap"; // drop segment 5 (a hole below the recorded head)
   // Deterministic keys: byte i of segment k = (k*7 + i*3 + 11) mod 251.
   const segs: SynthSeg[] = [];
   let state = newState(SYNTH_HOME, DEFAULT_VOL_REGIME_INIT, SYNTH_HOME);
@@ -1025,6 +1044,9 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
       }
       if (a.parentId !== TABLE_ID) return { data: null };
       const k = Number(a.name.value);
+      // gap mode: segment 5 is missing even though next_segment_index=8 claims it
+      // exists — the verifier must FAIL closed, not silently truncate the scan.
+      if (gap && k === 5) return { data: null };
       if (k < 0 || k >= segs.length) return { data: null };
       const s = segs[k]!;
       return {

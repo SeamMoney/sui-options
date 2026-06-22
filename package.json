@@ -27,6 +27,7 @@
     "verify:fairness": "tsx scripts/verify-v4.ts --rpc mock://synthetic-v4 --ride 0xmock",
     "verify:fairness:tamper": "tsx scripts/verify-v4.ts --rpc mock://tamper-v4 --ride 0xmock",
     "verify:fairness:rug": "tsx scripts/verify-v4.ts --rpc mock://rug-v4 --ride 0xmock --home 1000000000",
+    "verify:fairness:gap": "tsx scripts/verify-v4.ts --rpc mock://gap-v4 --ride 0xmock",
     "verify:fairness:live": "tsx scripts/verify-v4.ts",
     "audit:deployment": "tsx scripts/audit-deployment.ts",
     "verify:randomness": "tsx scripts/verify-randomness.ts",
