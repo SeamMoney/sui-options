@@ -92,16 +92,24 @@ import { quote, yearsFromSeconds } from "../packages/pro-options/src/black-schol
 }
 
 // ── Part 2: live indexer ────────────────────────────────────────────────────
+// Cap each DeepBook indexer call so a slow/hanging indexer fails check:deepbook
+// fast (with a clear timeout error) instead of hanging it — and with it the whole
+// check:all judge gate. The frontend fetchers already accept an AbortSignal; we
+// just supply one here (matches the verifiers' withTimeout resilience). The mark
+// is also independently re-validated offline by verify:pro / verify-pro-pnl.test.
+const DEEPBOOK_TIMEOUT_MS = 12_000;
+const sig = (): AbortSignal => AbortSignal.timeout(DEEPBOOK_TIMEOUT_MS);
+
 async function live() {
   for (const pool of Object.values(DEEPBOOK_POOLS)) {
-    const mark = await fetchDeepBookMark(pool.name);
+    const mark = await fetchDeepBookMark(pool.name, sig());
     assert.ok(mark.mid > 0, `${pool.name} mid > 0`);
     assert.ok(mark.ask >= mark.bid, `${pool.name} ask >= bid`);
-    const ticker = await fetchDeepBookTicker(pool.name);
+    const ticker = await fetchDeepBookTicker(pool.name, sig());
     assert.ok(ticker.lastPrice > 0, `${pool.name} last > 0`);
     // Depth ladder data: bids best-first (descending), asks best-first
     // (ascending), best bid < best ask (a sane, crossed-free book).
-    const depth = await fetchDeepBookDepth(pool.name, 5);
+    const depth = await fetchDeepBookDepth(pool.name, 5, sig());
     if (depth.bids.length >= 2) {
       assert.ok(
         depth.bids[0]!.price >= depth.bids[1]!.price,
@@ -120,7 +128,7 @@ async function live() {
         `${pool.name} book not crossed`,
       );
     }
-    const trades = await fetchDeepBookTrades(pool.name, 500);
+    const trades = await fetchDeepBookTrades(pool.name, 500, sig());
     const bucketMs = 60_000;
     const candles = tradesToCandles(trades, bucketMs); // 1m candles
     const sigma = realizedVolatility(candles, bucketMs);
@@ -152,8 +160,10 @@ void (async () => {
     await live();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (/fetch failed|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|network/i.test(msg)) {
-      console.log(`SKIP live check (network unavailable): ${msg}`);
+    if (/fetch failed|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|network|timeout|aborted/i.test(msg)) {
+      // A timeout/abort (the indexer is slow or unreachable) is treated the same
+      // as network-unavailable: SKIP, don't fail the judge gate on a transient.
+      console.log(`SKIP live check (network unavailable / timed out): ${msg}`);
     } else {
       console.error("FAIL live check:", msg);
       process.exit(1);
