@@ -267,7 +267,6 @@ The collateral invariant (`vault treasury accounting balances after every state 
 
 Production deploy would address these; the hackathon submission states them openly rather than papering over.
 
-- **DNT PWE on-chain.** Code is in (`compute_pwe_dnt` at commit `2d2050c`) but takes effect only after the next Move upgrade. Existing testnet markets still track DNT at PWE = 0 (per-position caps still bind).
 - **Empirical gas-spread, PTB-rejection live test, abort-leak test.** Doc 17a §A0's three §6.3 tests require a deployed-package + `devInspect` harness, out of scope for the hackathon window. The primary defense (R1 — Sui's compile-time PTB-Random rule) is enforced by the Sui bytecode verifier independently.
 - **`verify.ts` walk-state seed.** Hardcoded `vol_regime_init = 1_000_000n` matching the bootstrap default; a market deployed with a non-default value would mismatch from k=0. Runtime warning emitted; the proper fix is to extend `SegmentMarketCreated` to also emit `vol_regime_init` or to expose `state_after` from the segments Table.
 - **B7-default market on testnet (`0x0c2bdb…71f9`)** uses the old stake bounds where `MIN_STAKE × ROUND_DURATION > cap`. Smoke market (`0x2f74…1e45`) and any future bootstrap use the new self-consistent defaults; the broken one stays for archive purposes.
