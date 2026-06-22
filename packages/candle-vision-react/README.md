@@ -12,6 +12,19 @@ npm install @sui-options/candle-vision @sui-options/candle-vision-react react re
 
 `@sui-options/candle-vision` is a peer dependency because the React package delegates all detection and ranking to the core scanner.
 
+## Function: `scanCandles` (no React)
+
+The pure scan → rank → stats core that the hooks wrap. Use it from non-React
+code (keeper, bots, a server-side coach endpoint) to get the same bundled result
+in one call:
+
+```ts
+import { scanCandles } from '@sui-options/candle-vision-react';
+
+const { events, ranking, visibleSignals, stats } = scanCandles(candles);
+// stats: { total, visible, bullish, bearish, neutral, averageConfidence, … }
+```
+
 ## Hook: `useCandleVisionScanner`
 
 ```tsx

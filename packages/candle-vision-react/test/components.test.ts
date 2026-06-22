@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SignalList, PatternStatsPanel } from "../src/index.js";
+import { SignalList, PatternStatsPanel, scanCandles } from "../src/index.js";
 import { detectCandlePatterns } from "@sui-options/candle-vision";
 
 /** A textbook bullish marubozu after a small dip — yields ≥1 strong signal. */
@@ -58,4 +58,41 @@ test("PatternStatsPanel: renders stat rows from detected events, no crash", () =
 test("PatternStatsPanel: empty events render cleanly (no throw)", () => {
   const html = renderToStaticMarkup(React.createElement(PatternStatsPanel, { events: [] }));
   assert.equal(typeof html, "string");
+});
+
+// ── scanCandles: the pure scan→rank→stats core (no React) ───────────────────
+
+function strongCandles() {
+  const base = Array.from({ length: 4 }, (_, i) => {
+    const c = 100 - i * 0.25;
+    return { time: i + 1, open: c + 0.15, high: c + 1, low: c - 1, close: c, volume: 100 };
+  });
+  return [...base, { time: 5, open: 99, high: 105.05, low: 98.95, close: 105, volume: 170 }];
+}
+
+test("scanCandles: empty input → zeroed stats, no events", () => {
+  const r = scanCandles([]);
+  assert.equal(r.events.length, 0);
+  assert.equal(r.stats.total, 0);
+  assert.equal(r.stats.bullish, 0);
+  assert.equal(r.stats.averageConfidence, 0); // guarded divide-by-zero
+  assert.equal(r.visibleSignals.length, 0);
+});
+
+test("scanCandles: stats are internally consistent with the detected events", () => {
+  const r = scanCandles(strongCandles());
+  assert.ok(r.events.length > 0, "a strong bullish setup should detect ≥1 event");
+  // total counts every event; direction buckets partition it exactly
+  assert.equal(r.stats.total, r.events.length);
+  assert.equal(r.stats.bullish + r.stats.bearish + r.stats.neutral, r.events.length);
+  // averages are real probabilities in [0,1]
+  assert.ok(r.stats.averageConfidence > 0 && r.stats.averageConfidence <= 1);
+  // the bundled visibleSignals mirror the ranking's visible set
+  assert.equal(r.visibleSignals.length, r.ranking.visible.length);
+  assert.equal(r.stats.visible, r.ranking.visible.length);
+});
+
+test("scanCandles: a bullish marubozu is counted bullish", () => {
+  const r = scanCandles(strongCandles());
+  assert.ok(r.stats.bullish >= 1, "the bullish marubozu should land in the bullish bucket");
 });
