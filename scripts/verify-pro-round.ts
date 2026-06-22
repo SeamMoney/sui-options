@@ -30,7 +30,10 @@ export function checkRound(
   seed: number,
   paramsJson: string,
 ): { ok: boolean; recomputed: string; published: string } {
-  const recomputed = independentCommit(seed, paramsJson);
+  // Trim paramsJson like the published commit: a trailing newline from a
+  // line-copy of play's output must not false-MISMATCH. The engine's paramsJson
+  // is compact JSON (no surrounding whitespace); internal tamper is untouched.
+  const recomputed = independentCommit(seed, paramsJson.trim());
   const published = commit.trim().toLowerCase();
   return { ok: recomputed === published, recomputed, published };
 }

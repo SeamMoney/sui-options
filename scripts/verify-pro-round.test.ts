@@ -34,3 +34,14 @@ test("a tampered param does NOT match", () => {
   const tampered = PARAMS.replace('"sigmaAnnual":0.9', '"sigmaAnnual":0.5');
   assert.equal(checkRound(COMMIT, 424242, tampered).ok, false);
 });
+
+test("surrounding whitespace on the pasted params is trimmed → still HONEST (no false MISMATCH)", () => {
+  // A judge line-copying play's paramsJson can pick up a trailing newline / spaces.
+  // commit+seed were already trimmed across all verifiers; the params must be too,
+  // or the lead browser verifier false-MISMATCHes ("house cheated") on an honest round.
+  assert.equal(checkRound(COMMIT, 424242, `${PARAMS}\n`).ok, true, "trailing newline");
+  assert.equal(checkRound(COMMIT, 424242, `  ${PARAMS}  `).ok, true, "surrounding spaces");
+  assert.equal(checkRound(COMMIT, 424242, `\n\t${PARAMS}\n`).ok, true, "mixed leading/trailing whitespace");
+  // ...but INTERNAL whitespace (a re-serialized / tampered JSON) still fails.
+  assert.equal(checkRound(COMMIT, 424242, PARAMS.replace(":", ": ")).ok, false, "internal change ≠ trimmed");
+});
