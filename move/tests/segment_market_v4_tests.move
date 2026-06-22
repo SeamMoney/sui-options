@@ -537,6 +537,70 @@ fun in_round_touch_still_wins_on_a_cross_round_close() {
     sc.end();
 }
 
+/// Regression (v4.27) — the SYSTEMATIC residual #683's scan-bound could NOT
+/// close: a ride RUGGED in its round (entry ≤ rug_seg) that ALSO touched
+/// in-round still escaped to TOUCH_WIN by holding across the boundary — the live
+/// rug flag is cleared on the roll, and the (correctly kept, see #688) in-round
+/// touch then wins. The durable per-round rug history fixes it: decide_settlement
+/// reads the rug by `ride.round_index`, so it still applies after the roll. Here
+/// round 0 is rugged at segment 2, the ride touches in-round, and closes
+/// cross-round → it must settle EXPIRED_LOSS, not TOUCH_WIN. (Pre-fix, reading
+/// the cleared live flag, this returned TOUCH_WIN — direct loss-of-funds.)
+#[test]
+fun rugged_ride_cannot_escape_via_in_round_touch_held_cross_round() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    sm4::enable_rug<SUI>(&mut market, 150);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow_amt = stake * ROUND_DURATION;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let vault_before = mv::treasury_value(&vault);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots,
+        stake, escrow, &clk, sc.ctx(),
+    );
+    let upper = sm4::cached_upper_barrier<SUI>(&market);
+    let margin = upper * DEADBAND_BPS / 10_000;
+
+    // The rug fires at segment 2 of round 0 (ride entry 0 ≤ 2 → rugged). Record
+    // it durably, exactly as record_segment does on a real fire.
+    sm4::test_only_record_rug_history<SUI>(&mut market, 0, 2, sc.ctx());
+
+    // The ride ALSO touches the upper barrier in-round (segment ROUND_DURATION-1).
+    let st = sp::state_with(upper + margin, false, 0, VOL_REGIME_INIT, HOME_PRICE);
+    sm4::test_only_insert_segment_at<SUI>(
+        &mut market, ROUND_DURATION - 1, x"a1", st, HOME_PRICE, upper + margin + 1, 2_000,
+    );
+
+    // Roll into round 1 (the real roll clears the live flag; the durable history
+    // persists) and close there — the cross-round escape attempt.
+    sm4::test_only_bump_segment_index<SUI>(&mut market, ROUND_DURATION + 1);
+    sm4::test_only_set_cached_round_index<SUI>(&mut market, 1);
+
+    clk.increment_for_testing(1_000);
+    let payout = sm4::close_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    // The durable rug wins over the in-round touch: EXPIRED_LOSS, no jackpot.
+    assert!(sm4::settlement_kind(&ride) == sm4::settlement_expired_loss(), 0);
+    assert!(payout.value() < escrow_amt, 1);
+    // Conservation: the forfeited escrow is retained by the vault, nothing minted.
+    assert!(mv::treasury_value(&vault) == vault_before + escrow_amt - payout.value(), 2);
+
+    test_utils::destroy(payout);
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 7 — close: no-touch + within round → CASHOUT with touched_side=2
 /// (NONE). Record a segment that does NOT touch either barrier and close
 /// before round end → Bachelier cashout path.
