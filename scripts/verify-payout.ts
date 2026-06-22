@@ -175,7 +175,7 @@ export function checkPayoutIdentity(
   return errs;
 }
 
-async function readRide(client: SuiJsonRpcClient, id: string): Promise<{ ride: Ride; marketId: string }> {
+export async function readRide(client: SuiJsonRpcClient, id: string): Promise<{ ride: Ride; marketId: string }> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
   const content = asObj(asObj(o.data).content);
   if (!/::segment_market_v4::SegmentRidePositionV4$/.test(asStr(content.type))) {
@@ -199,7 +199,7 @@ async function readRide(client: SuiJsonRpcClient, id: string): Promise<{ ride: R
   };
 }
 
-async function readMarket(
+export async function readMarket(
   client: SuiJsonRpcClient,
   id: string,
 ): Promise<{

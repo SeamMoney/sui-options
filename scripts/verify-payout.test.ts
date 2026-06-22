@@ -12,7 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { checkPayoutIdentity, nextSegmentIndexAtClose, queryRideClosed } from "./verify-payout.js";
+import { checkPayoutIdentity, nextSegmentIndexAtClose, queryRideClosed, readRide, readMarket } from "./verify-payout.js";
 import {
   isqrtU64,
   bachelierCashoutFactor,
@@ -238,4 +238,55 @@ test("queryRideClosed: finds the event across pages (descending pagination)", as
   const filler = Array.from({ length: 60 }, (_, i) => closedEvent({ ride_id: `0x${i}` }));
   const got = await queryRideClosed(mockEvents([...filler, closedEvent({ payout: "999", forfeit: "0", stake_paid: "999" })]), PKG, MKT, RIDE);
   assert.equal(got?.payout, 999n);
+});
+
+
+// ── readRide / readMarket object parsers (payout-input parse) ───────────────
+// Lock the nested-field navigation that feeds the payout derivation, so a
+// structure/field rename is caught in offline `npm test` (today only live).
+function mockObject(type: string, fields: Record<string, unknown>): never {
+  return {
+    getObject: async () => ({
+      data: { objectId: "0xo", content: { dataType: "moveObject", type, fields } },
+    }),
+  } as never;
+}
+const RIDE_TYPE = "0xpkg::segment_market_v4::SegmentRidePositionV4";
+const MKT_TYPE = "0xpkg::segment_market_v4::SegmentMarketV4<0x2::sui::SUI>";
+
+test("readRide: parses every payout-relevant field", async () => {
+  const { ride, marketId } = await readRide(mockObject(RIDE_TYPE, {
+    market_id: "0xMKT", entry_segment_index: "457", round_index: "6",
+    multiplier_bps: "17500", stake_per_segment: "10000", escrowed: "825000",
+    upper_barrier_price: "1107866203", lower_barrier_price: "906435985",
+    closed: true, closed_at_ms: "999", settlement_kind: 3,
+  }), "0xride");
+  assert.equal(marketId, "0xMKT");
+  assert.equal(ride.entry, 457n);
+  assert.equal(ride.multiplierBps, 17500n);
+  assert.equal(ride.upperBarrier, 1107866203n);
+  assert.equal(ride.lowerBarrier, 906435985n);
+  assert.equal(ride.closed, true);
+  assert.equal(ride.settlementKind, 3);
+});
+
+test("readRide: rejects a non-ride object type", async () => {
+  await assert.rejects(() => readRide(mockObject("0x2::coin::Coin", {}), "0xride"));
+});
+
+test("readMarket: parses tableId + cashout inputs", async () => {
+  const m = await readMarket(mockObject(MKT_TYPE, {
+    segments: { fields: { id: { id: "0xTABLE" } } },
+    round_duration_segments: "75", next_segment_index: "4021",
+    sigma_bps_per_sqrt_sec: "100", cashout_spread_bps: "200",
+  }), "0xmkt");
+  assert.equal(m.packageId, "0xpkg");
+  assert.equal(m.tableId, "0xTABLE");
+  assert.equal(m.roundDuration, 75n);
+  assert.equal(m.sigmaBpsPerSqrtSec, 100n);
+  assert.equal(m.cashoutSpreadBps, 200n);
+});
+
+test("readMarket: rejects a non-market object type", async () => {
+  await assert.rejects(() => readMarket(mockObject("0x2::coin::Coin", {}), "0xmkt"));
 });
