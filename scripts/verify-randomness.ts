@@ -53,10 +53,11 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 export const RANDOM_OBJECT = "0x0000000000000000000000000000000000000000000000000000000000000008";
 
-const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
-const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
-const dim = (s: string) => `\x1b[90m${s}\x1b[0m`;
-const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
+const useColor = process.stdout.isTTY === true && process.env.NO_COLOR === undefined;
+const green = (s: string) => (useColor ? `\x1b[32m${s}\x1b[0m` : s);
+const red = (s: string) => (useColor ? `\x1b[31m${s}\x1b[0m` : s);
+const dim = (s: string) => (useColor ? `\x1b[90m${s}\x1b[0m` : s);
+const bold = (s: string) => (useColor ? `\x1b[1m${s}\x1b[0m` : s);
 /** SuiScan link so a judge can open the actual sui::random-consuming tx. */
 const suiscan = (kind: "object" | "tx", id: string): string => `https://suiscan.xyz/testnet/${kind}/${id}`;
 

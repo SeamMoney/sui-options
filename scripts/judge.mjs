@@ -23,12 +23,13 @@ const withE2e = argv.includes("--with-e2e") || argv.includes("--full");
 const withChain = argv.includes("--with-chain") || argv.includes("--full");
 
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
 const C = {
-  dim: (s) => `\x1b[2m${s}\x1b[0m`,
-  bold: (s) => `\x1b[1m${s}\x1b[0m`,
-  green: (s) => `\x1b[32m${s}\x1b[0m`,
-  red: (s) => `\x1b[31m${s}\x1b[0m`,
-  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s) => (useColor ? `\x1b[2m${s}\x1b[0m` : s),
+  bold: (s) => (useColor ? `\x1b[1m${s}\x1b[0m` : s),
+  green: (s) => (useColor ? `\x1b[32m${s}\x1b[0m` : s),
+  red: (s) => (useColor ? `\x1b[31m${s}\x1b[0m` : s),
+  cyan: (s) => (useColor ? `\x1b[36m${s}\x1b[0m` : s),
 };
 
 /**
