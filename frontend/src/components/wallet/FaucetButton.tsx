@@ -5,9 +5,12 @@
  * session wallet, in the ride flow) and an `onFunded` callback fired after a
  * successful drip so the parent can refresh balances.
  *
- * POSTs the address to `/api/faucet` (Vercel serverless function), which
- * ships back a `digest`. 0.05 SUI per drip; the server enforces a 5-minute
- * per-recipient cooldown, and we add a local 30s debounce on top.
+ * POSTs the recipient to `/api/faucet` (SUI gas) and `/api/faucet-tusd` (TUSD
+ * stake) — Vercel serverless functions that ship back a `digest`. The two share
+ * one faucet wallet, so we call them SEQUENTIALLY (not concurrently) and retry on
+ * 5xx, to ride out the wallet's single-gas-coin contention instead of letting two
+ * txs equivocate on the same coin. The server enforces a 90s per-recipient
+ * cooldown; we add a local 30s debounce on top.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +18,26 @@ import { useToast } from "@/components/ui/toaster";
 import { explorerTxUrl } from "@/lib/sui";
 
 const LOCAL_COOLDOWN_MS = 30_000;
+
+/** POST a faucet endpoint, retrying only on server-side 5xx (the single-gas-coin
+ *  contention that makes the shared faucet wallet intermittently equivocate).
+ *  4xx (validation) and 429 (rate-limit) are returned as-is — never retried. */
+async function postFaucet(url: string, recipient: string): Promise<Response> {
+  const MAX_ATTEMPTS = 3;
+  let res!: Response;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient }),
+    });
+    if (res.status < 500) return res; // success / 429 / 4xx — done
+    if (attempt < MAX_ATTEMPTS - 1) {
+      await new Promise((r) => window.setTimeout(r, 350 * (attempt + 1)));
+    }
+  }
+  return res; // exhausted retries — return the last 5xx response
+}
 
 interface FaucetSuccess {
   digest: string;
@@ -68,24 +91,15 @@ export function FaucetButton(props: {
       tone: "pending",
     });
     try {
-      // Drip SUI (for gas) + TUSD (for stake) in parallel.
-      // SUI is required for every Sui tx; TUSD is what the v4 market
-      // takes as ride stake. Both endpoints are independently
-      // rate-limited per-recipient (90s cooldown).
-      const [suiRes, tusdRes] = await Promise.all([
-        fetch("/api/faucet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ recipient }),
-        }),
-        fetch("/api/faucet-tusd", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ recipient }),
-        }),
-      ]);
-
+      // Drip SUI (for gas) then TUSD (for stake) SEQUENTIALLY, each with
+      // retry-on-5xx. SUI is required for every Sui tx; TUSD is what the v4
+      // market takes as ride stake. The two endpoints share one faucet wallet,
+      // so firing them concurrently used to make both txs hit the same gas coin
+      // at once (~10-20% 500s, blocking funding). Sequential + retry rides that
+      // out. Both are independently rate-limited per-recipient (90s cooldown).
+      const suiRes = await postFaucet("/api/faucet", recipient);
       const suiData = (await suiRes.json()) as Partial<FaucetSuccess & FaucetError>;
+      const tusdRes = await postFaucet("/api/faucet-tusd", recipient);
       const tusdData = (await tusdRes.json()) as Partial<FaucetSuccess & FaucetError>;
 
       const suiOk = suiRes.ok && Boolean(suiData.digest);
