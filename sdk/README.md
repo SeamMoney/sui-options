@@ -122,15 +122,22 @@ const matches = detectPatterns(candleWindow); // PatternMatch[]
 (`isDoji`, `isHammer`, `isMarubozu`, `isEngulfing`, `isHarami`, `isPiercing`,
 `isDarkCloudCover`, …).
 
-## Touch / No-Touch market builders (`transactions`)
+## Touch / No-Touch market builders (`transactions`) — ⚠️ DEPRECATED (retired v1 ABI)
 
-The single-barrier touch/no-touch surface against `wick::Market<C>`:
+> **Do not use for new integrations.** These target the retired v1
+> `wick::create_market` / `buy_touch` / `swap` / `redeem_complete_set` /
+> `mark_hit` ABI, which **no longer exists in the shipped package** — a tx built
+> from any of them aborts on-chain. They're kept (each marked `@deprecated`; see
+> the module banner in [`src/transactions.ts`](src/transactions.ts)) only because
+> unrouted legacy UI + bots still import them. **For the live surface** use the
+> segment-market / ride builders above (`buildOpenSegmentRideV4`,
+> `buildRecordSegmentV4`, `buildCloseSegmentRideV4`, `buildBootstrapSegmentMarketV4`,
+> …) plus the touch facade `open_touch` / `open_no_touch` + `lock_and_settle` +
+> `redeem`.
 
-`buildCreateMarketTx`, `buildBuyTx` (`buy_touch` / `buy_no_touch`, by `side`),
-`buildSwapTx`, `buildRedeemCompleteSetTx`, `buildRedeemWinnerTx`,
-`buildRedeemLpTx`, and the keeper paths `buildMarkHitTx` / `buildSettleExpiredTx`.
-Each takes `{ packageId, collateralType, sender, … }` and returns an unsigned
-`Transaction`.
+Legacy builders (all `@deprecated`): `buildCreateMarketTx`, `buildBuyTx`,
+`buildSwapTx`, `buildRedeemCompleteSetTx`, `buildRedeemWinnerTx`, `buildRedeemLpTx`,
+`buildMarkHitTx`, `buildSettleExpiredTx`.
 
 ## Helpers
 
