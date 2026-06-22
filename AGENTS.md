@@ -181,10 +181,10 @@ One more CI-down gap: changes to **sdk / pro-options / candle-vision** source ne
 
 - **Move package**: `0x1fdf784743d82c000e84154506e21daedc45bf241818fef6b28635e99e815924` (v4.26, upgraded 2026-05-25 from `0x10c3…`) — source of truth `deployments/testnet.json`; every object verified live in `deployments/ADDRESSES.md`. The detailed object IDs below this line are a 2026-05-25 snapshot and may lag a redeploy — trust `testnet.json`/`ADDRESSES.md`.
 - **TUSD test stablecoin**: `0x204d595c…::tusd::TUSD` (1B minted to publisher, 100M seeded into MartingalerVault<TUSD>). Faucet wallet holds the TreasuryCap so `/api/faucet-tusd` mints on demand.
-- **Active markets**:
-  - SUI legacy: `0xa72a36…` (kept for fallback, no rug)
-  - TUSD active: `0xe98ace0b…` (current — no rug yet)
-  - TUSD + rug (pending Phase 1.5): bootstrap with `scripts/bootstrap-tusd-market-rugged.sh` once the rug Move upgrade lands
+- **Active markets** (authoritative list in `deployments/testnet.json:segment_markets_v4` + `ADDRESSES.md`):
+  - **TUSD + rug — the live demo market**: `0x54e915…` — SegmentMarketV4 with the 1.5%/seg `MARKET HALT`. The rug shipped in v4.26 (no longer "pending"); `smoke:ride` funds + plays + audits this market cold.
+  - TUSD non-rug: `0xe98ace0b…` — SegmentMarketV4, 75-seg round, no halt (kept as a no-rug fallback).
+  - SUI legacy: `0xa72a36…` (kept for fallback, no rug).
 - **Sponsor wallet**: `0x02e3f17c…` (0.3 SUI, SponsorPolicy initialized at `0x00d868c659dd…`, not yet wired to user txs — that's v4.22 work)
 - **House edge model**: per-segment rug-pull at `rug_chance_bps = 150` (1.5%). The current calibration (doc 27 economic model, `scripts/simulate_v4.27_strategies.py` — a 6-strategy sweep at 50k rounds each) lands every tested strategy in a **+3.93% to +11.71%** house-edge band, the figure the README quotes. (Doc 26's earlier single-strategy estimate was +3.4% via `scripts/simulate_v4_house_edge.py` — superseded by the doc-27 sweep.) See `scripts/verify-v4.26-rug.mjs` for the on-chain validation harness.
 - **v4 design spec doc 25** (touch-either always-open) shipped on testnet at commit `b1e9a2c`. **v4.26 (rug-pull house edge)** spec at `docs/design/v2/26_rug_pull_house_edge_v4.md` — **shipped on testnet** (package `0x1fdf…`, v4.26, upgraded 2026-05-25).
