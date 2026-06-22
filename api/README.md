@@ -168,12 +168,13 @@ Once funded, the next call to `/api/faucet` succeeds without a redeploy
 - **Single-gas-coin contention → intermittent 500s (~10-20%).** The handler
   already picks a *random* usable gas coin per attempt (`setGasPayment`), but that
   only engages with **≥2 usable coins**; if the wallet is one big coin, concurrent
-  drips equivocate on it. This is made **worse** because the frontend "Get test
-  funds" button fires `/api/faucet` (SUI) **and** `/api/faucet-tusd` (TUSD)
+  drips equivocate on it. It used to be made **worse** because the frontend "Get
+  test funds" button fired `/api/faucet` (SUI) **and** `/api/faucet-tusd` (TUSD)
   *concurrently*, and **both use the same wallet** (`WICK_FAUCET_PRIVATE_KEY` owns
-  the TUSD TreasuryCap) — so two txs hit the one coin at the same time. And it's
-  **judge-visible**: `FaucetButton.tsx` has no retry, so a 500 surfaces as
-  "✗ SUI failed" and blocks `/ride` funding. **One-time fix (no code change):**
+  the TUSD TreasuryCap) — two txs hit the one coin at once. **The frontend now
+  mitigates that client-side** (#523: calls the two sequentially + retries on 5xx,
+  so a transient 500 no longer surfaces as "✗ SUI failed"). The complete root fix
+  is still to give the wallet >1 coin. **One-time fix (no code change):**
   `WICK_FAUCET_PRIVATE_KEY=… npx tsx scripts/split-faucet-coins.ts 12` splits the
   wallet into ~12 coins (transferred back to itself — funds never leave) so the
   anti-contention picker spreads load and the 500s stop. Add `--dry-run` to preview
