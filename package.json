@@ -38,6 +38,7 @@
     "verify:barriers": "tsx scripts/verify-barriers.ts",
     "audit:ride": "tsx scripts/audit-ride.ts",
     "audit:latest": "tsx scripts/audit-latest.ts",
+    "audit:sweep": "tsx scripts/audit-sweep.ts",
     "test:verify-v4": "tsx --test scripts/verify-v4.test.ts",
     "test:verify-payout": "tsx --test scripts/verify-payout.test.ts",
     "test:verify-barriers": "tsx --test scripts/verify-barriers.test.ts",
