@@ -288,7 +288,7 @@ type ClosedEvent = { stakePaid: bigint; payout: bigint; forfeit: bigint; bounty:
 /** Archival fallback RPC: keeps historic events that PublicNode prunes. */
 const ARCHIVAL_RPC = "https://fullnode.testnet.sui.io:443";
 
-async function queryRideClosed(
+export async function queryRideClosed(
   client: SuiJsonRpcClient,
   packageId: string,
   marketId: string,

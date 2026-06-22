@@ -12,7 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { checkPayoutIdentity, nextSegmentIndexAtClose } from "./verify-payout.js";
+import { checkPayoutIdentity, nextSegmentIndexAtClose, queryRideClosed } from "./verify-payout.js";
 import {
   isqrtU64,
   bachelierCashoutFactor,
@@ -191,4 +191,51 @@ test("nextSegmentIndexAtClose matches a linear scan over random monotonic data",
     const bin = await nextSegmentIndexAtClose(mockTable(m), "0xt", entry, closed, next);
     assert.equal(bin, lin, `trial ${trial}: binary ${bin} != linear ${lin}`);
   }
+});
+
+
+// ── queryRideClosed event parse (the MONEY parser) ──────────────────────────
+// Maps the RideClosedV4 event's fields to the numbers the audit pays out on. A
+// Move-upgrade field rename would silently zero these (asBig → 0) and is caught
+// today only by the LIVE check:all, not by offline `npm test`. Lock it here.
+function mockEvents(events: Array<Record<string, unknown>>, pageSize = 50): never {
+  return {
+    queryEvents: async (a: { cursor: { eventSeq: string } | null }) => {
+      const start = a.cursor ? Number(a.cursor.eventSeq) : 0;
+      const slice = events.slice(start, start + pageSize);
+      const nextSeq = start + pageSize;
+      const hasNext = nextSeq < events.length;
+      return {
+        data: slice.map((parsedJson) => ({ parsedJson })),
+        hasNextPage: hasNext,
+        nextCursor: hasNext ? { txDigest: "0x", eventSeq: String(nextSeq) } : null,
+      };
+    },
+  } as never;
+}
+const PKG = "0xpkg";
+const MKT = "0xmkt";
+const RIDE = "0xride";
+function closedEvent(over: Record<string, unknown> = {}) {
+  return {
+    ride_id: RIDE, market_id: MKT, round_index: "6", settlement_kind: 3,
+    touched_side: 2, stake_paid: "20000", payout: "0", forfeit: "20000",
+    bounty: "0", closed_at_ms: "123", ...over,
+  };
+}
+
+test("queryRideClosed: maps every money field by name", async () => {
+  const got = await queryRideClosed(mockEvents([closedEvent({ stake_paid: "150000", payout: "262500", forfeit: "0", bounty: "0", settlement_kind: 1 })]), PKG, MKT, RIDE);
+  assert.deepEqual(got, { stakePaid: 150000n, payout: 262500n, forfeit: 0n, bounty: 0n, settlementKind: 1 });
+});
+
+test("queryRideClosed: ignores events for other rides/markets, returns null when absent", async () => {
+  const other = closedEvent({ ride_id: "0xother" });
+  assert.equal(await queryRideClosed(mockEvents([other]), PKG, MKT, RIDE), null);
+});
+
+test("queryRideClosed: finds the event across pages (descending pagination)", async () => {
+  const filler = Array.from({ length: 60 }, (_, i) => closedEvent({ ride_id: `0x${i}` }));
+  const got = await queryRideClosed(mockEvents([...filler, closedEvent({ payout: "999", forfeit: "0", stake_paid: "999" })]), PKG, MKT, RIDE);
+  assert.equal(got?.payout, 999n);
 });
