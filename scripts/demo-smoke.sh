@@ -20,7 +20,7 @@ bad() { printf '  \033[31m✗\033[0m %s\n' "$1"; fails=$((fails+1)); }
 echo "demo smoke @ $BASE"
 
 # Routes must serve the SPA HTML shell (200).
-for path in "/" "/pro" "/coach" "/verify"; do
+for path in "/" "/pro" "/ride" "/coach" "/verify"; do
   code=$(curl -s -o /dev/null -m 20 -w "%{http_code}" "$BASE$path")
   [ "$code" = "200" ] && ok "GET $path → 200" || bad "GET $path → $code"
 done
