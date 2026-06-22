@@ -124,6 +124,18 @@ test("in-round TOUCH_WIN on the LOWER barrier (separate detection path) derives 
   assert.equal(code, 0, "an honest lower-barrier touch-win must PASS (exit 0)");
 });
 
+test("an ABORTED_REFUND ride PASSes (accepted, not derived) — never a false 'chain lied'", () => {
+  // An abort is an external vault event; the 1:1 refund is candle-independent, so
+  // verify-v4 must ACCEPT kind 4 and pass, NOT derive CASHOUT and cry mismatch.
+  // Locks that a refactor of the verdict logic can't false-FAIL an honest abort.
+  const { code, out } = run("mock://aborted-v4");
+  assert.match(out, /settled ABORTED_REFUND/);
+  assert.match(out, /external vault event/);
+  assert.match(out, /nothing to replay/);
+  assert.doesNotMatch(out, /FAIL — the chain lied/);
+  assert.equal(code, 0, "an honest aborted ride must PASS (exit 0)");
+});
+
 test("a suppressed segment (gap below the head) FAILs closed, not silent-truncated", () => {
   // The market reports next_segment_index=8 but segment 5 is missing — a hole the
   // honest chain (contiguous record_segment_v4 indices) can't produce. The

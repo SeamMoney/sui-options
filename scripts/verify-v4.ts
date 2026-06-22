@@ -720,7 +720,9 @@ async function verify(args: Args): Promise<boolean> {
               ? "touchlow"
               : args.rpc.includes("touch")
                 ? "touch"
-                : "honest";
+                : args.rpc.includes("aborted")
+                  ? "aborted"
+                  : "honest";
   const client: RpcClient = synthetic
     ? buildSyntheticClient(synthMode)
     : makeResilientClient([args.rpc, ...FALLBACK_RPCS]);
@@ -989,7 +991,7 @@ async function verify(args: Args): Promise<boolean> {
 // a later-round touch won it — state the verifier can't reconstruct). The
 // in-round derivation is CASHOUT, so the verdict mismatches; the verifier must
 // PASS with "not independently checkable", NOT cry "chain lied".
-type SynthMode = "honest" | "tamper" | "rug" | "crossloss" | "crosswin" | "gap" | "touch" | "touchlow";
+type SynthMode = "honest" | "tamper" | "rug" | "crossloss" | "crosswin" | "gap" | "touch" | "touchlow" | "aborted";
 
 const SYNTH_MARKET = "0x" + "5e6".padEnd(64, "0");
 const SYNTH_RIDE = "0x" + "47de".padEnd(64, "0");
@@ -1016,6 +1018,7 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
   const gap = mode === "gap"; // drop segment 5 (a hole below the recorded head)
   const touch = mode === "touch"; // upper barrier inside the up-excursion → TOUCH_WIN
   const touchlow = mode === "touchlow"; // lower barrier inside seg-0's deep dip → TOUCH_WIN
+  const aborted = mode === "aborted"; // honest candles, settlement_kind = ABORTED_REFUND
   // Deterministic keys: byte i of segment k = (k*7 + i*3 + 11) mod 251.
   const segs: SynthSeg[] = [];
   let state = newState(SYNTH_HOME, DEFAULT_VOL_REGIME_INIT, SYNTH_HOME);
@@ -1113,7 +1116,9 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
                     ? SETTLEMENT_EXPIRED_LOSS
                     : crosswin || touch || touchlow
                       ? SETTLEMENT_TOUCH_WIN
-                      : SETTLEMENT_CASHOUT,
+                      : aborted
+                        ? SETTLEMENT_ABORTED_REFUND
+                        : SETTLEMENT_CASHOUT,
                 ),
               },
             },
