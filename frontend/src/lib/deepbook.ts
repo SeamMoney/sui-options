@@ -184,6 +184,26 @@ export interface DeepBookDepth {
   readonly tsMs: number;
 }
 
+/** Parse raw [price, size] order-book rows into clean levels — drops any level
+ *  with a non-finite/non-positive price OR size. A malformed SIZE from the
+ *  indexer (valid price, bad size) would otherwise render a literal "NaN" in the
+ *  /coach ladder AND poison the depth-bar scale (DeepBookDepth's
+ *  `maxSize = Math.max(1, …NaN) = NaN` → every bar width becomes "NaN%"). The
+ *  pre-existing price-only guard missed this — same class as fetchDeepBookMark's
+ *  #680 fix. Exported for unit testing. */
+export function parseDeepBookLevels(
+  rows: [string, string][] | undefined,
+  levels: number,
+): DeepBookLevel[] {
+  return (rows ?? [])
+    .map(([p, s]): DeepBookLevel => ({ price: Number(p), size: Number(s) }))
+    .filter(
+      (l) =>
+        Number.isFinite(l.price) && l.price > 0 && Number.isFinite(l.size) && l.size > 0,
+    )
+    .slice(0, levels);
+}
+
 /**
  * Top `levels` bids and asks from the DeepBook order book — the real resting
  * liquidity, for a "this is a live on-chain CLOB" depth ladder.
@@ -201,15 +221,10 @@ export async function fetchDeepBookDepth(
     asks?: [string, string][];
     timestamp?: string | number;
   };
-  const parse = (rows: [string, string][] | undefined): DeepBookLevel[] =>
-    (rows ?? [])
-      .map(([p, s]): DeepBookLevel => ({ price: Number(p), size: Number(s) }))
-      .filter((l) => Number.isFinite(l.price) && l.price > 0)
-      .slice(0, levels);
   return {
     pool,
-    bids: parse(data.bids),
-    asks: parse(data.asks),
+    bids: parseDeepBookLevels(data.bids, levels),
+    asks: parseDeepBookLevels(data.asks, levels),
     tsMs: Number(data.timestamp) || Date.now(),
   };
 }

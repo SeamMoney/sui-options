@@ -15,6 +15,7 @@ import {
   fetchDeepBookTicker,
   fetchDeepBookTrades,
   fetchDeepBookDepth,
+  parseDeepBookLevels,
   tradesToCandles,
   realizedVolatility,
   DEEPBOOK_POOLS,
@@ -89,6 +90,36 @@ import { quote, yearsFromSeconds } from "../packages/pro-options/src/black-schol
   const sig = realizedVolatility(moving, bucketMs);
   assert.ok(sig > 0.01 && sig <= 5, `moving σ in band: ${sig}`);
   console.log("PASS realizedVolatility (fallback, flat floor, in-band)");
+}
+
+// ── Part 1c: order-book level parsing (NaN guard — #680-class, depth path) ───
+{
+  // The indexer can return a level with a valid price but a malformed size; the
+  // pre-existing parse guarded only the price, so a NaN size flowed through to
+  // the /coach ladder as a literal "NaN" and poisoned the depth-bar scale
+  // (maxSize = Math.max(1, …NaN) = NaN → every bar width "NaN%").
+  const rows: [string, string][] = [
+    ["0.74", "100"], // valid
+    ["0.73", "oops"], // NaN size → dropped
+    ["0.72", "0"], // zero size (no liquidity) → dropped
+    ["0", "50"], // non-positive price → dropped
+    ["0.71", "200"], // valid
+  ];
+  const out = parseDeepBookLevels(rows, 5);
+  assert.deepEqual(
+    out,
+    [
+      { price: 0.74, size: 100 },
+      { price: 0.71, size: 200 },
+    ],
+    "parseDeepBookLevels must drop malformed/zero price AND size",
+  );
+  assert.ok(
+    out.every((l) => Number.isFinite(l.price) && Number.isFinite(l.size)),
+    "no NaN escapes the parse",
+  );
+  assert.equal(parseDeepBookLevels(rows, 1).length, 1, "honours the level cap");
+  console.log("PASS parseDeepBookLevels (drops NaN/zero price+size, honours level cap)");
 }
 
 // ── Part 2: live indexer ────────────────────────────────────────────────────
