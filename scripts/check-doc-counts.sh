@@ -13,12 +13,14 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-# Pull the count from every phrasing used in the docs:
-#   "641 / 641 ... tests"  ·  "641 Move tests"  ·  "Total tests: 641"
-#   shields badge "move%20tests-641%2F641"
-counts=$(grep -rhoE \
-  "[0-9]{3} ?/ ?[0-9]{3} (Move )?tests|[0-9]{3} Move tests|Total tests: [0-9]{3}|move%20tests-[0-9]{3}" \
-  --include="*.md" . 2>/dev/null \
+# Every phrasing the docs use to state the count. ONE source of truth, reused by
+# both the count extraction and the per-file breakdown below, so they can't drift:
+#   "641 / 641 ... tests"  ·  "641/641 passing"  ·  "641 Move tests"
+#   "Total tests: 641"  ·  shields badge "move%20tests-641%2F641"
+# (the "passing" form is move/SAFETY.md's — it was silently MISSED before, a
+#  false-pass risk if it were ever the lone laggard.)
+PAT='[0-9]{3} ?/ ?[0-9]{3} (Move )?(tests|passing)|[0-9]{3} Move tests|Total tests: [0-9]{3}|move%20tests-[0-9]{3}'
+counts=$(grep -rhoE "$PAT" --include="*.md" . 2>/dev/null \
   | grep -v node_modules \
   | grep -oE "[0-9]{3}" | sort -u)
 
@@ -47,10 +49,16 @@ if [ "$distinct" -le 1 ]; then
   exit 0
 fi
 
-echo "✗ docs disagree on the Move test count — distinct values found:"
-printf '%s\n' "$counts" | sed 's/^/    /'
+echo "✗ docs disagree on the Move test count — distinct values found: $(printf '%s ' $counts)"
 echo ""
-echo "  Run 'sui move test' (from move/) for the authoritative number, then make"
-echo "  EVERY doc match: README (badge + body), move/SAFETY.md, deployments/ADDRESSES.md,"
-echo "  docs/runbooks/v4.26_deploy_runbook.md."
+# Per-file breakdown so a PARTIAL sync stops missing the same stragglers — the
+# recurring failure mode is README getting synced while deployments/ADDRESSES.md
+# and the runbook lag a release behind. Name every file + its stated count so
+# they can ALL be reconciled in one pass:
+echo "  per-file (sync every laggard to the authoritative count below):"
+grep -rnoE "$PAT" --include="*.md" . 2>/dev/null | grep -v node_modules | sed 's/^/    /'
+echo ""
+actual=$(grep -rhoE '#\[test\]' move/sources move/tests 2>/dev/null | wc -l | tr -d ' ')
+echo "  Authoritative count (move/ #[test] functions == 'sui move test' total): ${actual}."
+echo "  Make every file above state ${actual}."
 exit 1
