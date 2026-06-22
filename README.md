@@ -158,7 +158,7 @@ npm run e2e            # /pro: live mark → open a $5 option → live P&L ticks
 open https://wick-markets.vercel.app/ride
 ```
 
-`verify.ts` walks every segment from k=0 forward through the same `expand_segment` the Move chain ran, recomputes high/low per segment, runs the touch predicate with the on-chain barrier and deadband, and compares its verdict to the chain's `RideClosed.settlement_kind`. If they ever diverge, exit code 1, loud red error, with the per-segment diff. That tool is the public claim — fairness is a function call, not a promise.
+`verify-v4` re-runs the same `expand_segment` the Move chain ran for every recorded segment — each one starting from the chain's *own* recorded carried-state of the prior segment (read straight from the on-chain segment table), so every segment verifies **independently**: no replay-from-genesis, prune-proof against the events public nodes discard. It recomputes high/low per segment, runs the touch predicate with the on-chain barrier and deadband, and compares its verdict to the chain's `RideClosedV4.settlement_kind`. If they ever diverge, exit code 1, loud red error, with the per-segment diff. That tool is the public claim — fairness is a function call, not a promise.
 
 ---
 
