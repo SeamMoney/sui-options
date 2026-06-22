@@ -14,7 +14,7 @@ Working name: **Wick Markets**. Tagline: *Options for the next candle.*
 
 - **`move/`** — Sui Move package
 - **`frontend/`** — Vite + React + TypeScript + Sui wallet adapter
-- **`keeper/`** — TypeScript keeper bot (poll → `mark_hit` / `settle_expired`)
+- **`keeper/`** — TypeScript keeper bot (cranks live ride segments: poll → `record_segment_v4`, via the SegmentCranker/SegmentSentinel; the legacy `mark_hit`/`settle_expired` path is retired with the v1 ABI)
 - **`scripts/`** — bash deploy and smoke-test scripts
 
 ## MVP scope — Touch / No-Touch + DNT + Ride
