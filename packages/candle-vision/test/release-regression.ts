@@ -9,6 +9,7 @@ import {
   deriveTaLines,
   detectUnifiedCandlePatterns,
   rankPatternSignals,
+  scanCandleVision,
   updateMicroBot,
   walkForwardMicroBot,
 } from '../src/index';
@@ -250,6 +251,24 @@ assert.equal(noSetup.decisions.length, 0, 'no events should yield no decisions')
 const emptyInput = decideTradeFromEvents([], []);
 assert.equal(emptyInput.decision.action, 'hold', 'empty input should hold, not crash');
 assert.equal(emptyInput.decision.status, 'no-signal', 'empty input should be no-signal');
+
+// Scanner startup robustness: the /pro coach calls scanCandleVision on the live
+// feed, which is empty then 1–2 candles while warming up. It must return a valid
+// empty result (no throw, no NaN index) — the decideTradeFromEvents test above
+// bypasses the scanner, so this locks the entry the coach actually hits on load.
+for (const n of [0, 1, 2]) {
+  const warming = Array.from({ length: n }, (_, i) => ({
+    time: 1000 + i * 60, open: 100, high: 101, low: 99, close: 100.5, volume: 10,
+  }));
+  const res = scanCandleVision(warming);
+  assert.equal(res.candles.length, n, `scanCandleVision(${n} candles) echoes its input`);
+  assert.ok(Array.isArray(res.events), `scanCandleVision(${n}) returns an events array, never throws`);
+  assert.ok(Array.isArray(res.visibleSignals), `scanCandleVision(${n}) returns visibleSignals`);
+  if (n === 0) {
+    assert.equal(res.events.length, 0, 'empty feed → no pattern events');
+    assert.equal(res.latestEvent, undefined, 'empty feed → no latestEvent (no NaN index)');
+  }
+}
 
 const supportRetest = fixtureEvent({
   id: 'fixture:support-retest',
