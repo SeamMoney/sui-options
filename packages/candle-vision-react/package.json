@@ -33,10 +33,11 @@
     }
   },
   "devDependencies": {
+    "@sui-options/candle-vision": "file:../candle-vision",
     "@types/react": "^18.2.79",
     "@types/react-dom": "^18.2.25",
-    "@sui-options/candle-vision": "file:../candle-vision",
     "typescript": "^5.7.2"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "license": "MIT"
 }
