@@ -11,7 +11,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { rideCrankability, buildCrankRideTx } from "../src/ride.ts";
+import { rideCrankability, buildCrankRideTx } from "../src/ride.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ride = (over: Record<string, unknown> = {}): any => ({

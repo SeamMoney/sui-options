@@ -10,7 +10,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { buildRecordSegmentTx } from "../src/segmentCranker.ts";
+import { buildRecordSegmentTx } from "../src/segmentCranker.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function moveCallOf(tx: any) {
