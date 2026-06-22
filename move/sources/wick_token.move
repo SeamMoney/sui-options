@@ -17,6 +17,7 @@
 ///     open for protocol-bot-registered addresses.
 ///   - Pyth-snapshot price-at-trade-settlement-time captured by caller and
 ///     passed in as loss_usd_micro (1e6 micro-USD units).
+#[allow(unused_const)]
 module wick::wick_token;
 
 use sui::clock::Clock;

@@ -19,6 +19,7 @@
 ///   - Aborted markets refund 1:1 via abort_refund_pool, ranked behind queue
 ///   - Auto-harvest drains side_bucket into queue heads on every inbound flow,
 ///     so the queue makes monotonic progress
+#[allow(unused_const)]
 module wick::martingaler_vault;
 
 use sui::balance::{Self, Balance};
