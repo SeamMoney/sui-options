@@ -118,7 +118,18 @@ function main(): void {
   const failed = results.filter((r) => r.status === "FAIL");
   const audited = results.filter((r) => r.status === "PASS");
   console.log("");
-  if (failed.length === 0) {
+  if (failed.length === 0 && audited.length === 0) {
+    // Every market was idle (no segments in range) — NOTHING was actually
+    // reproduced. Don't claim "provably honest" on a vacuous pass; mirror
+    // vault:solvency's `checked === 0` guard and verify:randomness's empty guard.
+    console.log(
+      red(
+        `INCONCLUSIVE — no market had segments in the last ${WINDOW} to audit; nothing was verified. ` +
+          `Re-run once a market has been cranked.`,
+      ),
+    );
+    process.exitCode = 1;
+  } else if (failed.length === 0) {
     console.log(
       green(
         `PASS — every live v4 market is provably honest (${audited.length} audited, ${
