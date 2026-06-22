@@ -115,6 +115,12 @@ function makeResilientClient(urls: string[]): RpcClient {
 }
 const DEFAULT_WINDOW = 32;
 
+/** SuiScan explorer link so a judge can cross-check the audited object on the
+ *  public explorer (the "don't trust us, look yourself" half of the proof).
+ *  Same format the smoke scripts use. */
+const suiscan = (kind: "object" | "tx", id: string): string =>
+  `https://suiscan.xyz/testnet/${kind}/${id}`;
+
 // v4 settlement enum — `segment_market_v4.move` SETTLEMENT_* constants.
 const SETTLEMENT_OPEN = 0;
 const SETTLEMENT_TOUCH_WIN = 1;
@@ -747,7 +753,7 @@ async function verify(args: Args): Promise<boolean> {
   const market = await readMarket(client, marketId);
 
   console.log(`network:  ${synthetic ? "synthetic (offline)" : args.rpc}`);
-  console.log(`market:   ${marketId}`);
+  console.log(`market:   ${marketId}${synthetic ? "" : `  ↗ ${suiscan("object", marketId)}`}`);
   console.log(`package:  ${market.packageId}`);
   console.log(
     `segments: ${market.nextSegmentIndex} recorded · deadband ${market.deadbandBps}bps · round ${market.roundDurationSegments} seg`,
@@ -767,7 +773,7 @@ async function verify(args: Args): Promise<boolean> {
       );
       return false;
     }
-    console.log(`ride:     ${rideId}`);
+    console.log(`ride:     ${rideId}${synthetic ? "" : `  ↗ ${suiscan("object", rideId)}`}`);
     console.log(
       `          round ${ride.roundIndex} · entry segment ${ride.entrySegmentIndex} · ` +
         `barriers [${fmtPrice(ride.lowerBarrier)}, ${fmtPrice(ride.upperBarrier)}]`,
