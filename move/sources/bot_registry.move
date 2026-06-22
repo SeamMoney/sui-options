@@ -88,7 +88,7 @@ public fun is_marked_bot(reg: &BotRegistry, addr: address): bool {
     vec_set::contains(&reg.bots, &addr)
 }
 
-public fun bot_count(reg: &BotRegistry): u64 { vec_set::size(&reg.bots) }
+public fun bot_count(reg: &BotRegistry): u64 { vec_set::length(&reg.bots) }
 
 // === Test helpers ===
 

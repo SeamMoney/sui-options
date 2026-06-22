@@ -657,7 +657,7 @@ public fun expand_segment(
     key: vector<u8>,
 ): (vector<Candle>, WalkState, u64, u64) {
     let mut st = state;
-    let mut candles = vector::empty<Candle>();
+    let mut candles = vector<Candle>[];
     let mut seg_min = st.price;
     let mut seg_max = st.price;
     let mut ci: u64 = 0;
