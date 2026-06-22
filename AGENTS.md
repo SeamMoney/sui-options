@@ -155,10 +155,10 @@ Preflight gates **builds + Move tests**, not the TypeScript **unit** suites (ver
 
 ```bash
 npm run test:offline   # every deterministic unit suite, no network (cold-runnable)
-npm test               # the above + test:live (needs the live testnet demo up)
+npm test               # == test:offline (test:live is a no-op placeholder)
 ```
 
-`test:offline` is the cold gate: it never touches the network, so a red result is a real code regression, not a flaky market. Run `npm test` (or `npm run test:live`) when the testnet demo is up to also confirm the chart is alive, the faucet has runway, and the on-chain verify/audit still pass.
+`test:offline` is the cold gate: it never touches the network (the chart/faucet/audit tests use fixtures, not the live demo), so a red result is a real code regression, not a flaky market. `test:live` is currently a no-op — live verification against the running testnet demo lives in the `check:*` / `e2e:*` / `prove:live` / `verify:fairness:live` targets, so run **`npm run prove:live`** (or `check:all`) when the demo is up to confirm the chart is alive, the faucet has runway, and the on-chain randomness → markets → audit → solvency chain still passes.
 
 ## Sibling workspaces — do not bleed into them
 
