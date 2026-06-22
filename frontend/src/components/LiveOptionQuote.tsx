@@ -101,7 +101,7 @@ export function LiveOptionQuote({
 
       <div className="mb-3 flex items-baseline gap-4">
         <span className="font-mono tabular-nums text-2xl font-bold text-white">
-          {live ? `$${spot.toFixed(4)}` : "—"}
+          {live ? `$${spot >= 100 ? spot.toFixed(2) : spot.toFixed(4)}` : "—"}
         </span>
         <span className="font-mono text-[11px] text-white/45">
           σ {live ? `${(sigma * 100).toFixed(0)}%` : "—"}

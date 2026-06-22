@@ -313,7 +313,7 @@ export function Coach() {
                 )}
               </span>
               <span className="font-mono tabular-nums text-sm text-white/80">
-                {last ? last.close.toFixed(isLive ? 4 : 2) : "…"}
+                {last ? (last.close >= 100 ? last.close.toFixed(2) : last.close.toFixed(isLive ? 4 : 2)) : "…"}
               </span>
             </div>
             <div className="min-h-[240px] w-full flex-1">
