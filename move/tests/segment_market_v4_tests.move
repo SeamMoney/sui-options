@@ -798,6 +798,74 @@ fun abort_segment_ride_v4_past_deadline_refunds_one_to_one() {
     sc.end();
 }
 
+/// Safety: a ride settled via crank_expired cannot be re-settled (the same
+/// no-double-pay guard as close, on the permissionless-crank path).
+#[test]
+#[expected_failure(abort_code = 1, location = wick::segment_market_v4)]
+fun crank_expired_segment_ride_v4_twice_aborts_already_closed() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    sm4::test_only_bump_segment_index<SUI>(&mut market, ROUND_DURATION + 5);
+    clk.increment_for_testing(2_000);
+    sc.next_tx(KEEPER);
+    let bounty = sm4::crank_expired_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+    assert!(sm4::is_closed(&ride), 0);
+    test_utils::destroy(bounty);
+
+    // Second crank must abort EAlreadyClosed (=1). Below is unreachable.
+    let bounty2 = sm4::crank_expired_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+    test_utils::destroy(bounty2);
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+/// Safety: a ride settled via abort cannot be re-settled (no double refund).
+#[test]
+#[expected_failure(abort_code = 1, location = wick::segment_market_v4)]
+fun abort_segment_ride_v4_twice_aborts_already_closed() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    clk.increment_for_testing(ABORT_DEADLINE_MS + 1);
+    let refund = sm4::abort_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &clk, sc.ctx(),
+    );
+    assert!(sm4::is_closed(&ride), 0);
+    test_utils::destroy(refund);
+
+    // Second abort must abort EAlreadyClosed (=1). Below is unreachable.
+    let refund2 = sm4::abort_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &clk, sc.ctx(),
+    );
+    test_utils::destroy(refund2);
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 17 — abort decrements the unsettled-rides counter.
 #[test]
 fun abort_segment_ride_v4_decrements_unsettled() {
