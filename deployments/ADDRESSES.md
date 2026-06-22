@@ -19,10 +19,10 @@ The deployment isn't just published — it's funded and demo-ready right now:
 
 **Funding flow verified live this run** — a judge funds a fresh wallet in two requests, no wallet extension needed, then plays the on-chain ride game:
 
-- `POST /api/faucet` → **0.2 SUI** gas — [tx `28PtV8tM…`](https://suiscan.xyz/testnet/tx/28PtV8tM5CjiqmCxdxVvhc8FVniS2gxXZcutaYXQk3ko) ✅ success
-- `POST /api/faucet-tusd` → **10 TUSD** stake — [tx `BpYeDyVN…`](https://suiscan.xyz/testnet/tx/BpYeDyVNf5MuQenzDjbbhrUENfaqZkmrYqoxtCT92Spi) ✅ success
+- `POST /api/faucet` → **2 SUI** gas — [tx `BmmMj8ox…`](https://suiscan.xyz/testnet/tx/BmmMj8oxaxpQJXYoVPqWHrD8YGSpQygCse2yBNA6H9Bg) ✅ success
+- `POST /api/faucet-tusd` → **50 TUSD** stake — [tx `9sRSaWme…`](https://suiscan.xyz/testnet/tx/9sRSaWmeeSBnFS89AUkaZwg1MJQzszbKCUggeTzXSLpb) ✅ success
 
-Both landed on-chain; the funded wallet then held 0.2 SUI + 10 TUSD, ready to ride.
+Both landed on-chain; the funded wallet then held 2 SUI + 50 TUSD — enough to clear the per-ride escrow gate (a /ride escrows ~12.375 TUSD) and crank a full hold, so it's genuinely ready to ride. (Amounts were 0.2 SUI / 10 TUSD earlier this cycle; 10 TUSD sat below the gate and left the player stuck on the funding screen — bumped to 2 SUI / 50 TUSD so funding actually unlocks play.)
 
 ## Move package (`wick`)
 
