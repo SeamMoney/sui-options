@@ -5,7 +5,7 @@
  *   npx tsx scripts/deepbook-mark-check.ts
  *
  * Part 1 (pure, offline): unit-asserts tradesToCandles OHLC aggregation.
- * Part 2 (live): hits the real DeepBook indexer for SUI_USDC + DEEP_USDC,
+ * Part 2 (live): hits the real DeepBook indexer for SUI_USDC + XBTC_USDC + DEEP_USDC,
  *   prints the live mid/spread/last, and aggregates real trades into candles.
  *   Skips gracefully (exit 0) if the network is unavailable.
  */
@@ -152,7 +152,7 @@ async function live() {
     );
     assert.ok(trades.length === 0 || candles.length > 0, "trades → candles");
   }
-  console.log("PASS live DeepBook mark → σ → BS pricing (SUI_USDC + DEEP_USDC)");
+  console.log("PASS live DeepBook mark → σ → BS pricing (SUI_USDC + XBTC_USDC + DEEP_USDC)");
 }
 
 void (async () => {
