@@ -2,9 +2,10 @@
 /**
  * vault-solvency — prove the live MartingalerVault is solvent on-chain, right
  * now. The vault is the loss-recycling LP that backs every payout; the Move
- * invariant suite proves `collateral_vault == total supplies` in 574 tests, and
- * this is the LIVE companion: it reads each deployed vault's on-hand reserves
- * and confirms they cover the protocol's outstanding obligations.
+ * conservation suite proves the v2 invariant `cumulative_in − cumulative_out ==
+ * held` (held = treasury + side_bucket + Σ per-market locks) — see
+ * `move/SAFETY.md` — and this is the LIVE companion: it reads each deployed
+ * vault's on-hand reserves and confirms they cover its outstanding obligations.
  *
  *   npx tsx scripts/vault-solvency.ts        # or: npm run vault:solvency
  *
@@ -175,7 +176,7 @@ async function main(): Promise<void> {
   const client = makeResilientClient([RPC, ...FALLBACK_RPCS]);
   const vaults = loadVaults();
   console.log(`vault solvency — live MartingalerVault reserves @ ${RPC}`);
-  console.log(dim(`(on-hand liquid reserves must cover the FIFO claim queue; Move proves the full invariant in 574 tests)`));
+  console.log(dim(`(on-hand liquid reserves must cover the FIFO claim queue; Move proves the full conservation invariant in − out == held — see move/SAFETY.md)`));
   console.log("");
 
   let insolvent = 0;
