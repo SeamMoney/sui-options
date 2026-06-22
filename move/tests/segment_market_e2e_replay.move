@@ -225,3 +225,87 @@ fun segment_market_e2e_replay_spine_test_2() {
     clk.destroy_for_testing();
     sc.end();
 }
+
+#[test]
+/// REGRESSION (the #683 cross-round-escape class, for the legacy v2 module): a
+/// ride that expired un-touched in its OWN round must NOT be paid a TOUCH_WIN
+/// just because a LATER round's segment crossed the ride's old, snapshotted
+/// barrier. `close_segment_ride`'s touch scan is now bounded to the ride's round
+/// (crank_expired already bounded it). Without the bound, this fabricates a
+/// jackpot and drains the vault. Pre-fix this asserts TOUCH_WIN (fails); post-fix
+/// EXPIRED_LOSS (passes).
+fun v2_ride_cannot_touch_win_on_a_later_rounds_segment() {
+    let mut sc = ts::begin(ALICE);
+    ts::create_system_objects(&mut sc);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    clk.set_for_testing(1_000);
+
+    let (mut vault, vcap) = mv::init_for_testing<SUI>(sc.ctx());
+    let mut market = mk_market(&vault, &mut sc, &clk);
+    let (bots, bcap) = br::init_for_testing(sc.ctx());
+    let (mut price_oracle, price_cap) = upo::init_for_testing(sc.ctx());
+    upo::set_price<SUI>(&price_cap, &mut price_oracle, 1_000_000, 9, &clk);
+    let (mut wick_state, wick_cap) = wt::init_for_testing(sc.ctx());
+    let (mut staking_pool, staking_cap) = ws::init_for_testing(sc.ctx());
+
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, mint_sui(10_000_000_000, &mut sc));
+
+    let stake = 1_000;
+    let escrow_amt = stake * ROUND_DURATION;
+    let mut ride = sm::open_segment_ride<SUI>(
+        &mut market,
+        &mut vault,
+        &bots,
+        sm::barrier_upper(),
+        stake,
+        mint_sui(escrow_amt, &mut sc),
+        &clk,
+        sc.ctx(),
+    );
+    let barrier = sm::barrier_price(&ride); // upper barrier, above the home price
+
+    // Round 0 = [0, ROUND_DURATION): record ONE segment that does NOT touch (max
+    // well below the upper barrier). Other round-0 slots stay un-recorded —
+    // scan_for_touch skips missing segments.
+    let st0 = sp::new_state(HOME_PRICE, VOL_REGIME_INIT, HOME_PRICE);
+    sm::test_only_record_segment<SUI>(&mut market, x"00", st0, HOME_PRICE, HOME_PRICE, 1_000);
+    // Advance next_segment_index to ROUND_DURATION — round 0 is now over.
+    sm::test_only_bump_segment_index<SUI>(&mut market, ROUND_DURATION - 1);
+    // Round 1: a segment whose max CROSSES the ride's old round-0 barrier.
+    let st1 = sp::new_state(HOME_PRICE, VOL_REGIME_INIT, HOME_PRICE);
+    sm::test_only_record_segment<SUI>(&mut market, x"01", st1, HOME_PRICE, barrier * 2, 2_000);
+    sm::test_only_force_round_current<SUI>(&mut market);
+
+    sc.next_tx(ALICE);
+    clk.increment_for_testing(1_000);
+    let payout = sm::close_segment_ride<SUI>(
+        &mut ride,
+        &mut market,
+        &mut vault,
+        &price_oracle,
+        &mut wick_state,
+        &mut staking_pool,
+        &clk,
+        sc.ctx(),
+    );
+
+    // The later-round touch must NOT win: the bounded scan sees only round 0
+    // (no touch) and the round expired → EXPIRED_LOSS, never TOUCH_WIN.
+    assert!(sm::settlement_kind(&ride) == sm::settlement_expired_loss(), 999);
+
+    test_utils::destroy(payout);
+    sm::test_only_destroy_ride(ride);
+    sm::test_only_destroy_market(market);
+    test_utils::destroy(vault);
+    test_utils::destroy(vcap);
+    test_utils::destroy(bots);
+    test_utils::destroy(bcap);
+    test_utils::destroy(price_oracle);
+    test_utils::destroy(price_cap);
+    test_utils::destroy(wick_state);
+    test_utils::destroy(wick_cap);
+    test_utils::destroy(staking_pool);
+    test_utils::destroy(staking_cap);
+    clk.destroy_for_testing();
+    sc.end();
+}

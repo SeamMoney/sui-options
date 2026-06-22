@@ -1019,12 +1019,24 @@ fun decide_settlement<C>(
         return (0u64, 0u64, 0u64, SETTLEMENT_ABORTED_REFUND)
     };
 
-    // 2. Touch scan — held segments are [entry_segment_index, next_segment_index).
+    // 2. Touch scan — held segments are [entry_segment_index, scan_to), bounded
+    //    to the ride's OWN round. Without the bound, a LATER round's segment that
+    //    crosses the ride's snapshotted barrier_price would fabricate a TOUCH_WIN
+    //    and pay a jackpot for a touch that never happened in the ride's round —
+    //    draining the vault (the cross-round escape fixed for v4 in #683;
+    //    crank_expired above already bounds this exact way).
+    let ride_round_end_segment =
+        (ride.round_index + 1) * market.round_duration_segments;
+    let scan_to = if (market.next_segment_index < ride_round_end_segment) {
+        market.next_segment_index
+    } else {
+        ride_round_end_segment
+    };
     let direction_above = direction_for_barrier(ride.barrier_index);
     if (scan_for_touch(
         market,
         ride.entry_segment_index,
-        market.next_segment_index,
+        scan_to,
         ride.barrier_price,
         direction_above,
     )) {
