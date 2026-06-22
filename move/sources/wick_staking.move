@@ -34,6 +34,7 @@
 /// MasterChef-style accumulator math: each currency has an `acc_per_wick`
 /// that grows on every accrue_dividends. StakeReceipt records the
 /// per-currency debt at stake time. Pending claim = staked × (acc - debt).
+#[allow(deprecated_usage)]
 module wick::wick_staking;
 
 use std::type_name::{Self, TypeName};

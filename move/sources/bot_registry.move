@@ -12,6 +12,7 @@
 /// Position object (`Position.is_bot_eligible: bool`) and read from there
 /// at redeem. Reading the registry at redeem-time would let a freshly-
 /// flagged bot's outstanding positions still mint WICK on close.
+#[allow(deprecated_usage)]
 module wick::bot_registry;
 
 use sui::vec_set::{Self, VecSet};
