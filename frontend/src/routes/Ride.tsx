@@ -746,6 +746,16 @@ function RideV4(props: { picked: SegmentMarketV4Record }) {
           >
             view transaction →
           </a>
+          {/* The moment a ride settles is the moment to prove it was fair:
+              one tap to /verify, where the chain's candles replay and a
+              tampered one gets caught. */}
+          <a
+            href="/verify"
+            title="Provable fairness — replay this round's on-chain candles in your browser and catch a tampered one"
+            className="inline-block text-xs text-sky-300/80 hover:text-sky-200 mt-3 ml-4 underline underline-offset-2"
+          >
+            verify fairness →
+          </a>
         </div>
       )}
 
@@ -992,6 +1002,16 @@ function RideV3(props: { picked: SegmentMarketRecord }) {
             className="inline-block text-xs text-white/55 mt-3 underline underline-offset-2"
           >
             view transaction →
+          </a>
+          {/* The moment a ride settles is the moment to prove it was fair:
+              one tap to /verify, where the chain's candles replay and a
+              tampered one gets caught. */}
+          <a
+            href="/verify"
+            title="Provable fairness — replay this round's on-chain candles in your browser and catch a tampered one"
+            className="inline-block text-xs text-sky-300/80 hover:text-sky-200 mt-3 ml-4 underline underline-offset-2"
+          >
+            verify fairness →
           </a>
         </div>
       )}
