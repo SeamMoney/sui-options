@@ -1112,6 +1112,65 @@ fun record_walrus_archive_v4_happy_path() {
     sc.end();
 }
 
+// Safety: a Walrus blob id of the wrong length is rejected → EInvalidBlobId.
+// The archive key must be a real 32-byte Walrus blob id, not arbitrary bytes.
+#[test]
+#[expected_failure(abort_code = sm4::EInvalidBlobId, location = wick::segment_market_v4)]
+fun record_walrus_archive_rejects_wrong_length_blob_id() {
+    let mut sc = ts::begin(ALICE);
+    let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+    sc.next_tx(ARCHIVER);
+    sm4::record_walrus_archive<SUI>(&mut market, 7, vector[1u8, 2u8, 3u8], sc.ctx()); // 3 != 32
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+// Safety: a round can be archived only once → EArchiveAlreadyRecorded. Prevents
+// a second writer clobbering the committed archive key a verifier relies on.
+#[test]
+#[expected_failure(abort_code = sm4::EArchiveAlreadyRecorded, location = wick::segment_market_v4)]
+fun record_walrus_archive_rejects_double_archive() {
+    let mut sc = ts::begin(ALICE);
+    let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+    sc.next_tx(ARCHIVER);
+    sm4::record_walrus_archive<SUI>(&mut market, 7, mk_blob_id(1), sc.ctx()); // first: ok
+    sm4::record_walrus_archive<SUI>(&mut market, 7, mk_blob_id(2), sc.ctx()); // second: aborts
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+// Safety / verifiability: segments cannot be pruned before the round is archived
+// to Walrus → ENoWalrusArchive. This is the archive-before-prune invariant — it
+// guarantees a judge can always reconstruct a pruned round from the permanent
+// Walrus archive, so storage reclamation never breaks the /verify chain.
+#[test]
+#[expected_failure(abort_code = sm4::ENoWalrusArchive, location = wick::segment_market_v4)]
+fun prune_settled_segments_rejects_unarchived_round() {
+    let mut sc = ts::begin(ALICE);
+    let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    // Seed round 0 (settled, no open rides) and age it past the prune lag...
+    let st = sp::new_state(HOME_PRICE, VOL_REGIME_INIT, HOME_PRICE);
+    let mut k = 0;
+    while (k < ROUND_DURATION) {
+        sm4::test_only_insert_segment_at<SUI>(
+            &mut market, k, vector::empty<u8>(), st,
+            HOME_PRICE, HOME_PRICE, 1_000 + k,
+        );
+        k = k + 1;
+    };
+    sm4::test_only_set_cached_round_index<SUI>(&mut market, 10);
+
+    // ...but DON'T archive it. Pruning must refuse.
+    sc.next_tx(PRUNER);
+    sm4::prune_settled_segments<SUI>(&mut market, 0, sc.ctx()); // ENoWalrusArchive
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 19 — prune_settled_segments_v4 succeeds after lag + archive +
 /// zero unsettled.
 #[test]
