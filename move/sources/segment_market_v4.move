@@ -160,6 +160,15 @@ const WALRUS_BLOB_ID_LEN: u64 = 32;
 /// `RugConfig` below for the rationale in full.
 const RUG_CONFIG_KEY: vector<u8> = b"rug_config";
 
+/// v4.27 — durable per-round rug history. `RugConfig.rugged_at_segment` is
+/// cleared on every round-roll, so a ride settled in a LATER round can no longer
+/// see that its OWN round was rugged (the touched-then-rugged cross-round
+/// escape). We mirror each rug fire into a `Table<round_index, rug_segment>`
+/// dynamic field that SURVIVES the roll, so `decide_settlement` enforces the rug
+/// by `ride.round_index`. Lazily created on first fire (existing v4.26 markets
+/// have no `ctx` in `enable_rug`); entries dropped once a round fully settles.
+const RUG_HISTORY_KEY: vector<u8> = b"rug_history";
+
 // === Types ===
 
 /// One recorded segment — same shape as v2/v3 SegmentRecord so the BCS
@@ -484,6 +493,53 @@ public fun rugged_at_segment<C>(m: &SegmentMarketV4<C>): Option<u64> {
     dynamic_field::borrow<vector<u8>, RugConfig>(&m.id, RUG_CONFIG_KEY).rugged_at_segment
 }
 
+/// v4.27 — record the rug segment for `round` durably (survives the round-roll
+/// clear of `rugged_at_segment`). Lazily creates the history table on first use
+/// so markets enabled under v4.26 (whose `enable_rug` had no `ctx`) pick it up
+/// on their next fire. Idempotent per round — the at-most-one-fire-per-round
+/// invariant means the first write wins.
+fun record_rug_history<C>(
+    market: &mut SegmentMarketV4<C>,
+    round: u64,
+    seg: u64,
+    ctx: &mut TxContext,
+) {
+    if (!dynamic_field::exists_with_type<vector<u8>, Table<u64, u64>>(
+        &market.id, RUG_HISTORY_KEY,
+    )) {
+        dynamic_field::add(&mut market.id, RUG_HISTORY_KEY, table::new<u64, u64>(ctx));
+    };
+    let hist = dynamic_field::borrow_mut<vector<u8>, Table<u64, u64>>(
+        &mut market.id, RUG_HISTORY_KEY,
+    );
+    if (!table::contains(hist, round)) {
+        table::add(hist, round, seg);
+    };
+}
+
+/// v4.27 — the rug segment that applies to a ride settling for `round`, durable
+/// across round-rolls. Prefers the persistent per-round history (correct for
+/// cross-round closes); falls back to the live `rugged_at_segment` flag for the
+/// CURRENT round (within-round closes, and rounds/markets that predate the
+/// history field). `None` when the round was never rugged.
+fun durable_rugged_seg_for_round<C>(m: &SegmentMarketV4<C>, round: u64): Option<u64> {
+    if (!rug_enabled(m)) return option::none();
+    if (dynamic_field::exists_with_type<vector<u8>, Table<u64, u64>>(
+        &m.id, RUG_HISTORY_KEY,
+    )) {
+        let hist = dynamic_field::borrow<vector<u8>, Table<u64, u64>>(
+            &m.id, RUG_HISTORY_KEY,
+        );
+        if (table::contains(hist, round)) {
+            return option::some(*table::borrow(hist, round))
+        };
+    };
+    if (round == m.cached_round_index) {
+        return rugged_at_segment(m)
+    };
+    option::none()
+}
+
 /// Has a rug fired in the current round? `false` when rug is not enabled.
 public fun is_rugged<C>(m: &SegmentMarketV4<C>): bool {
     option::is_some(&rugged_at_segment(m))
@@ -781,6 +837,11 @@ public(package) entry fun record_segment<C>(
     if (roll_rug<C>(market, &key)) {
         let cached_round = market.cached_round_index;
         let market_id_for_event = object::id(market);
+        // v4.27 — durably record the rug for this round BEFORE setting the live
+        // flag, so a cross-round close can't escape it after the roll clears the
+        // flag. (Separate dynamic-field borrow, taken first to avoid aliasing the
+        // RugConfig borrow below.)
+        record_rug_history(market, cached_round, k, ctx);
         let cfg_mut = dynamic_field::borrow_mut<vector<u8>, RugConfig>(
             &mut market.id, RUG_CONFIG_KEY,
         );
@@ -1281,10 +1342,27 @@ fun bump_unsettled_rides<C>(market: &mut SegmentMarketV4<C>, round: u64) {
 }
 
 fun decrement_unsettled_rides<C>(market: &mut SegmentMarketV4<C>, round: u64) {
-    if (table::contains(&market.unsettled_rides_per_round, round)) {
+    let now_zero = if (table::contains(&market.unsettled_rides_per_round, round)) {
         let v = table::borrow_mut(&mut market.unsettled_rides_per_round, round);
         if (*v > 0) {
             *v = *v - 1;
+        };
+        *v == 0
+    } else {
+        false
+    };
+    // v4.27 — once a round has no unsettled rides left, no settlement can ever
+    // reference its rug again, so drop the durable history entry to keep storage
+    // bounded (and reclaim the storage rebate).
+    if (now_zero
+        && dynamic_field::exists_with_type<vector<u8>, Table<u64, u64>>(
+            &market.id, RUG_HISTORY_KEY,
+        )) {
+        let hist = dynamic_field::borrow_mut<vector<u8>, Table<u64, u64>>(
+            &mut market.id, RUG_HISTORY_KEY,
+        );
+        if (table::contains(hist, round)) {
+            table::remove(hist, round);
         };
     };
 }
@@ -1325,12 +1403,15 @@ fun decide_settlement<C>(
         return (0u64, 0u64, 0u64, SETTLEMENT_ABORTED_REFUND, TOUCHED_SIDE_NONE)
     };
 
-    // v4.26 — rug routing. If a rug has fired this round AND this ride
-    // was open at or before that segment, settle as EXPIRED_LOSS
-    // regardless of any subsequent barrier touch. Rides opened AFTER the
-    // rug (entry_segment_index > rugged_seg) fall through to the normal
-    // settlement path — the bet was placed knowing the round was rugged.
-    let opt_rugged = rugged_at_segment(market);
+    // v4.26/4.27 — rug routing. If a rug fired in THIS RIDE'S round AND the ride
+    // was open at or before that segment, settle as EXPIRED_LOSS regardless of
+    // any subsequent barrier touch. Rides opened AFTER the rug
+    // (entry_segment_index > rugged_seg) fall through to the normal settlement
+    // path — the bet was placed knowing the round was rugged. v4.27: read the
+    // DURABLE per-round rug (by ride.round_index), not the live flag, so a ride
+    // held across the round boundary can't escape its round's rug once the roll
+    // has cleared the flag (the touched-then-rugged cross-round escape).
+    let opt_rugged = durable_rugged_seg_for_round(market, ride.round_index);
     if (option::is_some(&opt_rugged)
         && ride.entry_segment_index <= *option::borrow(&opt_rugged)
     ) {
@@ -1730,6 +1811,19 @@ public fun test_only_set_rugged_at_segment<C>(
         &mut market.id, RUG_CONFIG_KEY,
     );
     cfg.rugged_at_segment = option::some(seg);
+}
+
+/// v4.27 — populate the DURABLE per-round rug history directly (what
+/// `record_segment` does on a real fire). Lets a test stage a cross-round rugged
+/// ride without driving the random rug roll. Requires `enable_rug<C>` first.
+#[test_only]
+public fun test_only_record_rug_history<C>(
+    market: &mut SegmentMarketV4<C>,
+    round: u64,
+    seg: u64,
+    ctx: &mut TxContext,
+) {
+    record_rug_history(market, round, seg, ctx);
 }
 
 /// Clear the rugged flag without rolling the round. Useful for tests
