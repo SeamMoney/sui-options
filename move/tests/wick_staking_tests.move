@@ -910,3 +910,50 @@ fun cannot_set_insurance_to_zero() {
     clk.destroy_for_testing();
     sc.end();
 }
+
+#[test]
+/// Conservation: stakers can NEVER collectively claim more than was deposited.
+/// The staking audit verified this via a 20k-trial fuzz (accrue floors the
+/// per-share delta but banks the FULL amount into pending, so truncation only
+/// strands dust — never over-pays), but no committed test asserted
+/// Σclaims ≤ Σdeposited directly. Pin it with a 2:1 stake split + an odd
+/// dividend so the per-share division leaves a remainder (the dust path).
+fun claims_never_exceed_deposited_dividends() {
+    let mut sc = ts::begin(ALICE);
+    let (mut pool, scap, mut ts_, tcap, clk) = init_state(&mut sc);
+
+    ws::test_record_loss(&mut pool, BOB, 1_000_000_000_000);
+    ws::test_record_loss(&mut pool, CAROL, 1_000_000_000_000);
+
+    // 2:1 stakes — the split has a remainder (3 doesn't divide an odd deposit).
+    let bob_wick = mint_wick_to(&mut ts_, BOB, 2_000_000, &clk, &mut sc);
+    sc.next_tx(BOB);
+    let mut bob_receipt = ws::stake(&mut pool, bob_wick, &clk, sc.ctx());
+
+    let carol_wick = mint_wick_to(&mut ts_, CAROL, 1_000_000, &clk, &mut sc);
+    sc.next_tx(CAROL);
+    let mut carol_receipt = ws::stake(&mut pool, carol_wick, &clk, sc.ctx());
+
+    let deposited = 1_000_001; // odd → can't be split exactly across 3M stake
+    ws::accrue_dividends<SUI>(&mut pool, fee_balance(deposited, &mut sc));
+
+    sc.next_tx(BOB);
+    let bob_coin = ws::claim_dividends<SUI>(&mut bob_receipt, &mut pool, sc.ctx());
+    sc.next_tx(CAROL);
+    let carol_coin = ws::claim_dividends<SUI>(&mut carol_receipt, &mut pool, sc.ctx());
+
+    // The load-bearing invariant: Σclaims ≤ Σdeposited (the rest is dust stranded
+    // in pending, claimable on a later accrue — never minted out of thin air).
+    assert!(bob_coin.value() + carol_coin.value() <= deposited, 0);
+
+    test_utils::destroy(bob_coin);
+    test_utils::destroy(carol_coin);
+    test_utils::destroy(bob_receipt);
+    test_utils::destroy(carol_receipt);
+    test_utils::destroy(pool);
+    test_utils::destroy(scap);
+    test_utils::destroy(ts_);
+    test_utils::destroy(tcap);
+    clk.destroy_for_testing();
+    sc.end();
+}
