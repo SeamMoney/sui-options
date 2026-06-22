@@ -58,6 +58,11 @@ const MAX_SEGMENT_MS = 1200;
 // a 1600px desktop fills (~123 candles at 13px). Mobile stays well
 // under the cap (375px / 9px = 41 candles).
 const MAX_CHART_CANDLES = 120;
+// Cap the closed-ride history so a long hold-heavy /ride session can't grow it
+// unbounded — it's iterated every draw frame (drawPNLLine) and on every candle
+// reveal. 40 ≫ the on-chart window (MAX_CHART_CANDLES), so no still-visible P&L
+// line is ever dropped. Mirrors MAX_SEGMENT_RING / MAX_VISIBLE_RUGS.
+const MAX_COMPLETED_TRADES = 40;
 const STALL_THRESHOLD_MS = 3000;
 
 const PRICE_SCALING = 1_000_000;
@@ -1475,6 +1480,9 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
                 ),
                 exitAgeCandles: 0,
               });
+              if (completedTrades.length > MAX_COMPLETED_TRADES) {
+                completedTrades = completedTrades.slice(-MAX_COMPLETED_TRADES);
+              }
               if (profit > 0) {
                 if (pnlLineEndPos) {
                   shouldExplodeEmojis = true;
