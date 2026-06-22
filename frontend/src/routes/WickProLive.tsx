@@ -550,6 +550,17 @@ export function WickProLive() {
         {candleStatus === "live" && (
           <span className="text-[10px] text-white/35 tabular-nums">σ {(sigma * 100).toFixed(0)}%</span>
         )}
+        {/* Provable-fairness link — sits in the flex gap before the right-
+            aligned DeepBook link so the cramped row doesn't overflow. Surfaces
+            /verify (replay the chain's candles, catch a tampered one) to a judge
+            who only ever opens the game. */}
+        <a
+          href="/verify"
+          title="Provable fairness — replay the chain's candles in your browser and watch the verifier catch a tampered one"
+          className="ml-3 text-[10px] uppercase tracking-widest text-sky-400/80 hover:text-sky-300 transition-colors"
+        >
+          fair? ↗
+        </a>
         {/* The running session result moved OUT of this cramped row into the big
             headline slot when idle (one glance answers "am I up?"). */}
         {/* Links to the full DeepBook desk (/coach): live order book, depth,
