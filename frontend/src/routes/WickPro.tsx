@@ -33,8 +33,11 @@ const SETTLE_MS = 4_000;
 const CONTRACT_CHOICES = [1, 5, 10, 25];
 
 function fmtUsd(n: number): string {
-  const sign = n < 0 ? "-" : n > 0 ? "+" : "";
-  return `${sign}$${Math.abs(n).toFixed(2)}`;
+  // Sign decided AFTER rounding: a value that rounds to zero renders "$0.00",
+  // never the misleading "-$0.00" (the #682/#721 bug-class).
+  const s = Math.abs(n).toFixed(2);
+  if (parseFloat(s) === 0) return `$${s}`;
+  return `${n < 0 ? "-" : "+"}$${s}`;
 }
 
 /** Area+line chart of the revealed path, with strike / breakeven overlays. */

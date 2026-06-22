@@ -3249,8 +3249,11 @@ function markManualPosition(position: ManualPosition, latest: CandleInput, lates
 }
 
 function formatPnl(value: number) {
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}$${Math.abs(value).toFixed(2)}`;
+  // Sign decided AFTER rounding: a value that rounds to zero renders "$0.00",
+  // never the misleading "-$0.00" (the #682/#721 bug-class).
+  const s = Math.abs(value).toFixed(2);
+  if (parseFloat(s) === 0) return `$${s}`;
+  return `${value < 0 ? "-" : "+"}$${s}`;
 }
 
 function formatSeconds(ms: number) {
