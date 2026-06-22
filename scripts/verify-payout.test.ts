@@ -225,7 +225,7 @@ function mockEvents(events: Array<Record<string, unknown>>, pageSize = 50): neve
       const nextSeq = start + pageSize;
       const hasNext = nextSeq < events.length;
       return {
-        data: slice.map((parsedJson) => ({ parsedJson })),
+        data: slice.map((parsedJson, i) => ({ parsedJson, id: { txDigest: "0xSETTLETX", eventSeq: String(start + i) } })),
         hasNextPage: hasNext,
         nextCursor: hasNext ? { txDigest: "0x", eventSeq: String(nextSeq) } : null,
       };
@@ -245,7 +245,7 @@ function closedEvent(over: Record<string, unknown> = {}) {
 
 test("queryRideClosed: maps every money field by name", async () => {
   const got = await queryRideClosed(mockEvents([closedEvent({ stake_paid: "150000", payout: "262500", forfeit: "0", bounty: "0", settlement_kind: 1 })]), PKG, MKT, RIDE);
-  assert.deepEqual(got, { stakePaid: 150000n, payout: 262500n, forfeit: 0n, bounty: 0n, settlementKind: 1 });
+  assert.deepEqual(got, { stakePaid: 150000n, payout: 262500n, forfeit: 0n, bounty: 0n, settlementKind: 1, txDigest: "0xSETTLETX" });
 });
 
 test("queryRideClosed: ignores events for other rides/markets, returns null when absent", async () => {
