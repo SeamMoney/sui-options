@@ -142,4 +142,23 @@ if [ -f bots/package.json ]; then
   }
 fi
 
+# 8. API typecheck — same shape. CI typechecks @wick/api too (ci.yml), and a
+#    broken api typecheck (e.g. a .ts import extension like the keeper TS5097 in
+#    #615) would otherwise slip the documented gate while CI is billing-down.
+if [ -f api/package.json ]; then
+  if [ ! -d api/node_modules ] && [ ! -d node_modules ]; then
+    red "preflight: api/node_modules and root node_modules are both missing. run 'npm install' at the repo root before committing."
+    exit 7
+  fi
+  if ! grep -q '"typecheck"' api/package.json; then
+    red "preflight: api/package.json is missing a 'typecheck' script."
+    exit 7
+  fi
+  note "preflight: typechecking api (npm run typecheck)..."
+  (cd api && npm run typecheck) || {
+    red "preflight: api typecheck failed."
+    exit 7
+  }
+fi
+
 green "preflight: ok"
