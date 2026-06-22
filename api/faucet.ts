@@ -13,7 +13,7 @@
  * Hard rules:
  *  - Never log the private key or anything derived from it.
  *  - Refuse if the source wallet doesn't have at least DRIP + GAS_BUFFER.
- *  - Rate-limit per recipient address (5 min cooldown) in process memory.
+ *  - Rate-limit per recipient address (90s cooldown) in process memory.
  *    This is best-effort because Vercel functions are stateless across
  *    invocations and may run in multiple regions / instances — it stops
  *    the obvious "spam-click the button" case, not a determined abuser.
@@ -292,7 +292,7 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
   }
 
   // Only stamp the rate-limit on success so a transient RPC failure doesn't
-  // lock the recipient out for 5 minutes.
+  // lock the recipient out for 90 seconds.
   lastDrip.set(recipient, now);
 
   console.log("[api/faucet] drip ok", {
