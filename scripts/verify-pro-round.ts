@@ -72,6 +72,18 @@ function main(): void {
   const params = arg("--params");
   if (!commit || !seedStr || params === undefined) usage();
 
+  // Validate the commit is a 64-hex SHA-256 BEFORE comparing — mirrors the
+  // browser (verify-pro.html) + server (api/verify-pro.ts) verifiers. Without
+  // this, a typo'd or partially-copied commit falls through to a misleading
+  // "TAMPERED" (false "house cheated") instead of a clear input error.
+  if (!/^[0-9a-f]{64}$/i.test(commit.trim())) {
+    console.error(
+      `--commit must be a 64-char hex SHA-256 string (got ${commit.trim().length} chars). ` +
+        `Copy the 'commit:' line 'npm run play' prints — a typo/partial copy looks like a tamper, it isn't one.`,
+    );
+    process.exit(2);
+  }
+
   const seed = Number(seedStr);
   if (!Number.isFinite(seed)) {
     console.error(`--seed must be a number, got ${JSON.stringify(seedStr)}`);
