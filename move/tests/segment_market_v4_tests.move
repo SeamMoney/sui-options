@@ -1671,6 +1671,31 @@ fun open_segment_ride_v4_rejects_insufficient_escrow() {
     sc.end();
 }
 
+// Safety: the global concurrent-ride cap is enforced on open — once
+// active_ride_count reaches max_concurrent_rides the next open aborts
+// EConcurrentRideLimit (=9). Force the cap to 0 so the very first open exceeds
+// it. (Closes the last v4 open-guard that lacked a rejection test, alongside
+// EInsufficientEscrow above.)
+#[test]
+#[expected_failure(abort_code = 9, location = wick::segment_market_v4)]
+fun open_segment_ride_v4_rejects_when_concurrent_cap_reached() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    sm4::test_only_set_max_concurrent_rides<SUI>(&mut market, 0);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    sm4::test_only_destroy_ride(ride); // unreachable
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 // Safety: a ride can only be settled against the market it was opened on —
 // closing against a DIFFERENT market aborts EWrongMarket (=2). Stops a ride
 // being settled against a more-favourable market's barriers/state.
