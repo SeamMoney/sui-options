@@ -13,6 +13,7 @@
 ///
 /// Per docs/design/v2/00_reconciliation.md §4. EWMA half-life harmonized
 /// to 1h with V_eff per §6.
+#[allow(unused_const)]
 module wick::global_exposure_registry;
 
 use std::string::String;

@@ -14,6 +14,7 @@
 /// (payout - stake), per user decision E1 (cleaner UX, dydx-style). Fee is
 /// routed through fee_router::accrue (4-bucket split LP/staker/insurance/
 /// protocol = 55/25/10/10).
+#[allow(unused_const)]
 module wick::market;
 
 use std::string::String;

@@ -14,6 +14,7 @@
 ///
 /// Migration path: admin calls `migrate(...)` after manually verifying the
 /// new Predict version is compatible. There is no "auto-upgrade" path.
+#[allow(unused_const)]
 module wick::oracle_version_lock;
 
 const ENotMigrating: u64 = 0;
