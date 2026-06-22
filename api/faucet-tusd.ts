@@ -48,7 +48,7 @@ const TUSD_TREASURY_CAP =
 // TUSD is MINTED on demand from the TreasuryCap (no wallet-runway limit, same
 // one-mint gas cost), so drip generously: 50 TUSD clears the 12.375 gate with
 // room for a full multi-ride evaluation session.
-const DRIP_RAW = 50_000_000n; // 50 TUSD (6 decimals)
+export const DRIP_RAW = 50_000_000n; // 50 TUSD (6 decimals)
 const COOLDOWN_MS = 90 * 1000;
 // The mint tx is paid for in SUI (the TreasuryCap mints TUSD but gas is SUI),
 // so the faucet wallet must still hold enough SUI gas. Headroom for one mint.

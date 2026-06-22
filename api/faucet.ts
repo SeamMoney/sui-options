@@ -62,7 +62,7 @@ import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
 // mid-session. 2.0 SUI covers a full multi-ride evaluation (~3 full holds, more
 // if they cash out early) without re-faucet friction. Wallet runway is still
 // >4000 drips, so no concern.
-const DRIP_MIST = 2_000_000_000n; // 2.0 SUI
+export const DRIP_MIST = 2_000_000_000n; // 2.0 SUI
 const GAS_BUFFER_MIST = 20_000_000n; // ~0.02 SUI; ample headroom for one transfer
 const COOLDOWN_MS = 90 * 1000; // 90s per recipient
 
