@@ -420,6 +420,70 @@ fun close_lower_touch_wins_with_touched_side_lower() {
     sc.end();
 }
 
+/// Regression (v4.26) — a ride held ACROSS its round boundary must NOT
+/// touch-win on a LATER round's segment. `decide_settlement` used to scan to
+/// the live `next_segment_index`, which sits in a later round once the round
+/// has rolled; a touch landing there escaped the ride's own round. In
+/// particular a RUGGED ride — whose `rugged_at_segment` flag is cleared on the
+/// roll — could collect a jackpot instead of the EXPIRED_LOSS it was dealt
+/// (direct loss-of-funds for the vault/house). The scan is now bounded to the
+/// ride's round, matching `crank_expired_segment_ride_v4`. Here a barrier touch
+/// lands on the FIRST segment of the NEXT round; the close must still settle
+/// EXPIRED_LOSS, not TOUCH_WIN. Before the fix this returned TOUCH_WIN and both
+/// asserts below failed.
+#[test]
+fun ride_cannot_touch_win_on_a_later_rounds_segment() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow_amt = stake * ROUND_DURATION;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots,
+        stake, escrow, &clk, sc.ctx(),
+    );
+    // Ride opened in round 0 → its round is [0, ROUND_DURATION). Capture its
+    // upper barrier now, before the roll.
+    let upper = sm4::cached_upper_barrier<SUI>(&market);
+    let margin = upper * DEADBAND_BPS / 10_000;
+
+    // Roll the chain forward into round 1, past the ride's round end. The ride
+    // is now expired with respect to its OWN round. (Pre-setting the cached
+    // round keeps close's ensure_round_current a no-op, isolating the scan
+    // bound under test.)
+    sm4::test_only_bump_segment_index<SUI>(&mut market, ROUND_DURATION + 1);
+    sm4::test_only_set_cached_round_index<SUI>(&mut market, 1);
+
+    // A barrier touch lands on the FIRST segment of round 1 (index
+    // ROUND_DURATION) — OUTSIDE the ride's round [0, ROUND_DURATION).
+    let st = sp::state_with(upper + margin, false, 0, VOL_REGIME_INIT, HOME_PRICE);
+    sm4::test_only_insert_segment_at<SUI>(
+        &mut market, ROUND_DURATION, x"ab", st, HOME_PRICE, upper + margin + 1, 2_000,
+    );
+
+    clk.increment_for_testing(1_000);
+    let payout = sm4::close_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    // The next round's touch must NOT count: EXPIRED_LOSS, not TOUCH_WIN.
+    assert!(sm4::settlement_kind(&ride) == sm4::settlement_expired_loss(), 0);
+    // And no jackpot: a TOUCH_WIN here would pay escrow × multiplier (far above
+    // escrow); EXPIRED_LOSS pays strictly below the escrow.
+    assert!(payout.value() < escrow_amt, 1);
+
+    test_utils::destroy(payout);
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 7 — close: no-touch + within round → CASHOUT with touched_side=2
 /// (NONE). Record a segment that does NOT touch either barrier and close
 /// before round end → Bachelier cashout path.

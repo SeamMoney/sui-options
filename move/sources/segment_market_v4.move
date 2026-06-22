@@ -1337,12 +1337,30 @@ fun decide_settlement<C>(
         return (stake_paid, 0u64, stake_paid, SETTLEMENT_EXPIRED_LOSS, TOUCHED_SIDE_NONE)
     };
 
+    // v4.26 fix — bound the touch scan to the ride's OWN round, exactly as
+    // crank_expired_segment_ride_v4 already does. Previously the scan ran to the
+    // live `market.next_segment_index`, which can sit in a LATER round once the
+    // round has rolled. That let a ride held across its round boundary escape its
+    // round's outcome by "touching" a subsequent round's barrier — in particular
+    // a RUGGED ride (whose `rugged_at_segment` flag is cleared on the roll) could
+    // collect a jackpot instead of the EXPIRED_LOSS it was dealt. The bound is
+    // exclusive and `scan_for_either_touch` skips absent segments, so for an
+    // in-round close (`next_segment_index < ride_round_end_segment`) this is
+    // identical to scanning up to `next_segment_index`.
+    let ride_round_end_segment =
+        (ride.round_index + 1) * market.round_duration_segments;
+    let scan_to = if (market.next_segment_index < ride_round_end_segment) {
+        market.next_segment_index
+    } else {
+        ride_round_end_segment
+    };
+
     // v4: check EITHER side. If touched, resolve which side wins the
     // touched_side display (UPPER wins same-segment ties).
     if (scan_for_either_touch<C>(
         market,
         ride.entry_segment_index,
-        market.next_segment_index,
+        scan_to,
         ride.upper_barrier_price,
         ride.lower_barrier_price,
     )) {
@@ -1351,15 +1369,13 @@ fun decide_settlement<C>(
         let touched_side = touched_side_resolved<C>(
             market,
             ride.entry_segment_index,
-            market.next_segment_index,
+            scan_to,
             ride.upper_barrier_price,
             ride.lower_barrier_price,
         );
         return (stake_paid, p, 0u64, SETTLEMENT_TOUCH_WIN, touched_side)
     };
 
-    let ride_round_end_segment =
-        (ride.round_index + 1) * market.round_duration_segments;
     if (market.next_segment_index >= ride_round_end_segment) {
         return (stake_paid, 0u64, stake_paid, SETTLEMENT_EXPIRED_LOSS, TOUCHED_SIDE_NONE)
     };
