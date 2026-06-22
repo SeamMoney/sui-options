@@ -25,6 +25,20 @@ import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_RPC = "https://sui-testnet-rpc.publicnode.com";
+const PRECHECK_TIMEOUT_MS = 15_000;
+
+// Per-call timeout so the pre-check's live read can't HANG the capstone command
+// on a stuck RPC. Critical here because the pre-check's try/catch only handles
+// rejections — a hung promise never rejects, so without this it would stall
+// before the verifiers (which have their own timeouts) ever run. Matches the
+// fleet's resilience pattern (verify-barriers #434, check:rugs #437).
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 function hasFlag(name: string): boolean {
   return process.argv.includes(name);
@@ -93,13 +107,13 @@ async function preCheck(): Promise<PreCheck> {
   if (!rideId || rpc.startsWith("mock://")) return { kind: "ok" };
   try {
     const client = new SuiJsonRpcClient({ network: "testnet", url: rpc });
-    const o = (await client.getObject({
-      id: rideId,
-      options: { showContent: true },
-    })) as { data?: { content?: { fields?: { closed?: unknown; market_id?: unknown } } } };
+    const o = (await withTimeout(
+      client.getObject({ id: rideId, options: { showContent: true } }),
+      PRECHECK_TIMEOUT_MS,
+    )) as { data?: { content?: { fields?: { closed?: unknown; market_id?: unknown } } } };
     return classifyRide(o?.data?.content?.fields, market);
   } catch {
-    return { kind: "ok" }; // never block a real audit on a flaky pre-check
+    return { kind: "ok" }; // never block a real audit on a flaky/slow pre-check
   }
 }
 
