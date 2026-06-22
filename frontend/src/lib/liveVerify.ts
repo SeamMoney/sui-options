@@ -15,6 +15,7 @@
  */
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { expandSegment, type WalkState } from "@wick/sdk";
+import { rollRugFired } from "./rugRoll";
 
 export interface LiveVerifyRow {
   k: number;
@@ -222,4 +223,100 @@ export async function verifyBusiestLiveMarket(
   });
   if (!best) throw new Error("no live market has recorded segments yet — try the CLI (prove:live)");
   return verifyLiveMarket(rpcUrl, best, window);
+}
+
+export interface RoundRugResult {
+  /** Rug enabled on this market? (false → no house-edge halt to verify.) */
+  enabled: boolean;
+  rugChanceBps: bigint;
+  roundIndex: bigint;
+  /** Segment the CHAIN says this round halted at (null = none yet). */
+  chainRuggedAt: bigint | null;
+  /** Segment OUR independent keccak scan finds as the first firing roll. */
+  computedFirstFire: bigint | null;
+  /** The winning roll value at the fire segment (for display). */
+  fireRoll: bigint | null;
+  segmentsScanned: number;
+  /** The chain's halt matches an honest, first-firing keccak roll. */
+  honest: boolean;
+}
+
+/** Read the v4.26 RugConfig dynamic field (key = b"rug_config"). */
+async function readRugConfig(
+  client: SuiJsonRpcClient,
+  marketId: string,
+): Promise<{ rugChanceBps: bigint; ruggedAt: bigint | null } | null> {
+  const d = obj(
+    await client.getDynamicFieldObject({
+      parentId: marketId,
+      name: { type: "vector<u8>", value: Array.from(new TextEncoder().encode("rug_config")) as unknown as string },
+    }),
+  );
+  // Dynamic-field object: the RugConfig struct lives at content.fields.value.fields.
+  const cf = obj(obj(obj(obj(obj(d.data).content).fields).value).fields);
+  if (cf.rug_chance_bps == null) return null;
+  // rugged_at_segment is an Option<u64>: { fields: { vec: [..] } } | { vec: [..] }.
+  const ro = cf.rugged_at_segment as Record<string, unknown> | null | undefined;
+  let ruggedAt: bigint | null = null;
+  if (ro != null) {
+    const vec = (obj(ro.fields).vec ?? (ro as Record<string, unknown>).vec) as unknown[] | undefined;
+    if (Array.isArray(vec) && vec.length > 0) ruggedAt = big(vec[0]);
+  }
+  return { rugChanceBps: big(cf.rug_chance_bps), ruggedAt };
+}
+
+/**
+ * Verify the CURRENT round's MARKET HALT (house edge) is honest — prune-proof.
+ * Re-derives the keccak rug roll for every segment of the current round from
+ * its on-chain key and finds the FIRST firing roll, then checks it equals the
+ * segment the chain actually halted at (`rugged_at_segment` in RugConfig — a
+ * live field, not a pruned event). So: the house couldn't fake a halt (claim
+ * one where no honest roll fired) or suppress one (skip the first firing roll).
+ */
+export async function verifyRoundRug(rpcUrl: string, marketId: string): Promise<RoundRugResult> {
+  const client = new SuiJsonRpcClient({ url: rpcUrl, network: "testnet" });
+  const o = obj(await client.getObject({ id: marketId, options: { showContent: true } }));
+  const f = obj(obj(obj(o.data).content).fields);
+  const tableId = String(obj(obj(obj(f.segments).fields).id).id);
+  const dur = big(f.round_duration_segments);
+  const next = big(f.next_segment_index);
+  const round = big(f.cached_round_index);
+
+  const cfg = await readRugConfig(client, marketId);
+  if (!cfg || cfg.rugChanceBps === 0n) {
+    return {
+      enabled: false, rugChanceBps: 0n, roundIndex: round, chainRuggedAt: null,
+      computedFirstFire: null, fireRoll: null, segmentsScanned: 0, honest: true,
+    };
+  }
+
+  // Scan the current round's recorded segments [start, next) for the first fire.
+  const start = dur > 0n ? round * dur : 0n;
+  const ks: bigint[] = [];
+  for (let k = start; k < next; k++) ks.push(k);
+  const recs = await Promise.all(ks.map((k) => readRecord(client, tableId, k)));
+  let firstFire: bigint | null = null;
+  let fireRoll: bigint | null = null;
+  for (let i = 0; i < ks.length; i++) {
+    const rec = recs[i];
+    if (!rec) continue;
+    const { roll, fired } = rollRugFired(rec.key, marketId, round, cfg.rugChanceBps);
+    if (fired) {
+      firstFire = ks[i]!;
+      fireRoll = roll;
+      break;
+    }
+  }
+
+  const honest = (cfg.ruggedAt ?? null) === (firstFire ?? null);
+  return {
+    enabled: true,
+    rugChanceBps: cfg.rugChanceBps,
+    roundIndex: round,
+    chainRuggedAt: cfg.ruggedAt,
+    computedFirstFire: firstFire,
+    fireRoll,
+    segmentsScanned: ks.length,
+    honest,
+  };
 }

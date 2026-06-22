@@ -18,7 +18,12 @@ import {
   type VerifyRow,
 } from "@/lib/verifyReplay";
 import { buildSyntheticConfig, SYNTHETIC_META } from "@/lib/verifyFixture";
-import { verifyBusiestLiveMarket, type LiveVerifyResult } from "@/lib/liveVerify";
+import {
+  verifyBusiestLiveMarket,
+  verifyRoundRug,
+  type LiveVerifyResult,
+  type RoundRugResult,
+} from "@/lib/liveVerify";
 import { TESTNET_RPC_URL } from "@/lib/sui";
 import { TESTNET_DEPLOYMENT } from "@/lib/deployments";
 
@@ -41,12 +46,22 @@ export function Verify() {
   const [live, setLive] = useState<
     { s: "idle" | "loading" | "done" | "error"; r?: LiveVerifyResult; e?: string }
   >({ s: "idle" });
+  // The house edge (v4.26 MARKET HALT) re-derived in-browser for the same
+  // market: did the chain halt this round exactly where the first honest keccak
+  // roll fired? (Prune-proof — the current round's rugged_at_segment is a live
+  // field.) Loads right after the candle verify.
+  const [rug, setRug] = useState<RoundRugResult | null>(null);
   const runLive = async () => {
     setLive({ s: "loading" });
+    setRug(null);
     try {
       const ids = (TESTNET_DEPLOYMENT.segment_markets_v4 ?? []).map((m) => m.market);
       const r = await verifyBusiestLiveMarket(TESTNET_RPC_URL, ids, 8);
       setLive({ s: "done", r });
+      // Second phase: verify the house edge on the same market (best-effort).
+      verifyRoundRug(TESTNET_RPC_URL, r.marketId)
+        .then((rr) => setRug(rr))
+        .catch(() => setRug(null));
     } catch (err) {
       setLive({ s: "error", e: err instanceof Error ? err.message : String(err) });
     }
@@ -254,6 +269,45 @@ export function Verify() {
                   </tbody>
                 </table>
               </div>
+
+              {/* House-edge (MARKET HALT) verification — re-derived in-browser. */}
+              {rug && rug.enabled && (
+                <div className="mt-4 rounded-lg border border-slate-800 bg-[#0d0f13] p-3 text-xs">
+                  <div
+                    className={`font-bold ${rug.honest ? "text-emerald-400" : "text-rose-400"}`}
+                  >
+                    {rug.honest
+                      ? "✓ House edge honest — MARKET HALT is a fair keccak roll"
+                      : "✗ House-edge mismatch"}
+                  </div>
+                  <p className="mt-1 text-slate-400 leading-relaxed">
+                    Round {rug.roundIndex.toString()} · rug chance{" "}
+                    {(Number(rug.rugChanceBps) / 100).toFixed(2)}%/segment ·{" "}
+                    {rug.segmentsScanned} segment{rug.segmentsScanned === 1 ? "" : "s"} re-rolled.{" "}
+                    {rug.chainRuggedAt !== null ? (
+                      <>
+                        The chain halted at segment{" "}
+                        <span className="text-slate-200">{rug.chainRuggedAt.toString()}</span>, and our
+                        independent keccak scan finds the <span className="text-slate-200">first</span>{" "}
+                        firing roll at the{" "}
+                        <span className="text-slate-200">
+                          {rug.computedFirstFire?.toString() === rug.chainRuggedAt.toString()
+                            ? "same"
+                            : "different"}
+                        </span>{" "}
+                        segment (roll {rug.fireRoll?.toString()} &lt; {rug.rugChanceBps.toString()}).
+                      </>
+                    ) : (
+                      <>
+                        No halt this round yet — and our scan agrees: no honest roll fired below the
+                        threshold. The house can&rsquo;t fake a halt or suppress one.
+                      </>
+                    )}{" "}
+                    Verify every past round with{" "}
+                    <code className="text-emerald-400">npm run check:rugs</code>.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </section>
