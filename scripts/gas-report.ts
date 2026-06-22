@@ -133,8 +133,9 @@ export function sui(mist: bigint): string {
 function usd(mist: bigint): string {
   return `$${((Number(mist) / MIST_PER_SUI) * suiUsd).toFixed(5)}`;
 }
-const dim = (s: string) => `\x1b[90m${s}\x1b[0m`;
-const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
+const useColor = process.stdout.isTTY === true && process.env.NO_COLOR === undefined;
+const dim = (s: string) => (useColor ? `\x1b[90m${s}\x1b[0m` : s);
+const bold = (s: string) => (useColor ? `\x1b[1m${s}\x1b[0m` : s);
 
 function printLine(label: string, g: GasLine): void {
   const rebatePct = g.storage > 0n ? Number((g.rebate * 100n) / g.storage) : 0;
