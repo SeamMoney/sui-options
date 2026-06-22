@@ -141,6 +141,26 @@ const client = new SuiJsonRpcClient({
 const log = (...args) => console.log(new Date().toISOString().slice(11, 19), ...args);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Hard timeout on every RPC/tx await. Without it, a black-hole RPC connection
+// (accepts the request, never sends a response body) parks the single awaited
+// loop FOREVER — the process stays alive so the chart-keeper supervisor never
+// restarts it, and the live chart freezes permanently. A timeout turns the hang
+// into a throw the existing catch/retry recovers from cleanly. (The TS sibling
+// segmentSentinel.ts already guards its fetch this way; the fast .mjs never got
+// it.) Generous default (20s): normal RPC is ~150-200ms, so this only fires on a
+// genuine hang, never on a healthy-but-slow call.
+const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS ?? "20000");
+function withTimeout(promise, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} RPC timed out after ${RPC_TIMEOUT_MS}ms`)),
+      RPC_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function buildOpenTx() {
   const tx = new Transaction();
   // Escrow source: gas for SUI markets, a sender-owned coin for non-SUI
@@ -151,7 +171,10 @@ async function buildOpenTx() {
   if (IS_SUI_COLLATERAL) {
     [escrow] = tx.splitCoins(tx.gas, [tx.pure.u64(ESCROW_MIST)]);
   } else {
-    const r = await client.getCoins({ owner: SENDER, coinType: COLLATERAL });
+    const r = await withTimeout(
+      client.getCoins({ owner: SENDER, coinType: COLLATERAL }),
+      "getCoins",
+    );
     const coins = (r.data ?? []).slice().sort((a, b) =>
       BigInt(b.balance) > BigInt(a.balance) ? 1 : -1,
     );
@@ -217,11 +240,14 @@ function buildCloseTx(rideId) {
 }
 
 async function signAndExecute(tx, label) {
-  return client.signAndExecuteTransaction({
-    signer: keypair,
-    transaction: tx,
-    options: { showObjectChanges: true, showEffects: true },
-  });
+  return withTimeout(
+    client.signAndExecuteTransaction({
+      signer: keypair,
+      transaction: tx,
+      options: { showObjectChanges: true, showEffects: true },
+    }),
+    label ?? "signAndExecute",
+  );
 }
 
 // Retry transient gas-coin / validator contention. The operator wallet has a
@@ -313,7 +339,17 @@ if (CRANKER_MODE === "always") {
     try {
       openRes = await execWithRetry(() => buildOpenTx(), `open-${loop}`);
     } catch (err) {
-      log(`[${loop}] open failed: ${err.message?.slice(0, 100)} — sleep 10s`);
+      const msg = err.message ?? String(err);
+      // F1 — distinguish FUND EXHAUSTION (operator wallet out of escrow coins or
+      // gas) from a transient error and surface it loudly + greppably. On
+      // exhaustion every open fails identically forever and the chart freezes
+      // while the process looks "healthy" — a silent wedge a restart can't fix.
+      // A distinct line lets monitoring / a human alarm and refill.
+      if (/no .*coins owned|InsufficientGas|GasBalanceTooLow|insufficient.*(gas|balance)/i.test(msg)) {
+        log(`[${loop}] ⛔ FUNDS-EXHAUSTED — operator wallet out of escrow/gas; the live chart will FREEZE until refilled: ${msg.slice(0, 140)}`);
+      } else {
+        log(`[${loop}] open failed: ${msg.slice(0, 100)} — sleep 10s`);
+      }
       await sleep(10_000);
       continue;
     }
@@ -365,10 +401,13 @@ if (CRANKER_MODE === "always") {
 
 async function readActiveRideCount() {
   try {
-    const obj = await client.getObject({
-      id: MARKET,
-      options: { showContent: true },
-    });
+    const obj = await withTimeout(
+      client.getObject({
+        id: MARKET,
+        options: { showContent: true },
+      }),
+      "getObject",
+    );
     const fields =
       // newer SDK shape
       obj.data?.content?.fields ??
