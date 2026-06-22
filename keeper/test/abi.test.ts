@@ -15,6 +15,8 @@ import { Transaction } from "@mysten/sui/transactions";
 import {
   addRandomWalkTick,
   addPathRecord,
+  addPathRecordDuringDrain,
+  addPullPush,
   addLockAndSettle,
   addCrankExpiredRide,
 } from "../src/abi.js";
@@ -47,6 +49,32 @@ test("addPathRecord → path_observation::record, 3 args", () => {
   assert.equal(mc.module, "path_observation");
   assert.equal(mc.function, "record");
   assert.equal(mc.arguments.length, 3); // path, oracle, clock
+});
+
+test("addPathRecordDuringDrain → path_observation::record_during_drain, 3 args", () => {
+  const tx = new Transaction();
+  addPathRecordDuringDrain(tx, { packageId: PKG, pathId: id("a"), oracleId: id("b") });
+  const mc = moveCallOf(tx);
+  assert.equal(mc.module, "path_observation");
+  assert.equal(mc.function, "record_during_drain");
+  assert.equal(mc.arguments.length, 3); // path, oracle, clock
+});
+
+test("addPullPush → pull_oracle_driver::push_price, 7 args (feed·oracle·cap·price·ts·att·clock)", () => {
+  const tx = new Transaction();
+  addPullPush(tx, {
+    packageId: PKG,
+    feedId: id("a"),
+    oracleId: id("b"),
+    keeperCapId: id("c"),
+    priceScaled: 64_000_000_000n,
+    timestampMs: 1_000n,
+    attestation: new Uint8Array([1, 2, 3]),
+  });
+  const mc = moveCallOf(tx);
+  assert.equal(mc.module, "pull_oracle_driver");
+  assert.equal(mc.function, "push_price");
+  assert.equal(mc.arguments.length, 7);
 });
 
 // The collateral type argument is load-bearing — settlement is generic over C;
