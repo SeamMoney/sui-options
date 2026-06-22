@@ -110,6 +110,20 @@ test("in-round TOUCH_WIN: verify-v4 DERIVES the jackpot verdict from the candles
   assert.equal(code, 0, "an honest in-round touch-win must PASS (exit 0)");
 });
 
+test("in-round TOUCH_WIN on the LOWER barrier (separate detection path) derives + matches", () => {
+  // Enters at segment 0 (its low dips ~3% below home), lower barrier in that dip
+  // → the price wicks DOWN through it. Exercises `min ≤ effective_lower`, the
+  // mirror of the upper test above — a distinct code path that a wrong
+  // comparison/deadband-sign would break without the upper test catching it.
+  const { code, out } = run("mock://touchlow-v4", ["--home", "1000000000"]);
+  assert.match(out, /extrema replay:\s+match \(every segment\)/);
+  assert.match(out, /off-chain verdict:\s+TOUCH_WIN/);
+  assert.match(out, /on-chain verdict:\s+TOUCH_WIN/);
+  assert.match(out, /verdict:\s+match/);
+  assert.match(out, /PASS — the chain was honest/);
+  assert.equal(code, 0, "an honest lower-barrier touch-win must PASS (exit 0)");
+});
+
 test("a suppressed segment (gap below the head) FAILs closed, not silent-truncated", () => {
   // The market reports next_segment_index=8 but segment 5 is missing — a hole the
   // honest chain (contiguous record_segment_v4 indices) can't produce. The
