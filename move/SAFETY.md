@@ -6,7 +6,7 @@ ones that protect funds. This file maps each safety property (the list in
 "The collateral invariant") to the named test(s) that prove it, so an auditor or
 judge can run a specific test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **610/610 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **622/622 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -39,6 +39,7 @@ of funds.
 | Property | Test | File |
 |---|---|---|
 | A market cannot settle both ways (HIT ⟂ EXPIRED) | `crank_expired_no_touch_yields_expired_loss` + `close_upper_touch_wins_with_touched_side_upper` | `segment_market_v4_tests.move` |
+| The oracle settles one-shot against the FIRST fresh post-expiry observation (no early / stale / double settle, no cross-driver writes) | `post_expiry_observation_latches_and_settles` · `lock_before_expiry_aborts` · `lock_without_settlement_obs_aborts` · `stale_settlement_observation_aborts` · `double_settle_aborts` · `apply_after_settled_aborts` · `apply_with_wrong_driver_aborts` | `wick_oracle_tests.move` |
 | DNT corridor settles one way only (HELD ⟂ BROKEN) | `lock_and_settle_dnt_held_idempotent_cannot_flip_to_broken` + `lock_and_settle_dnt_market_with_held_corridor_pays_inside_side` + `lock_and_settle_dnt_market_with_breached_corridor_pays_outside_side` | `dnt_tests.move` |
 | Settlement is idempotent (repeat = no-op / revert) | `lock_and_settle_idempotent` · `release_idempotent_on_already_released` · `prune_settled_segments_v4_is_idempotent` | `market_tests` · `martingaler_vault_tests` · `segment_market_v4_tests` |
 | `lock_and_settle` is atomic — snapshot, status, fee accrual, and lock release commit together | **Guaranteed by Sui's transaction model**: a Move call commits in full or aborts in full, so there is no partial-commit state a unit test could observe. The settle path's combined effects are exercised end-to-end by the close/crank tests, and `lock_and_settle_idempotent` proves a repeat call cannot re-mutate | `segment_market_v4_tests.move` |
