@@ -452,6 +452,52 @@ fun close_no_touch_within_round_yields_cashout() {
     sc.end();
 }
 
+/// Safety: a settled ride cannot be re-settled. close_segment_ride_v4 takes the
+/// position by &mut (not by value), so the `closed` flag is the only thing
+/// stopping a second close from paying out twice. Close once (CASHOUT), then
+/// close again → EAlreadyClosed (=1). No double-pay.
+#[test]
+#[expected_failure(abort_code = 1, location = wick::segment_market_v4)]
+fun close_segment_ride_v4_twice_aborts_already_closed() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow_amt = stake * ROUND_DURATION;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    let upper = sm4::cached_upper_barrier<SUI>(&market);
+    let lower = sm4::cached_lower_barrier<SUI>(&market);
+    let st = sp::state_with(HOME_PRICE, false, 0, VOL_REGIME_INIT, HOME_PRICE);
+    sm4::test_only_record_segment<SUI>(
+        &mut market, x"01", st, lower + 1_000_000, upper - 1_000_000, 1_500,
+    );
+
+    clk.increment_for_testing(1_000);
+    let payout = sm4::close_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+    assert!(sm4::settlement_kind(&ride) == sm4::settlement_cashout(), 0);
+    test_utils::destroy(payout);
+
+    // Second close must abort EAlreadyClosed (=1) — the losing-fund-double-pay
+    // guard. Everything below is unreachable (kept for compilation).
+    let payout2 = sm4::close_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+    test_utils::destroy(payout2);
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 8 — crank_expired_segment_ride_v4: no-touch + round end →
 /// EXPIRED_LOSS with touched_side=2 (NONE).
 #[test]
