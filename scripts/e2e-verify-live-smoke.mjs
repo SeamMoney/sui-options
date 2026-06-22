@@ -83,6 +83,17 @@ try {
   );
   check("the live replay table renders chain hi/lo columns", /chain hi/i.test(body));
 
+  // The live candle chart (#416) must render the replayed candles, not just the
+  // table — bodies + wicks in an SVG, under the "live candles" caption.
+  if (pass) {
+    const candles = await page.evaluate(() => {
+      if (!/live candles/i.test(document.body.innerText)) return 0;
+      const svg = [...document.querySelectorAll("svg")].pop();
+      return svg ? svg.querySelectorAll("rect").length : 0;
+    });
+    check("the live candle chart renders", candles > 0, `${candles} candle bodies drawn`);
+  }
+
   // The "dishonest house" toggle must flip the SAME live verifier to FAIL —
   // proving it catches a lie on real data, not just always-PASS. Only meaningful
   // when the live PASS actually came back (skip on a transient RPC failure).
