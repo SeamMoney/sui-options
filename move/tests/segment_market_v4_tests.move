@@ -1646,6 +1646,31 @@ fun open_segment_ride_v4_rejects_zero_escrow() {
     sc.end();
 }
 
+// Safety: opening a ride whose escrow is BELOW the required stake × round_duration
+// must abort EInsufficientEscrow (=7). Without this guard a player could open an
+// underfunded ride — escrowing less than the position can lose over the round —
+// and drain the difference from the vault. Tests the exact boundary: one unit
+// short of required. (Codes 7 and 9 were the only open-guards without a rejection
+// test; this closes EInsufficientEscrow.)
+#[test]
+#[expected_failure(abort_code = 7, location = wick::segment_market_v4)]
+fun open_segment_ride_v4_rejects_insufficient_escrow() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let stake = 1_000u64;
+    // Non-zero (clears EZeroEscrow=8) but one unit short of stake × ROUND_DURATION.
+    let escrow = mint_sui(stake * ROUND_DURATION - 1, &mut sc);
+    let ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    sm4::test_only_destroy_ride(ride); // unreachable
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 // Safety: a ride can only be settled against the market it was opened on —
 // closing against a DIFFERENT market aborts EWrongMarket (=2). Stops a ride
 // being settled against a more-favourable market's barriers/state.
