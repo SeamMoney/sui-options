@@ -13,7 +13,7 @@ immutable-config rules, and determinism — each mapped to the named test(s) (or
 compile-time guarantee) that prove it, so an auditor or judge can run a specific
 test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **694/694 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **695/695 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -138,6 +138,7 @@ a player has opened a ride.
 | One barrier's cap exhaustion leaves the other open | `per_barrier_cap_exhaustion_keeps_other_barrier_open` | `segment_market_adversarial.move` |
 | WICK-staking anti-loop — a sybil cluster can't loop network losses into a net-positive drain of the staker reward pool: dividend claims are capped at 30% of an address's tracked lifetime loss, and any excess is auto-forfeited ON-CHAIN to the insurance recipient (not returned to the caller), with the cap persisting across repeated claims | `claim_capped_at_30pct_of_lifetime_loss_forfeit_auto_routed` · `zero_lifetime_loss_means_zero_cap_full_forfeit_auto_routed` · `cap_carries_across_multiple_claims_in_same_currency` | `wick_staking_tests.move` |
 | WICK fair-launch token supply integrity — the token's `total_supply` always equals the cumulative amount minted (no phantom/over-mint), even across interleaved mints of differing sizes; the supply counter is a faithful running total, so a holder's share of the fair launch can't be silently diluted | `supply_tracks_cumulative_minted_across_mixed_mints` | `wick_token_tests.move` |
+| Staking reward-pool conservation — cumulative staker dividend CLAIMS can never exceed the dividends DEPOSITED into the pool (`Σ claims ≤ Σ deposited`), so the staking pool can't be drained beyond what was actually funded into it (no reward over-payout, independent of the anti-loop cap above) | `claims_never_exceed_deposited_dividends` | `wick_staking_tests.move` |
 | A ride held across a round boundary can always be settled by its OWNER — `crank_expired_segment_ride_v4` adds no admin/time gate beyond ownership, so the player reclaims their own escrow without the house, an indexer, or anyone's cooperation (censorship-resistant: the house cannot block your settlement). The ride is an OWNED object (the SDK `transferObjects([ride], sender)` at open), so the function takes `&mut` an owned ride — the owner self-settles; a third party CANNOT crank someone else's ride (the test's "permissionless" means no gate *beyond* ownership). Corollary: a truly-abandoned ride can be settled only by its owner returning — no third-party reaper exists — so abandoned rides are owner-recoverable but not externally cleanable. | `ride_spans_round_boundary_and_permissionless_backup_crank_settles` | `segment_market_adversarial.move` |
 
 ## Determinism (the auditability backbone)
