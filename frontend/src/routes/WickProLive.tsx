@@ -448,6 +448,11 @@ export function WickProLive() {
 
   return (
     <div className="fixed inset-0 bg-[#0b0b0c] text-white overflow-hidden">
+      {/* Semantic page heading for the document outline / screen readers /
+          SEO — visually hidden so the full-screen game UI is untouched. The
+          other routes (/coach, /verify, /docs) already carry an h1; this
+          brings the headline submission page in line. */}
+      <h1 className="sr-only">Wick Pro — one-tap on-chain options priced off a live DeepBook mark, on Sui</h1>
       {/* bloxwap "+" grid watermark — a faint tiled cross texture behind
           everything, matching the reference's subtle plus-grid. Decoration. */}
       <div
