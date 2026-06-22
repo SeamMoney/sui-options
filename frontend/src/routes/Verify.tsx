@@ -18,6 +18,9 @@ import {
   type VerifyRow,
 } from "@/lib/verifyReplay";
 import { buildSyntheticConfig, SYNTHETIC_META } from "@/lib/verifyFixture";
+import { verifyBusiestLiveMarket, type LiveVerifyResult } from "@/lib/liveVerify";
+import { TESTNET_RPC_URL } from "@/lib/sui";
+import { TESTNET_DEPLOYMENT } from "@/lib/deployments";
 
 function settlementName(kind: number): string {
   return (SETTLEMENT_NAME as Record<number, string>)[kind] ?? `kind ${kind}`;
@@ -31,6 +34,23 @@ export function Verify() {
     () => runVerification(buildSyntheticConfig({ tamper })),
     [tamper],
   );
+
+  // Live mode: replay the busiest LIVE v4 market's most recent candles in the
+  // browser, straight off the on-chain segment Table (prune-proof). Same
+  // expand_segment port as the sample above — but real, current chain data.
+  const [live, setLive] = useState<
+    { s: "idle" | "loading" | "done" | "error"; r?: LiveVerifyResult; e?: string }
+  >({ s: "idle" });
+  const runLive = async () => {
+    setLive({ s: "loading" });
+    try {
+      const ids = (TESTNET_DEPLOYMENT.segment_markets_v4 ?? []).map((m) => m.market);
+      const r = await verifyBusiestLiveMarket(TESTNET_RPC_URL, ids, 8);
+      setLive({ s: "done", r });
+    } catch (err) {
+      setLive({ s: "error", e: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   return (
     <div className="min-h-full bg-[#0a0b0e] text-slate-100 font-mono">
@@ -118,6 +138,95 @@ export function Verify() {
             </footer>
           </>
         )}
+
+        {/* ── Live mode: verify the REAL chain, right here ──────────────── */}
+        <section className="mt-10 border-t border-slate-800 pt-8">
+          <h2 className="text-lg font-bold tracking-tight">…or verify the LIVE chain</h2>
+          <p className="mt-2 text-sm text-slate-400 leading-relaxed">
+            The sample above proves the logic. This runs the{" "}
+            <span className="text-slate-200">same byte-identical</span>{" "}
+            <code className="text-emerald-400">expand_segment</code> over the{" "}
+            <span className="text-slate-200">most recent candles of a real, live testnet market</span>,
+            read straight from its on-chain segment table — prune-proof, no indexer. If every
+            recomputed high/low equals what the chain published, the live chart is honest.
+          </p>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={runLive}
+              disabled={live.s === "loading"}
+              className="rounded-md bg-sky-500 px-4 py-2 text-sm font-semibold text-black hover:bg-sky-400 transition-colors disabled:opacity-60"
+            >
+              {live.s === "loading"
+                ? "Reading the chain…"
+                : live.s === "done"
+                  ? "Re-verify live ↻"
+                  : "Verify live on-chain candles ▶"}
+            </button>
+          </div>
+
+          {live.s === "error" && (
+            <p className="mt-4 text-sm text-amber-400">
+              Couldn&rsquo;t reach the chain ({live.e}). Try again, or run{" "}
+              <code className="text-slate-300">npm run prove:live</code> from a terminal.
+            </p>
+          )}
+
+          {live.s === "done" && live.r && (
+            <div className="mt-5">
+              <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-slate-400">
+                <span
+                  className={`text-sm font-bold ${live.r.allMatch ? "text-emerald-400" : "text-rose-400"}`}
+                >
+                  {live.r.allMatch ? "✓ LIVE — every candle reproduces" : "✗ MISMATCH"}
+                </span>
+                <a
+                  href={`https://suiscan.xyz/testnet/object/${live.r.marketId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sky-400 hover:underline"
+                >
+                  market {live.r.marketId.slice(0, 10)}… ↗
+                </a>
+                <span>{live.r.totalSegments.toLocaleString()} segments recorded on-chain</span>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="bg-[#0d0f13] text-slate-400">
+                    <tr>
+                      <Th>k</Th>
+                      <Th>open</Th>
+                      <Th>high</Th>
+                      <Th>low</Th>
+                      <Th>close</Th>
+                      <Th>chain hi</Th>
+                      <Th>chain lo</Th>
+                      <Th>match</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {live.r.rows.map((r) => (
+                      <tr key={r.k} className="border-t border-slate-900">
+                        <Td>{r.k}</Td>
+                        <Td>{formatPrice(r.open)}</Td>
+                        <Td>{formatPrice(r.high)}</Td>
+                        <Td>{formatPrice(r.low)}</Td>
+                        <Td>{formatPrice(r.close)}</Td>
+                        <Td>{formatPrice(r.chainHigh)}</Td>
+                        <Td>{formatPrice(r.chainLow)}</Td>
+                        <Td>
+                          <span className={r.match ? "text-emerald-400" : "text-rose-400"}>
+                            {r.match ? "✓" : "✗"}
+                          </span>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
