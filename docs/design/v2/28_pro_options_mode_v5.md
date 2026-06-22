@@ -1,5 +1,11 @@
 # 28 — Pro Options Mode (v5)
 
+> **Built note (2026-06-22):** this records the original v5 design exploration. Pro Options
+> Mode shipped as **`/pro` (`WickProLive`)** — Black-Scholes options priced off a **live
+> DeepBook mark**, not the "Robinhood-Legend" UI prototyped below. The vendored
+> `frontend/robinhood-legend/` reference code was never wired in and has been **removed** from
+> the repo; the Legend-UI references in this doc are historical, not current state.
+
 **Status:** design / spec-first. No production code until Phase 1 is approved.
 **Author seed:** product brief 2026-06-02. Supersedes the assumption that the tap-hold
 ride gesture generalises to options.
@@ -57,8 +63,10 @@ concurrent markets at launch.
 - **Collateral / faucet / keeper** plumbing.
 
 **Scratch / shelve:**
-- `frontend/robinhood-legend/LegendApp.tsx` DOM **replay** — static scrape, no live canvas.
-  Build the real UI from the *widget components*; keep the replay as visual reference only.
+- `frontend/robinhood-legend/LegendApp.tsx` DOM **replay** (static scrape, no live canvas) —
+  vendored as a visual reference, then **REMOVED** (it was never wired in). The shipped `/pro`
+  (`WickProLive`) was built with a *live* DeepBook canvas instead — exactly the "real UI" this
+  section called for, so the static replay was no longer needed.
 - The tap-hold-for-options assumption.
 - Binary touch/no-touch as the hero (keep as a side product).
 
