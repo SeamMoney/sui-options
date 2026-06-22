@@ -52,7 +52,9 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
   from its on-chain keys; toggle **"dishonest house"** to watch the verifier catch a tampered candle.
   **One click also verifies the LIVE chain** — it reads the busiest market's most recent candles
   straight off the on-chain segment table and confirms each reproduces from its key (prune-proof, no
-  indexer). Or audit the **live v4 chain** from a terminal, no wallet, no indexer:
+  indexer), **and re-derives the house edge in-browser** — that this round's `MARKET HALT` is an
+  honest keccak roll the chain couldn't fake or suppress. Or audit the **live v4 chain** from a
+  terminal, no wallet, no indexer:
   - instant offline demo (honest PASS, then a tampered-segment FAIL):
     `npm run verify:fairness` · `npm run verify:fairness:tamper`
   - **audit the live chain, zero args** (auto-picks a live market from `deployments/testnet.json`):
