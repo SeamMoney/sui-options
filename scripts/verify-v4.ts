@@ -52,7 +52,7 @@
  * it, late-closed rides false-FAILed "the chain lied".)
  */
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import {
@@ -1153,11 +1153,19 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
   };
 }
 
-verify(parseArgs(process.argv.slice(2)))
-  .then((ok) => {
-    process.exitCode = ok ? 0 : 1;
-  })
-  .catch((err: unknown) => {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exitCode = 1;
-  });
+// Run only when invoked directly (CLI / npm script / spawned by audit-ride etc.),
+// not when imported — verify-v4 was the only verifier still executing on import,
+// a latent footgun for any future test/tool that imports its helpers. Matches the
+// guard every sibling script already uses.
+const invokedDirectly =
+  process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (invokedDirectly) {
+  verify(parseArgs(process.argv.slice(2)))
+    .then((ok) => {
+      process.exitCode = ok ? 0 : 1;
+    })
+    .catch((err: unknown) => {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+    });
+}
