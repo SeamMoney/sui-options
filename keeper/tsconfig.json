@@ -12,6 +12,16 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
+    // The keeper is run by tsx and NEVER emits (both `build` and `typecheck`
+    // are `tsc --noEmit`; nothing consumes keeper output). noEmit makes that
+    // explicit and unlocks allowImportingTsExtensions, so a `../src/x.ts`
+    // import typechecks cleanly instead of failing with TS5097. Local test
+    // imports still conventionally use `.js` (resolved .js->.ts under Bundler),
+    // but a `.ts` slip no longer reds the typecheck — closing the recurring
+    // regression class (cf. #615, #662) that the vercel-build pre-push hook and
+    // the billing-down CI both miss.
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     // Empty types list disables implicit @types/* lookup — the workspace
     // root has empty orphan @types/* dirs from npm dedup that TS would
     // otherwise fail on with TS2688. Types we actually use come through

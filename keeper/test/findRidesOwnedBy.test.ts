@@ -9,7 +9,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { findRidesOwnedBy } from "../src/ride.ts";
+import { findRidesOwnedBy } from "../src/ride.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const cfg = { packageId: "0xpkg" } as any;
