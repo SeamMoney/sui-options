@@ -56,6 +56,17 @@ jobs:
           npm run build:packages
           npm run build:sdk
 
+      # Those packages COMMIT their dist/ (the frontend + live game resolve them
+      # via dist). The build above just regenerated it; fail if the committed
+      # dist drifted from a fresh build — i.e. a PR edited src/ but forgot to
+      # rebuild dist/, which would silently ship stale compiled code (a fairness
+      # or pricing fix landing in source yet never reaching the running game).
+      # Same git-diff guard as `npm run check:dist`, reusing the build above.
+      - name: Committed dist/ in sync with a fresh build
+        run: |
+          git diff --exit-code -- packages/candle-vision/dist packages/candle-vision-react/dist packages/pro-options/dist sdk/dist \
+            || { echo "::error::committed dist/ is stale — run 'npm run build:packages && npm -w @wick/sdk run build' and commit the dist/ changes"; exit 1; }
+
       - name: Typecheck (frontend · api · keeper · bots)
         run: |
           npm -w frontend run typecheck
