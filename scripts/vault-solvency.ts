@@ -35,6 +35,38 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 const RPC = arg("--rpc") ?? process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com";
+// Fall back past a throttle/hiccup on the default public node to the archival
+// fullnode, so prove:live's solvency step doesn't fail on a transient RPC error
+// (matches verify-v4 / verify-payout / audit-rugs). Dedup handles the default.
+const FALLBACK_RPCS = [
+  "https://sui-testnet-rpc.publicnode.com",
+  "https://fullnode.testnet.sui.io:443",
+];
+
+interface VaultRpc {
+  getObject(a: { id: string; options?: { showContent?: boolean; showType?: boolean } }): Promise<unknown>;
+}
+
+/** getObject across several endpoints, falling back only on a thrown RPC error. */
+function makeResilientClient(urls: string[]): VaultRpc {
+  const seen = new Set<string>();
+  const clients = urls
+    .filter((u) => u && !seen.has(u) && seen.add(u))
+    .map((url) => new SuiJsonRpcClient({ url, network: "testnet" }));
+  return {
+    async getObject(a) {
+      let last: unknown;
+      for (const c of clients) {
+        try {
+          return await c.getObject(a as never);
+        } catch (e) {
+          last = e;
+        }
+      }
+      throw last instanceof Error ? last : new Error(String(last));
+    },
+  };
+}
 
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
@@ -105,8 +137,10 @@ interface VaultState {
   fees: bigint;
 }
 
-async function readVault(client: SuiJsonRpcClient, id: string): Promise<VaultState | null> {
-  const o = await client.getObject({ id, options: { showContent: true, showType: true } });
+async function readVault(client: VaultRpc, id: string): Promise<VaultState | null> {
+  const o = (await client.getObject({ id, options: { showContent: true, showType: true } })) as {
+    data?: { content?: { dataType?: string } | null } | null;
+  };
   if (!o.data || o.data.content?.dataType !== "moveObject") return null;
   const content = o.data.content as { fields: Record<string, unknown>; type: string };
   if (!/::martingaler_vault::MartingalerVault</.test(content.type)) return null;
@@ -123,7 +157,7 @@ async function readVault(client: SuiJsonRpcClient, id: string): Promise<VaultSta
 }
 
 async function main(): Promise<void> {
-  const client = new SuiJsonRpcClient({ url: RPC, network: "testnet" });
+  const client = makeResilientClient([RPC, ...FALLBACK_RPCS]);
   const vaults = loadVaults();
   console.log(`vault solvency — live MartingalerVault reserves @ ${RPC}`);
   console.log(dim(`(on-hand liquid reserves must cover the FIFO claim queue; Move proves the full invariant in 574 tests)`));
