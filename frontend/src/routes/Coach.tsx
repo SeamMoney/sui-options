@@ -247,6 +247,15 @@ export function Coach() {
         >
           ← back to Wick Pro
         </a>
+        {/* Surface the provable-fairness page from the desk too, so /verify is
+            one tap from every main route (game + coach + ride). */}
+        <a
+          href="/verify"
+          title="Provable fairness — replay the chain's candles in your browser and catch a tampered one"
+          className="ml-4 text-[11px] text-sky-400/70 hover:text-sky-300 transition-colors"
+        >
+          verify fairness ↗
+        </a>
         <h1 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight">
           DeepBook Desk
         </h1>
