@@ -38,6 +38,13 @@ import {
   SETTLEMENT_NAME_V4,
 } from "../sdk/src/segmentMarketV4.js";
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npm run smoke:ride   (no args; needs WICK_FAUCET_PRIVATE_KEY)");
+  console.log("  Mints a throwaway burner, funds it from the live faucet, opens → cranks → settles a");
+  console.log("  real v4 ride, then audits it with verify-v4. SPENDS REAL TESTNET GAS (and faucet TUSD).");
+  process.exit(0);
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 const D = JSON.parse(readFileSync(join(REPO_ROOT, "deployments/testnet.json"), "utf8"));
