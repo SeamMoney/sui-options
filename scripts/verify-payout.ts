@@ -269,6 +269,24 @@ export function deriveStakePaid(
   return { segmentsHeld, stakePaid };
 }
 
+/**
+ * Seconds remaining in the ride's round at close — the Bachelier cash-out's
+ * time-to-expiry input (more time ⇒ more touch probability ⇒ higher cash-out).
+ * `round_end = (round + 1) × round_duration` (segment index); the segments left
+ * × 400ms, clamped at 0 if closed at/after the round boundary. Pure so this
+ * money input is unit-tested, not just live-validated.
+ */
+export function cashoutSecondsRemaining(
+  rideRound: bigint,
+  roundDuration: bigint,
+  nextAtClose: bigint,
+  segmentMs: bigint,
+): bigint {
+  const rideRoundEnd = (rideRound + 1n) * roundDuration;
+  const segsRemaining = rideRoundEnd > nextAtClose ? rideRoundEnd - nextAtClose : 0n;
+  return (segsRemaining * segmentMs) / 1000n;
+}
+
 export async function readRide(client: GetObject, id: string): Promise<{ ride: Ride; marketId: string }> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
   const content = asObj(asObj(o.data).content);
@@ -523,9 +541,12 @@ async function main(): Promise<boolean> {
   if (closed.settlementKind === 2) {
     const last = nextAtClose > 0n ? await readSegmentFields(client, market.tableId, nextAtClose - 1n) : null;
     if (last) {
-      const rideRoundEnd = (ride.round + 1n) * market.roundDuration;
-      const segsRemaining = rideRoundEnd > nextAtClose ? rideRoundEnd - nextAtClose : 0n;
-      const secondsRemaining = (segsRemaining * DEFAULT_SEGMENT_MS) / 1000n;
+      const secondsRemaining = cashoutSecondsRemaining(
+        ride.round,
+        market.roundDuration,
+        nextAtClose,
+        DEFAULT_SEGMENT_MS,
+      );
       cashoutExact = cashoutPayout(
         closed.stakePaid,
         last.stateAfterPrice,
