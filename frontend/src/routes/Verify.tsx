@@ -207,13 +207,21 @@ export function Verify() {
             <div className="mt-5">
               <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-slate-400">
                 <span
-                  className={`text-sm font-bold ${liveView.allMatch ? "text-emerald-400" : "text-rose-400"}`}
+                  className={`text-sm font-bold ${
+                    liveView.rows.length === 0
+                      ? "text-slate-400"
+                      : liveView.allMatch
+                        ? "text-emerald-400"
+                        : "text-rose-400"
+                  }`}
                 >
-                  {liveView.allMatch
-                    ? "✓ LIVE — every candle reproduces"
-                    : tamperLive
-                      ? "✗ caught the tampered candle"
-                      : "✗ MISMATCH"}
+                  {liveView.rows.length === 0
+                    ? "— no candles in range yet (nothing to verify)"
+                    : liveView.allMatch
+                      ? "✓ LIVE — every candle reproduces"
+                      : tamperLive
+                        ? "✗ caught the tampered candle"
+                        : "✗ MISMATCH"}
                 </span>
                 <a
                   href={`https://suiscan.xyz/testnet/object/${liveView.marketId}`}
