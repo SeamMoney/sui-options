@@ -1826,6 +1826,22 @@ public fun test_only_record_rug_history<C>(
     record_rug_history(market, round, seg, ctx);
 }
 
+/// v4.27 — test view into the durable rug-history table: true iff a rug segment
+/// is recorded for `round`. Lets a test assert the storage-bounding cleanup (the
+/// entry is dropped once the round fully settles).
+#[test_only]
+public fun test_only_rug_history_contains<C>(market: &SegmentMarketV4<C>, round: u64): bool {
+    if (!dynamic_field::exists_with_type<vector<u8>, Table<u64, u64>>(
+        &market.id, RUG_HISTORY_KEY,
+    )) {
+        return false
+    };
+    let hist = dynamic_field::borrow<vector<u8>, Table<u64, u64>>(
+        &market.id, RUG_HISTORY_KEY,
+    );
+    table::contains(hist, round)
+}
+
 /// Clear the rugged flag without rolling the round. Useful for tests
 /// that want to assert `ensure_round_current` cleared the flag without
 /// staging segments. Requires `enable_rug<C>` to have been called first.
