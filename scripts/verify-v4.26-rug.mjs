@@ -58,6 +58,13 @@ console.log("─".repeat(64));
 // under the poll loop below); override with WICK_VERIFY_RPC.
 const RPC =
   process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com";
+// RugFiredV4 reads go to a history-retaining fullnode: PublicNode prunes old tx
+// events and reliably ERRORS the RugFiredV4 scan ("Could not find the
+// referenced transaction events"), which would silently make this observer see
+// ZERO rugs — defeating its whole purpose. The high-frequency segment/open/close
+// polls stay on RPC (PublicNode serves those fine). Override with WICK_RUG_RPC.
+const RUG_RPC =
+  process.env.WICK_RUG_RPC ?? "https://fullnode.testnet.sui.io:443";
 const POLL_MS = 5000;
 const args = process.argv.slice(2);
 const durationArg = args.find((a) => a.startsWith("--duration"));
@@ -111,7 +118,9 @@ async function queryEvents(eventType, cursor) {
     method: "suix_queryEvents",
     params: [{ MoveEventType: eventType }, cursor ?? null, 50, false],
   };
-  const r = await fetch(RPC, {
+  // RugFiredV4 → fullnode (PublicNode can't serve it); everything else → RPC.
+  const url = eventType.includes("RugFiredV4") ? RUG_RPC : RPC;
+  const r = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
