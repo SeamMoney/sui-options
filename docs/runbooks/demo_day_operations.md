@@ -78,3 +78,10 @@ latest Vercel deployment for `wick-markets`; the on-chain state is unaffected.
 - **Don't compute house edge from live history** — it's polluted by autoplay /
   smoke rides. The house edge is proven by the per-round rug audit
   (`npm run check:rugs`) and the calibration sims, not by realized outcomes.
+- **`check:rugs` is thorough, not fast.** It cryptographically audits *every*
+  round (no FAKED and no SUPPRESSED halt), so its runtime scales with the round
+  count (~1-2s/round → several minutes on a long-lived market). It prints
+  progress round-by-round, so a long run is working, not hung. For a quick
+  spot-check, bound it: `npm run check:rugs -- --max-rounds 50` audits the most
+  recent 50 rounds. `check:all` includes the full (unbounded) sweep, so budget a
+  few minutes for it on a mature market.
