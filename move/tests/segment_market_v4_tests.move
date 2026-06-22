@@ -46,6 +46,7 @@ module wick::segment_market_v4_tests;
 use sui::clock::{Self as clock, Clock};
 use sui::coin::{Self, Coin};
 use sui::object;
+use sui::random::{Self as random, Random};
 use sui::sui::SUI;
 use sui::test_scenario as ts;
 use sui::test_utils;
@@ -626,6 +627,32 @@ fun crank_expired_rejects_touched_ride_must_self_close() {
 
     test_utils::destroy(bounty); // unreachable
     sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+// Safety: record_segment refuses to advance the chain when NO ride is active
+// (ENoActiveRides=14) — the oracle-cranked candle stream only exists to settle
+// live rides, so it can't be driven (burning randomness/gas, polluting history)
+// on an empty market. The guard is the first line of record_segment, so it
+// fires before the &Random is used — we just need one in scope.
+#[test]
+#[expected_failure(abort_code = sm4::ENoActiveRides, location = wick::segment_market_v4)]
+fun record_segment_v4_rejects_when_no_active_rides() {
+    let mut sc = ts::begin(ALICE);
+    let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    // System-create the shared Random the entry needs (never reached past the guard).
+    sc.next_tx(@0x0);
+    random::create_for_testing(sc.ctx());
+
+    sc.next_tx(KEEPER);
+    let r = ts::take_shared<Random>(&sc);
+    // No ride ever opened → active_ride_count == 0 → record must reject.
+    sm4::record_segment<SUI>(&mut market, &r, &clk, sc.ctx());
+
+    ts::return_shared(r); // unreachable
     teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
     sc.end();
 }
