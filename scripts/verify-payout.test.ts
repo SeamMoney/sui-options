@@ -12,7 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { checkPayoutIdentity } from "./verify-payout.js";
+import { checkPayoutIdentity, nextSegmentIndexAtClose } from "./verify-payout.js";
 import {
   isqrtU64,
   bachelierCashoutFactor,
@@ -125,4 +125,70 @@ test("EXPIRED_LOSS that skimmed extra (payout>0 or forfeit>stake) is rejected", 
 test("ABORTED_REFUND: no stake consumed (payout 0, forfeit 0)", () => {
   assert.deepEqual(checkPayoutIdentity(4, 0n, 0n, 0n, MULT), []);
   assert.ok(checkPayoutIdentity(4, 0n, 0n, 5n, MULT).length > 0);
+});
+
+
+// ── nextSegmentIndexAtClose binary search (the #314 late-ride speedup) ───────
+// recorded_at_ms is monotonic in k, so the boundary search must return the
+// smallest k with recorded_at_ms > closed_at_ms (or nextSegmentIndex if none).
+// This was live-only; lock the boundary/off-by-one behaviour against a mock.
+function mockTable(recordedAt: Map<number, bigint>): never {
+  return {
+    getDynamicFieldObject: async (a: { name: { value: string } }) => {
+      const k = Number(a.name.value);
+      const at = recordedAt.get(k);
+      if (at === undefined) return { data: null };
+      return {
+        data: {
+          content: {
+            fields: {
+              value: {
+                fields: { recorded_at_ms: at.toString(), state_after: { fields: { price: "0" } } },
+              },
+            },
+          },
+        },
+      };
+    },
+  } as never;
+}
+
+test("nextSegmentIndexAtClose: all recorded before close → nextSegmentIndex", async () => {
+  const m = new Map<number, bigint>([[5, 10n], [6, 20n], [7, 30n]]);
+  assert.equal(await nextSegmentIndexAtClose(mockTable(m), "0xt", 5n, 100n, 8n), 8n);
+});
+
+test("nextSegmentIndexAtClose: all recorded after close → entry", async () => {
+  const m = new Map<number, bigint>([[5, 200n], [6, 300n]]);
+  assert.equal(await nextSegmentIndexAtClose(mockTable(m), "0xt", 5n, 100n, 7n), 5n);
+});
+
+test("nextSegmentIndexAtClose: boundary in the middle → first k recorded after close", async () => {
+  // 5,6 before; 7,8 after → boundary is 7.
+  const m = new Map<number, bigint>([[5, 10n], [6, 20n], [7, 200n], [8, 300n]]);
+  assert.equal(await nextSegmentIndexAtClose(mockTable(m), "0xt", 5n, 100n, 9n), 7n);
+});
+
+test("nextSegmentIndexAtClose: recorded_at == closed_at is INSIDE the window (<=)", async () => {
+  // k=6 recorded exactly at close → counts as before; boundary is 7.
+  const m = new Map<number, bigint>([[5, 50n], [6, 100n], [7, 150n]]);
+  assert.equal(await nextSegmentIndexAtClose(mockTable(m), "0xt", 5n, 100n, 8n), 7n);
+});
+
+test("nextSegmentIndexAtClose matches a linear scan over random monotonic data", async () => {
+  // Deterministic pseudo-random monotonic timestamps; compare binary vs linear.
+  for (let trial = 0; trial < 40; trial++) {
+    const n = 1 + ((trial * 7 + 3) % 30);
+    const entry = BigInt((trial * 5) % 4);
+    const m = new Map<number, bigint>();
+    let t = 1n;
+    for (let k = 0; k < Number(entry) + n; k++) { t += BigInt(1 + ((k * 13 + trial) % 9)); m.set(k, t); }
+    const next = entry + BigInt(n);
+    const closed = m.get((trial * 3) % Number(next)) ?? 0n;
+    // reference linear scan (the pre-#314 behaviour)
+    let lin = entry;
+    while (lin < next) { const at = m.get(Number(lin)); if (at === undefined || at > closed) break; lin += 1n; }
+    const bin = await nextSegmentIndexAtClose(mockTable(m), "0xt", entry, closed, next);
+    assert.equal(bin, lin, `trial ${trial}: binary ${bin} != linear ${lin}`);
+  }
 });
