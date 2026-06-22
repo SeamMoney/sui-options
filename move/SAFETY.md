@@ -74,6 +74,24 @@ of funds.
 | Rug disabled when `rug_chance_bps == 0` | `rug_chance_zero_is_disabled` | `segment_market_v4_tests.move` |
 | Rug fires at the calibrated rate (house-edge soundness) | `rug_fires_at_expected_rate` | `segment_market_v4_tests.move` |
 
+## Immutable rules — the house can't change the game after you bet
+
+Provable fairness proves the *outputs* are honest; this proves the *rules* can't
+move under you. Every economic parameter is set once at market bootstrap and has
+**no production setter** — multiplier, barrier offset, deadband, cash-out spread,
+sigma, max-payout-per-round, and the min/max stake bounds. The rug chance is the
+same: the only function that writes `rug_chance_bps` after `enable_rug` is
+`#[test_only] test_only_set_rug_chance_bps` — it is compiled out of the published
+package, so on-chain the rug rate is frozen at enable time. So the house cannot
+quietly raise the rug chance, lower the win multiplier, or widen the spread after
+a player has opened a ride.
+
+| Property | Proof | Where |
+|---|---|---|
+| Economic configs are immutable (no production setter for multiplier / offset / deadband / spread / sigma / max-payout / stake bounds) | **Code inspection** — `grep` the module for `market.<field> =` finds only the bootstrap constructor; there is no `set_*` / `update_*` entry function | `segment_market_v4.move` |
+| Rug chance is frozen after `enable_rug` (no production setter) | **Code inspection** — the sole writer of `rug_chance_bps` post-enable is `#[test_only] test_only_set_rug_chance_bps`, absent from the published bytecode | `segment_market_v4.move` |
+| A ride is paid against the market's CONFIGURED rate, not a quietly-lowered one | the ride snapshots `multiplier_bps`/barriers at open; the off-chain audit re-checks the snapshot against the live market — `ride.multiplier == market.multiplier` and `barriers == spot ± offset` | `scripts/verify-payout.ts` (#457) · `scripts/verify-barriers.ts` (#335) |
+
 ## Adversarial / liveness
 
 | Property | Test | File |
