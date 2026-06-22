@@ -51,9 +51,15 @@ of funds.
 
 ## Ride (v4 streaming) safety
 
+> **Complete adversarial coverage:** every abort guard in `segment_market_v4`'s
+> open / record / crank / abort / prune paths has an explicit `#[expected_failure]`
+> rejection test — codes 2, 3, 6, 7, 8, 9, 10, 12, 13, 14, 16, 18, 20, 25.
+> (Codes 4 and 5 are reserved placeholders with no live guard.)
+
 | Property | Test | File |
 |---|---|---|
 | A settled ride cannot be re-settled (no double-pay), on ALL three paths | `close_segment_ride_v4_twice_aborts_already_closed` · `crank_expired_segment_ride_v4_twice_aborts_already_closed` · `abort_segment_ride_v4_twice_aborts_already_closed` | `segment_market_v4_tests.move` |
+| The candle stream can't be cranked on an empty market, and a crank can't under-pay an insolvent vault | `record_segment_v4_rejects_when_no_active_rides` (ENoActiveRides) · `crank_expired_rejects_when_treasury_insufficient` (EInsufficientTreasuryForCrank) | `segment_market_v4_tests.move` |
 | Touch wins ties at the close boundary | `both_barriers_touch_same_segment_upper_wins_tie_break` | `segment_market_v4_tests.move` |
 | Either-touch resolves to the correct barrier | `close_upper_touch_wins…` · `close_lower_touch_wins…` · `nearer_barrier_picks_closer` | `segment_market_v4_tests.move` |
 | Cash-out within the round pays the Bachelier curve | `close_no_touch_within_round_yields_cashout` | `segment_market_v4_tests.move` |
