@@ -39,8 +39,8 @@ if [ "$distinct" -le 1 ]; then
     echo ""
     echo "  The docs are STALE vs the source — a test was added/removed without a doc sync"
     echo "  (the agree-with-each-other check can't catch this; that's why this reality check exists)."
-    echo "  Confirm with 'sui move test' (from move/), then make EVERY doc match ${actual}:"
-    echo "  README (badge + body), move/SAFETY.md, deployments/ADDRESSES.md, docs/runbooks/v4.26_deploy_runbook.md."
+    echo "  Confirm with 'sui move test' (from move/), then sync EVERY doc in one shot:"
+    echo "    npm run sync:count    # rewrites README + SAFETY + ADDRESSES + runbook to ${actual}"
     exit 1
   fi
   echo "✓ Move test count is consistent across all docs AND matches move/ source: ${counts:-<none stated>}${counts:+ (= ${actual} #[test] functions)}"
@@ -50,7 +50,7 @@ fi
 echo "✗ docs disagree on the Move test count — distinct values found:"
 printf '%s\n' "$counts" | sed 's/^/    /'
 echo ""
-echo "  Run 'sui move test' (from move/) for the authoritative number, then make"
-echo "  EVERY doc match: README (badge + body), move/SAFETY.md, deployments/ADDRESSES.md,"
-echo "  docs/runbooks/v4.26_deploy_runbook.md."
+echo "  Fix in one shot — 'npm run sync:count' rewrites README + SAFETY + ADDRESSES +"
+echo "  runbook to the #[test] count in move/ (run 'sui move test' first if you want to"
+echo "  confirm that count is itself current)."
 exit 1
