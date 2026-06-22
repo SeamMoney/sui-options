@@ -93,4 +93,29 @@ check("put delta sits in (−1, 0); gamma/vega match the call", () => {
   assert.ok(Math.abs(put.vega - call.vega) < 1e-12, "vega is side-independent");
 });
 
+check("60s options (Wick Pro's regime) match an independent BS reference — exact time value", () => {
+  // engine.test's ATM vector is a 1-year option; Wick Pro charges the TIME VALUE of
+  // a 60s option (τ≈1.9e-6). Lock that micro-tau regime against a standalone Python
+  // BS reference (r=0, Φ via erf): ATM pure time value scales ~linearly with σ
+  // (0.0165 → 0.0330 → 0.0550). Tolerance 5e-5 absorbs the normCdf approximation
+  // (~1e-6 here) but catches any real mis-pricing of the premiums players pay.
+  const t = yearsFromSeconds(60);
+  const atm = (sigma: number, side: "call" | "put") =>
+    price({ spot: 100, strike: 100, tauYears: t, sigma, side });
+  assert.ok(Math.abs(atm(0.3, "call") - 0.016503) < 5e-5, "60s ATM σ0.3 time value");
+  assert.ok(Math.abs(atm(0.6, "call") - 0.033005) < 5e-5, "60s ATM σ0.6 time value");
+  assert.ok(Math.abs(atm(1.0, "call") - 0.055009) < 5e-5, "60s ATM σ1.0 time value");
+  // Put-call parity at ATM (S=K, r=0): identical premium, to float precision.
+  assert.ok(Math.abs(atm(0.6, "call") - atm(0.6, "put")) < 1e-9, "ATM parity call==put");
+  // 50¢ ITM/OTM with only 60s left ≈ intrinsic (time value negligible that far out).
+  assert.ok(
+    Math.abs(price({ spot: 100, strike: 99.5, tauYears: t, sigma: 0.8, side: "call" }) - 0.5) < 1e-3,
+    "60s 50¢-ITM ≈ intrinsic 0.5",
+  );
+  assert.ok(
+    price({ spot: 100, strike: 100.5, tauYears: t, sigma: 0.8, side: "call" }) < 1e-3,
+    "60s 50¢-OTM ≈ 0",
+  );
+});
+
 console.log(`\npro-options black-scholes: ${passed} checks passed`);
