@@ -1084,6 +1084,36 @@ fun prune_settled_segments_v4_succeeds_after_lag_and_archive() {
     sc.end();
 }
 
+// Safety / verifiability: a round's segment data canNOT be pruned (storage
+// reclaimed) while a ride in that round is still UNSETTLED — the
+// EUnsettledRidesRemain (=20) gate. Otherwise the keys a player needs to settle
+// AND the keys a judge needs to verify the ride could be deleted out from under
+// them. Open a ride in round 0, age the round past the lag gate, then prune →
+// aborts 20 (the unsettled gate fires before the archive gate).
+#[test]
+#[expected_failure(abort_code = sm4::EUnsettledRidesRemain, location = wick::segment_market_v4)]
+fun prune_settled_segments_v4_rejects_unsettled_rides() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    // Age the round past the lag gate so we reach the unsettled-rides gate.
+    sm4::test_only_set_cached_round_index<SUI>(&mut market, 10);
+
+    sc.next_tx(PRUNER);
+    sm4::prune_settled_segments<SUI>(&mut market, 0, sc.ctx()); // aborts 20
+
+    sm4::test_only_destroy_ride(ride); // unreachable
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 20 — prune_settled_segments_v4 aborts when too soon (lag gate).
 #[test]
 #[expected_failure(abort_code = sm4::ETooSoonToPrune, location = wick::segment_market_v4)]
