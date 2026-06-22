@@ -527,7 +527,9 @@ fun crank_expired_no_touch_yields_expired_loss() {
     mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
 
     let stake = 1_000u64;
-    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let escrow_amt = stake * ROUND_DURATION;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let vault_before = mv::treasury_value(&vault);
     let mut ride = sm4::open_segment_ride_v4<SUI>(
         &mut market, &mut vault, &bots,
         stake, escrow, &clk, sc.ctx(),
@@ -545,6 +547,12 @@ fun crank_expired_no_touch_yields_expired_loss() {
 
     assert!(sm4::is_closed(&ride), 0);
     assert!(sm4::settlement_kind(&ride) == sm4::settlement_expired_loss(), 1);
+    // Conservation on the permissionless crank-expired path. A full-round
+    // no-touch forfeit returns nothing to the owner (stake_paid == escrow), so
+    // the escrow splits only two ways: the crank bounty to the keeper and the
+    // remainder retained by the vault as the house's forfeit. The vault's net
+    // gain is therefore exactly escrow − bounty — no value minted or leaked.
+    assert!(mv::treasury_value(&vault) == vault_before + escrow_amt - bounty.value(), 2);
 
     test_utils::destroy(bounty);
     sm4::test_only_destroy_ride(ride);
