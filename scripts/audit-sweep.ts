@@ -61,7 +61,22 @@ function asStr(v: unknown): string {
   return typeof v === "string" ? v : String(v);
 }
 
-async function typePackage(client: SuiJsonRpcClient, marketId: string): Promise<string> {
+const RPC_TIMEOUT_MS = 20_000;
+
+interface ListRpc {
+  getObject(a: { id: string; options?: { showType?: boolean; showContent?: boolean } }): Promise<unknown>;
+  queryEvents(a: unknown): Promise<unknown>;
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
+async function typePackage(client: ListRpc, marketId: string): Promise<string> {
   const o = asObj(await client.getObject({ id: marketId, options: { showType: true } }));
   const type = asStr(asObj(o.data).type);
   const marker = "::segment_market_v4::SegmentMarketV4<";
@@ -70,14 +85,35 @@ async function typePackage(client: SuiJsonRpcClient, marketId: string): Promise<
   return type.slice(0, i);
 }
 
-function firstWorkingClient(rpcOverride?: string): SuiJsonRpcClient {
-  const url = rpcOverride ?? FALLBACK_RPCS[0]!;
-  return new SuiJsonRpcClient({ url, network: "testnet" });
+/** getObject/queryEvents across endpoints, falling back on a thrown error or a
+ *  per-call timeout — so the judge-facing audit:sweep survives a node hiccup
+ *  while it finds the rides (each ride's audit delegates to the resilient
+ *  verify-v4). Replaces a single non-falling-back client. */
+function makeResilientClient(urls: string[]): ListRpc {
+  const seen = new Set<string>();
+  const clients = urls
+    .filter((u) => u && !seen.has(u) && seen.add(u))
+    .map((url) => new SuiJsonRpcClient({ url, network: "testnet" }));
+  async function tryAll<T>(fn: (c: SuiJsonRpcClient) => Promise<T>): Promise<T> {
+    let last: unknown;
+    for (const c of clients) {
+      try {
+        return await withTimeout(fn(c), RPC_TIMEOUT_MS);
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last instanceof Error ? last : new Error(String(last));
+  }
+  return {
+    getObject: (a) => tryAll((c) => c.getObject(a as never)),
+    queryEvents: (a) => tryAll((c) => c.queryEvents(a as never)),
+  };
 }
 
 interface RideRow { rideId: string; kind: number }
 
-async function recentRides(client: SuiJsonRpcClient, market: string, pkg: string, n: number): Promise<RideRow[]> {
+async function recentRides(client: ListRpc, market: string, pkg: string, n: number): Promise<RideRow[]> {
   type Cursor = { txDigest: string; eventSeq: string } | null;
   let cursor: Cursor = null;
   const out: RideRow[] = [];
@@ -122,7 +158,7 @@ async function main(): Promise<void> {
   const n = Math.max(1, Math.min(50, Number(argVal("--n") ?? 10)));
   if (!market) throw new Error("no --market and no market in deployments/testnet.json");
 
-  const client = firstWorkingClient(rpc);
+  const client = makeResilientClient([rpc ?? "", ...FALLBACK_RPCS]);
   const pkg = await typePackage(client, market);
   const rides = await recentRides(client, market, pkg, n);
 
