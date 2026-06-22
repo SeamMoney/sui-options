@@ -6,7 +6,7 @@ ones that protect funds. This file maps each safety property (the list in
 "The collateral invariant") to the named test(s) that prove it, so an auditor or
 judge can run a specific test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **632/632 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **641/641 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -69,6 +69,7 @@ of funds.
 | `crank_expired` only settles a genuinely-expired, non-touched ride — it rejects a still-live ride (ENotExpired) and a touched/winning ride (ETouchedMustSelfClose), so no one can force a loss before its time or rob a winner of a self-close | `crank_expired_segment_ride_v4_before_expiry_rejected` · `crank_expired_rejects_touched_ride_must_self_close` | `segment_market_v4_tests.move` |
 | No NEW ride can open on an aborted market | `open_segment_ride_v4_rejects_aborted_market` | `segment_market_v4_tests.move` |
 | Per-round payout is capped | `either_max_payout_cap_enforced` | `segment_market_v4_tests.move` |
+| Aggregate correlated-market exposure (PWE) decays on the EWMA half-life so caps free up on schedule, register/read round-trips, and a decrease floors at 0 (no u128 underflow) | `ewma_halves_at_one_half_life` · `ewma_quarters_at_two_half_lives` · `ewma_linear_fraction_at_half_a_half_life` · `read_pwe_decays_over_time` · `decrease_floors_at_zero` | `global_exposure_registry_tests.move` |
 | Zero-value escrow / settlement is rejected | `deposit_ride_escrow_zero_value_aborts` · `withdraw_for_ride_settlement_zero_amount_aborts` | `martingaler_vault_tests.move` |
 | Stake-per-segment must be within [min, max] | `open_segment_ride_v4_rejects_stake_below_min` · `open_segment_ride_v4_rejects_stake_above_max` | `segment_market_v4_tests.move` |
 | Ride opens only against its own vault, with funded escrow (non-zero AND ≥ stake × round_duration) | `open_segment_ride_v4_rejects_wrong_vault` · `open_segment_ride_v4_rejects_zero_escrow` · `open_segment_ride_v4_rejects_insufficient_escrow` | `segment_market_v4_tests.move` |
