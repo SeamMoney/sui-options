@@ -84,6 +84,8 @@ function makeResilientClient(urls: string[]): VaultRpc {
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[90m${s}\x1b[0m`;
+/** SuiScan link so a judge can open the vault and see its reserves first-hand. */
+const suiscan = (kind: "object" | "tx", id: string): string => `https://suiscan.xyz/testnet/${kind}/${id}`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 
 /** Decimals + ticker for the collateral types we deploy against. */
@@ -190,7 +192,7 @@ async function main(): Promise<void> {
     const solvent = isSolvent(s.treasury, s.sideBucket, s.queueTotal);
     if (!solvent) insolvent++;
     const tag = solvent ? green("✓ SOLVENT") : red("✗ UNDER-COLLATERALIZED");
-    console.log(`  ${bold(v.key)} ${dim(`(${ticker})`)}  ${tag}`);
+    console.log(`  ${bold(v.key)} ${dim(`(${ticker})`)}  ${tag}  ${dim(`↗ ${suiscan("object", v.id)}`)}`);
     console.log(
       `    treasury ${human(s.treasury, decimals)} + side_bucket ${human(s.sideBucket, decimals)} = ` +
         `${bold(human(liquid, decimals) + " " + ticker)} liquid  ≥  queue ${human(s.queueTotal, decimals)} ${ticker}`,
