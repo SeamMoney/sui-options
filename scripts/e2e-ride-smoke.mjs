@@ -72,6 +72,14 @@ try {
   const title = await page.title();
   check("page has the Wick title", /wick/i.test(title), title);
 
+  // Semantic page heading (added in #361 via the router) — guard it so a
+  // refactor can't silently drop the document outline / a11y / SEO h1.
+  const h1 = await page.evaluate(() => {
+    const el = document.querySelector("h1");
+    return el ? (el.textContent || "").trim().slice(0, 60) : null;
+  });
+  check("page has a semantic <h1>", !!h1, h1 ? `“${h1}”` : "no h1");
+
   const body = await page.locator("body").innerText();
   check("lobby renders content", body.length > 50, `${body.length} chars`);
   check(
