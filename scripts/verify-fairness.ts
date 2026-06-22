@@ -30,6 +30,12 @@ import { independentCommit } from "./pro-commit";
 // `--tamper` flips the demo: a dishonest house publishes an honest commit, then
 // tries to swap a DIFFERENT path under it at reveal. The independent verifier
 // must CATCH every forgery. Mirrors `verify:fairness:tamper` for the /ride chain.
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npx tsx scripts/verify-fairness.ts [--tamper] [--seed <n>] [--preset calm|volatile|trending|choppy]   (or: npm run verify:pro-fairness)");
+  console.log("  Proves every /pro round's price path is SHA-256-committed before the lobby (commit-reveal) — recompute the digest independently and it binds. Offline.");
+  process.exit(0);
+}
+
 const TAMPER = process.argv.includes("--tamper");
 
 // `--seed <n> [--preset <id>]` verifies ONE specific round (the one a player

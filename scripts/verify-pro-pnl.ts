@@ -191,6 +191,13 @@ async function main() {
   }
 }
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npx tsx scripts/verify-pro-pnl.ts   (or: npm run verify:pro)");
+  console.log("  Proves the /pro number you watch (live unrealized P&L) equals the number you're paid at");
+  console.log("  settlement, to 1e-9, off the live DeepBook mark (skips to a fallback if the indexer is down).");
+  process.exit(0);
+}
+
 main().catch((err) => {
   console.error("verify-pro-pnl: unexpected error", err);
   process.exit(1);
