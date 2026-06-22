@@ -381,7 +381,7 @@ public fun crank_queue_head<C>(
 
     let remaining = head_entry.amount_owed;
     let claimant = head_entry.claimant;
-    let market_id = head_entry.market_id;
+    let _market_id = head_entry.market_id;
 
     if (remaining == 0) {
         // Head fully paid — advance head_idx

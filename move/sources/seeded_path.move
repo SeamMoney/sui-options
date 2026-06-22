@@ -30,6 +30,7 @@
 ///  keystream word   blake2b256(key || le8(n)), low 8 bytes read little-endian
 ///  division         integer, truncating          (all operands non-negative)
 ///  intermediates    u128   (bounded well below 2^128 for any sane price)
+#[allow(deprecated_usage)]
 module wick::seeded_path;
 
 use sui::bcs;

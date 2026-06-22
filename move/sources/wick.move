@@ -94,11 +94,11 @@ public entry fun bootstrap_random_walk_market<C>(
     settlement_freshness_ms: u64,
     payout_multiplier_bps: u64,
     correlation_bucket_id: u8,
-    /// Side reserved for the vault as natural counterparty. For arcade
-    /// markets pass `market::side_no_touch()` (1) so traders only open
-    /// TOUCH; pass `market::vault_side_none()` (255) to allow both sides.
-    /// See docs/design/v2/15_montecarlo_validation_report.md for the
-    /// solvency analysis that drove this gate.
+    // Side reserved for the vault as natural counterparty. For arcade
+    // markets pass `market::side_no_touch()` (1) so traders only open
+    // TOUCH; pass `market::vault_side_none()` (255) to allow both sides.
+    // See docs/design/v2/15_montecarlo_validation_report.md for the
+    // solvency analysis that drove this gate.
     vault_side: u8,
     vault: &MartingalerVault<C>,
     clock: &Clock,
@@ -138,8 +138,8 @@ public entry fun bootstrap_pull_market<C>(
     settlement_freshness_ms: u64,
     payout_multiplier_bps: u64,
     correlation_bucket_id: u8,
-    /// See `bootstrap_random_walk_market`. For BTC / ETH / SUI / SP500
-    /// arcade-style touch markets pass `market::side_no_touch()`.
+    // See `bootstrap_random_walk_market`. For BTC / ETH / SUI / SP500
+    // arcade-style touch markets pass `market::side_no_touch()`.
     vault_side: u8,
     vault: &MartingalerVault<C>,
     ctx: &mut TxContext,
