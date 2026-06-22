@@ -265,6 +265,7 @@ export async function readMarket(
   nextSegmentIndex: bigint;
   sigmaBpsPerSqrtSec: bigint;
   cashoutSpreadBps: bigint;
+  multiplierBps: bigint;
 }> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
   const content = asObj(asObj(o.data).content);
@@ -280,6 +281,7 @@ export async function readMarket(
     nextSegmentIndex: asBig(f.next_segment_index),
     sigmaBpsPerSqrtSec: asBig(f.sigma_bps_per_sqrt_sec),
     cashoutSpreadBps: asBig(f.cashout_spread_bps),
+    multiplierBps: asBig(f.multiplier_bps),
   };
 }
 
@@ -450,12 +452,23 @@ async function main(): Promise<boolean> {
   console.log(`segments held:     ${segmentsHeld}  (entry ${ride.entry} → close @ index ${nextAtClose}, round cap ${market.roundDuration})`);
   console.log(`stake/segment:     ${fmt(ride.stakePerSegment)}   escrow cap: ${fmt(ride.escrowed)}`);
   console.log(`stake_paid:        ours ${fmt(stakePaidDerived)}  ·  chain ${fmt(closed.stakePaid)}  ${stakePaidDerived === closed.stakePaid ? "✓ match" : "✗ MISMATCH"}`);
-  console.log(`multiplier:        ${fmt(ride.multiplierBps)} bps`);
+  const multOk = ride.multiplierBps === market.multiplierBps;
+  console.log(
+    `multiplier:        ride ${fmt(ride.multiplierBps)} bps  ·  market ${fmt(market.multiplierBps)} bps  ${multOk ? "✓ configured rate" : "✗ MISMATCH"}`,
+  );
   console.log(`payout:            ${fmt(closed.payout)}   forfeit: ${fmt(closed.forfeit)}   bounty: ${fmt(closed.bounty)}`);
 
   const errs: string[] = [];
   if (stakePaidDerived !== closed.stakePaid) {
     errs.push(`re-derived stake_paid ${stakePaidDerived} != chain ${closed.stakePaid}`);
+  }
+  // Multiplier provenance: the win payout = stake × ride.multiplier, so the
+  // ride's snapshotted multiplier must equal the market's CONFIGURED multiplier
+  // (Move sets `ride.multiplier_bps = market.multiplier_bps` at open, and the
+  // market value is immutable). Otherwise the payout could be honest against a
+  // ride whose rate was quietly lowered below what the market advertises.
+  if (!multOk) {
+    errs.push(`ride multiplier ${ride.multiplierBps}bps != market's configured ${market.multiplierBps}bps`);
   }
   errs.push(
     ...checkPayoutIdentity(
