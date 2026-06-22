@@ -132,6 +132,11 @@ function parseArgs(argv: string[]): Args {
   return out as Args;
 }
 
+/** SuiScan explorer link so a judge can cross-check the audited object — the
+ *  "look yourself" half of the proof. Same format the smoke scripts use. */
+const suiscan = (kind: "object" | "tx", id: string): string =>
+  `https://suiscan.xyz/testnet/${kind}/${id}`;
+
 function asObj(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
 }
@@ -487,8 +492,8 @@ async function main(): Promise<boolean> {
   }
   const market = await readMarket(reader, args.market);
 
-  console.log(`market:  ${args.market}`);
-  console.log(`ride:    ${args.ride}`);
+  console.log(`market:  ${args.market}  ↗ ${suiscan("object", args.market)}`);
+  console.log(`ride:    ${args.ride}  ↗ ${suiscan("object", args.ride)}`);
   console.log(`network: ${args.rpc}`);
 
   if (!ride.closed || ride.settlementKind === 0) {
