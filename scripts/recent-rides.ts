@@ -136,14 +136,18 @@ async function main() {
   // (persisted) ride object's entry to decide precisely.
   //
   // v4.27 DEPLOY-NOTE: this `entry ≤ rug_seg` test, keyed on the ride's OWN
-  // `round_index`, is EXACTLY the durable per-round rug condition Move #694
-  // enforces — so this label needs NO change for the v4.27 upgrade (cf. #706 for
-  // verify-v4). It is already v4.27-correct. The only caveat is on the pre-fix
-  // v4.26 chain: a cross-round ride that was open at its round's rug could ESCAPE
-  // that rug on-chain (the bug #683/#694 fix), so its EXPIRED_LOSS came from
-  // time-expiry, not the halt — and this label can then over-attribute HALT to
-  // it. The v4.27 upgrade closes that escape, making the on-chain outcome match
-  // this label exactly; no label change is part of the deploy.
+  // `round_index`, mirrors the durable per-round rug condition Move #694 enforces
+  // ON CLOSE — so a ride CLOSED in its rugged round is labeled consistently with
+  // the v4.27 chain, and the label needs NO change for the upgrade (cf. #706 for
+  // verify-v4). It STAYS a heuristic hint, not authoritative — the audit a judge
+  // runs is. `entry ≤ rug_seg` is necessary but not sufficient: a ride that
+  // stopped being client-cranked before its round's rug fired, then settled via
+  // crank-EXPIRY, has the rug OUTSIDE its actual recorded window, so it morally
+  // time-expired yet still trips this test (the live 0xccb5 case — see the
+  // recent-rides-halt-mislabel analysis; the true window needs re-deriving
+  // verify-v4's scan). v4.27 narrows this (a closed rugged ride is correctly
+  // halt-routed) but doesn't fully close it; it's cosmetic and self-correcting
+  // (real halts still surface), so no label change is part of the deploy.
   async function wasHalted(rideId: string, marketId: string, round: bigint): Promise<boolean> {
     const rugSeg = rugSegByRound.get(`${marketId}:${round}`);
     if (rugSeg == null) return false;
