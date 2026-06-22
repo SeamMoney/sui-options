@@ -10,7 +10,10 @@
  * Splitting the coin into ~12 pieces makes the existing random-coin picker spread
  * load and eliminates the contention. No code change, no faucet downtime.
  *
- *   WICK_FAUCET_PRIVATE_KEY=suiprivkey1… npx tsx scripts/split-faucet-coins.ts [count]
+ *   WICK_FAUCET_PRIVATE_KEY=suiprivkey1… npx tsx scripts/split-faucet-coins.ts [count] [--dry-run]
+ *
+ * --dry-run previews exactly what it would split (no tx submitted) so you can
+ * eyeball the financial op before running it for real.
  *
  * Idempotent: if the wallet already has ≥ target usable coins, it does nothing.
  * Splits are transferred back to the faucet wallet itself — funds never leave it.
@@ -20,7 +23,11 @@ import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 
 const RPC = process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com";
-const TARGET = Math.max(2, Math.min(50, Number(process.argv[2] ?? 12)));
+const ARGS = process.argv.slice(2);
+const DRY_RUN = ARGS.includes("--dry-run");
+// the target coin count is the first bare number arg (order-independent vs --dry-run)
+const COUNT_ARG = ARGS.find((a) => /^\d+$/.test(a));
+const TARGET = Math.max(2, Math.min(50, Number(COUNT_ARG ?? 12)));
 const PER_COIN_MIST = 100n * 1_000_000_000n; // 100 SUI per split coin (well above the 0.22 SUI "usable" floor)
 const USABLE_FLOOR = 220_000_000n; // DRIP_MIST(0.2) + GAS_BUFFER(0.02), matches api/faucet.ts
 
@@ -45,6 +52,12 @@ async function main() {
   }
 
   const splitsNeeded = TARGET - usable.length;
+  if (DRY_RUN) {
+    console.log(`  DRY RUN — would split off ${splitsNeeded} coin(s) of 100 SUI each (${splitsNeeded * 100} SUI total),`);
+    console.log(`           transferred back to the faucet wallet (funds never leave). Nothing submitted.`);
+    console.log(`  Re-run WITHOUT --dry-run to execute.`);
+    return;
+  }
   console.log(`  splitting off ${splitsNeeded} coin(s) of 100 SUI each, transferred back to the faucet…`);
   const tx = new Transaction();
   const amounts = Array.from({ length: splitsNeeded }, () => PER_COIN_MIST);
