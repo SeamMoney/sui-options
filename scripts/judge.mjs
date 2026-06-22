@@ -89,7 +89,7 @@ if (withE2e) {
 
 if (withChain) {
   console.log(C.cyan(`\n[+] Full on-chain ride loop (real testnet txs)`));
-  console.log(C.dim(`      proves: a cold burner funds itself, opens → cranks → settles a ride, then audits it → PASS`));
+  console.log(C.dim(`      proves: a cold burner funds itself, opens → cranks → settles a ride, then runs the COMPLETE audit (barriers · candles · halt · verdict · payout) → PASS`));
   const ok = run("smoke:ride");
   results.push({ script: "smoke:ride", title: "On-chain ride loop", ok });
   console.log(ok ? C.green("   ✓ smoke:ride PASS") : C.red("   ✗ smoke:ride FAIL"));
