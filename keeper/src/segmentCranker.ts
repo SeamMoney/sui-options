@@ -482,6 +482,30 @@ export class SegmentCranker {
           detail: { opened_delta: openedDelta, closed_delta: closedDelta },
         });
       }
+      // The first-poll cursor-prime captures but does NOT count the first
+      // RideOpened (it primes the forward cursor), and a market idle at startup
+      // seeds count 0 — so on event deltas alone a lone rider could never wake the
+      // cranker. Whenever we believe we're idle, re-read the AUTHORITATIVE on-chain
+      // `active_ride_count` and adopt it if a ride is actually open. Cheap: this
+      // only runs while idle (the cranker isn't cranking), and self-corrects any
+      // event-delta drift, not just the first-open case.
+      if (state.activeRideCount <= 0) {
+        try {
+          const { count } = await this.readActiveRideCount(state.binding.marketId);
+          if (count > 0) {
+            state.activeRideCount = count;
+            this.opts.log({
+              ts: nowIso(),
+              level: "info",
+              action: "segment-cranker.idle-resync",
+              market_id: state.binding.marketId,
+              active_ride_count: count,
+            });
+          }
+        } catch {
+          // Transient object-read failure; the next poll retries.
+        }
+      }
     } catch (err) {
       this.opts.log({
         ts: nowIso(),
