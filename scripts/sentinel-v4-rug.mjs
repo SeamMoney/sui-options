@@ -169,6 +169,15 @@ const SENDER = keypair.getPublicKey().toSuiAddress();
 const client = new SuiJsonRpcClient({
   url: process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com",
 });
+// Dedicated client for the RugFiredV4 event reads. PublicNode prunes old tx
+// events and reliably ERRORS the RugFiredV4 scan ("Could not find the
+// referenced transaction events"), so the rug log stays silent on the default
+// RPC even while rugs fire. The Mysten fullnode retains history — use it for
+// the event reads (txs/balance keep using `client`). Override with
+// WICK_RUG_RPC. (Same fallback the SDK's subscribeRugFiredV4 applies.)
+const rugClient = new SuiJsonRpcClient({
+  url: process.env.WICK_RUG_RPC ?? "https://fullnode.testnet.sui.io:443",
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 const log = (...args) => console.log(new Date().toISOString().slice(11, 19), ...args);
@@ -202,7 +211,7 @@ const seenRugs = new Set();
 
 async function pollRugEvents() {
   try {
-    const res = await client.queryEvents({
+    const res = await rugClient.queryEvents({
       query: { MoveEventType: RUG_EVENT_TYPE },
       cursor: lastEventCursor,
       limit: 25,
@@ -309,7 +318,7 @@ if (session.startBalanceMist <= MIN_FLOOR_MIST) {
 
 // Seed the rug-event cursor to "now" so we only report NEW rugs.
 try {
-  const seed = await client.queryEvents({
+  const seed = await rugClient.queryEvents({
     query: { MoveEventType: RUG_EVENT_TYPE },
     limit: 1,
     order: "descending",
