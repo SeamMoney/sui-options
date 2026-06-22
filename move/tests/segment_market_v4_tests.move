@@ -1555,3 +1555,48 @@ fun open_segment_ride_v4_rejects_aborted_market() {
     teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
     sc.end();
 }
+
+// Safety: the ride must be opened against the market's OWN vault. Passing a
+// different vault aborts EWrongMarket (=2) — the first check, before any coin.
+#[test]
+#[expected_failure(abort_code = 2, location = wick::segment_market_v4)]
+fun open_segment_ride_v4_rejects_wrong_vault() {
+    let mut sc = ts::begin(ALICE);
+    let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    // A second, unrelated vault — not the one the market is bound to.
+    let (mut other_vault, other_vcap) = mv::init_for_testing<SUI>(sc.ctx());
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut other_vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    sm4::test_only_destroy_ride(ride); // unreachable
+    test_utils::destroy(other_vault);
+    test_utils::destroy(other_vcap);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+// Safety: a zero-value escrow coin is rejected (EZeroEscrow =8) — a ride must
+// actually fund its stake, no free positions.
+#[test]
+#[expected_failure(abort_code = 8, location = wick::segment_market_v4)]
+fun open_segment_ride_v4_rejects_zero_escrow() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(0, &mut sc); // zero-value
+    let ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    sm4::test_only_destroy_ride(ride); // unreachable
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}

@@ -6,7 +6,7 @@ ones that protect funds. This file maps each safety property (the list in
 "The collateral invariant") to the named test(s) that prove it, so an auditor or
 judge can run a specific test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **596/596 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **598/598 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -47,6 +47,7 @@ state transition. Bugs here are direct loss of funds.
 | Per-round payout is capped | `either_max_payout_cap_enforced` | `segment_market_v4_tests.move` |
 | Zero-value escrow / settlement is rejected | `deposit_ride_escrow_zero_value_aborts` · `withdraw_for_ride_settlement_zero_amount_aborts` | `martingaler_vault_tests.move` |
 | Stake-per-segment must be within [min, max] | `open_segment_ride_v4_rejects_stake_below_min` · `open_segment_ride_v4_rejects_stake_above_max` | `segment_market_v4_tests.move` |
+| Ride opens only against its own vault, with funded escrow | `open_segment_ride_v4_rejects_wrong_vault` · `open_segment_ride_v4_rejects_zero_escrow` | `segment_market_v4_tests.move` |
 
 ## House edge (v4.26 rug) safety
 
