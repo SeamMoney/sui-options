@@ -1,14 +1,24 @@
 /**
- * PTB builders for every Wick entry function. Each returns a {@link Transaction}
- * with no signer attached — the caller signs and executes via dApp Kit, the
- * keeper's keypair, the CLI, or any other path.
+ * @deprecated **Legacy v1 ABI — retired on-chain. Do not use for new integrations.**
  *
- * Why bigint everywhere: Sui u64 amounts can exceed JS Number safe range
- * (2^53). Pass `riskMist: BigInt(100_000)` rather than the raw number.
+ * Every builder in this file targets a `wick::` entry function that no longer
+ * exists in the shipped package (`create_market`, `buy_touch`/`buy_no_touch`,
+ * `swap_*`, `redeem_complete_set`, `redeem_winner`, `redeem_lp`, `mark_hit`,
+ * `settle_expired`) — the v1 `create -> trade <-> swap -> redeem_complete_set`
+ * flow described in AGENTS.md as "gone". A transaction built here WILL abort.
+ *
+ * The live v2/v4 surface: `wick::open_touch`/`open_no_touch` + `lock_and_settle`
+ * + `redeem` for touch/no-touch, and the ride/segment builders in
+ * `segmentMarket.ts` / `segmentMarketV4.ts` / `sponsored.ts`. These dead builders
+ * are kept (not deleted) only because unrouted legacy UI + bots still import them;
+ * they are excluded from the documented SDK surface.
+ *
+ * PTB builders return a {@link Transaction} with no signer attached.
  */
 import { Transaction } from "@mysten/sui/transactions";
 import { SUI_CLOCK_OBJECT_ID } from "@mysten/sui/utils";
 import { DIRECTION_CODE } from "./constants.js";
+/** @deprecated Legacy v1 ABI (retired on-chain) — see the module banner. */
 export function buildCreateMarketTx(a) {
     const tx = new Transaction();
     tx.setSender(a.sender);
@@ -28,6 +38,7 @@ export function buildCreateMarketTx(a) {
     });
     return tx;
 }
+/** @deprecated Legacy v1 ABI (retired on-chain) — see the module banner. */
 export function buildBuyTx(a) {
     if (a.riskMist <= 0n)
         throw new Error("riskMist must be > 0");
@@ -43,6 +54,7 @@ export function buildBuyTx(a) {
     tx.transferObjects([pos], tx.pure.address(a.sender));
     return tx;
 }
+/** @deprecated Legacy v1 ABI (retired on-chain) — see the module banner. */
 export function buildSwapTx(a) {
     const tx = new Transaction();
     tx.setSender(a.sender);
@@ -59,6 +71,7 @@ export function buildSwapTx(a) {
     tx.transferObjects([newPos], tx.pure.address(a.sender));
     return tx;
 }
+/** @deprecated Legacy v1 ABI (retired on-chain) — see the module banner. */
 export function buildRedeemCompleteSetTx(a) {
     const tx = new Transaction();
     tx.setSender(a.sender);
@@ -74,6 +87,7 @@ export function buildRedeemCompleteSetTx(a) {
     tx.transferObjects([out], tx.pure.address(a.sender));
     return tx;
 }
+/** @deprecated Legacy v1 ABI (retired on-chain) — see the module banner. */
 export function buildRedeemWinnerTx(a) {
     const tx = new Transaction();
     tx.setSender(a.sender);
@@ -85,6 +99,7 @@ export function buildRedeemWinnerTx(a) {
     tx.transferObjects([payout], tx.pure.address(a.sender));
     return tx;
 }
+/** @deprecated Legacy v1 ABI (retired on-chain) — see the module banner. */
 export function buildRedeemLpTx(a) {
     const tx = new Transaction();
     tx.setSender(a.sender);
@@ -96,6 +111,7 @@ export function buildRedeemLpTx(a) {
     tx.transferObjects([claim], tx.pure.address(a.sender));
     return tx;
 }
+/** @deprecated Legacy v1 ABI (retired on-chain) — see the module banner. */
 export function buildMarkHitTx(a) {
     const tx = new Transaction();
     tx.setSender(a.sender);
@@ -110,6 +126,7 @@ export function buildMarkHitTx(a) {
     });
     return tx;
 }
+/** @deprecated Legacy v1 ABI (retired on-chain) — see the module banner. */
 export function buildSettleExpiredTx(a) {
     const tx = new Transaction();
     tx.setSender(a.sender);
