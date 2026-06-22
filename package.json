@@ -123,6 +123,7 @@
     "safety": "node scripts/safety-report.mjs",
     "check:demo-ready": "bash scripts/check-demo-ready.sh",
     "check:doc-counts": "bash scripts/check-doc-counts.sh",
+    "sync:count": "node scripts/sync-move-count.mjs",
     "test:safety": "tsx --test scripts/safety-report.test.ts",
     "test:cold-gate-coverage": "tsx --test scripts/cold-gate-coverage.test.ts"
   },
