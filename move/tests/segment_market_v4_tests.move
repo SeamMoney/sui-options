@@ -1255,6 +1255,24 @@ fun touched_side_resolved_lower_only_returns_lower() {
 
 const ALICE_RUG_BPS: u64 = 1_500; // 15% for deterministic MC test
 
+// Safety / fairness: `enable_rug` is one-shot — a second call aborts
+// ERugAlreadyEnabled (=25). This is what stops the house re-installing the rug
+// config mid-life and wiping a live `rugged_at_segment` (which would let it
+// re-roll or move the halt), so the armed halt a player faces is immutable.
+#[test]
+#[expected_failure(abort_code = 25, location = wick::segment_market_v4)]
+fun enable_rug_twice_rejected() {
+    let mut sc = ts::begin(ALICE);
+    let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    sm4::enable_rug<SUI>(&mut market, ALICE_RUG_BPS);
+    sm4::enable_rug<SUI>(&mut market, ALICE_RUG_BPS); // second call aborts 25
+
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 29 — rug_chance_bps=0 disables the mechanism even when enable_rug
 /// was called. Proves the `cfg.rug_chance_bps == 0` short-circuit in
 /// `roll_rug` works (otherwise the hash math would still occasionally fire).
