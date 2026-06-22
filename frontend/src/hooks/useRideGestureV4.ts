@@ -1798,7 +1798,12 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           return false;
         };
         p.mouseReleased = (event?: unknown) => {
-          if (stateRef.current.disabled) return true;
+          // NB: deliberately NO `disabled` gate here. `disabled` blocks ENTERING
+          // a ride (the press handlers), but a release must ALWAYS be able to
+          // CLOSE an open ride — otherwise a balance that drops below the gas
+          // threshold MID-RIDE (needsFunds → disabled → true) would swallow the
+          // cash-out, strand the ride open, and burn more gas in a latch.
+          // endPress() self-guards on phase (no-op unless riding/opening).
           if (!isEventInChart(event)) return true;
           try {
             if (!touchActive) endPress();
@@ -1828,7 +1833,10 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           return false;
         };
         p.touchEnded = (event?: unknown) => {
-          if (stateRef.current.disabled) return true;
+          // NB: deliberately NO `disabled` gate here — see p.mouseReleased. A
+          // release must always be able to close an open ride AND reset
+          // touchActive (below), even when `disabled` (low balance) latched true
+          // mid-ride; gating here would strand the ride open + burn gas.
           // P0 fix (agent #2): p5 fires touchEnded on EVERY touchend DOM
           // event — including when a SECOND finger lifts while the primary
           // is still held. Without this guard, the secondary finger's lift
