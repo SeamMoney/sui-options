@@ -3342,7 +3342,11 @@ function drawManualPositionOverlay(
     return;
   }
 
-  const label = `${position.side.toUpperCase()} ${formatPnl(position.pnl)} ${(position.pnlPct * 100).toFixed(2)}%`;
+  // Strip a "-0.00" that toFixed leaves on a near-flat position → "0.00" (the
+  // same rounds-to-zero guard as formatPnl, for the % cell on this label).
+  const pctStr = (position.pnlPct * 100).toFixed(2);
+  const pct = parseFloat(pctStr) === 0 ? "0.00" : pctStr;
+  const label = `${position.side.toUpperCase()} ${formatPnl(position.pnl)} ${pct}%`;
   const width = ctx.measureText(label).width + 18;
   const height = 24;
   const x = Math.max(12, Math.min(canvasWidth - width - 18, markX + 12));
