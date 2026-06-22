@@ -97,6 +97,11 @@ interface MarketInfo { tableId: string; roundDur: bigint; offsetBps: bigint }
 
 async function readMarket(client: ResilientClient, marketId: string): Promise<MarketInfo> {
   const o = asObj(await client.getObject({ id: marketId, options: { showContent: true, showType: true } }));
+  if (o.data == null) {
+    throw new Error(
+      `object ${marketId} was not found on-chain. Check the --market id — it must be the exact 0x-prefixed id of a live SegmentMarketV4 (copy it from deployments/testnet.json or SuiScan).`,
+    );
+  }
   const content = asObj(asObj(o.data).content);
   const type = asStr(content.type);
   if (!/::segment_market_v4::SegmentMarketV4</.test(type)) {
@@ -128,6 +133,11 @@ export function sameId(a: string, b: string): boolean {
 
 async function readRide(client: ResilientClient, rideId: string): Promise<RideBarriers> {
   const o = asObj(await client.getObject({ id: rideId, options: { showContent: true, showType: true } }));
+  if (o.data == null) {
+    throw new Error(
+      `object ${rideId} was not found on-chain. Check the --ride id — it must be the exact 0x-prefixed id of a SegmentRidePositionV4 (e.g. from a RideClosedV4 event or 'npm run rides:recent').`,
+    );
+  }
   const content = asObj(asObj(o.data).content);
   if (!/::segment_market_v4::SegmentRidePositionV4$/.test(asStr(content.type))) {
     throw new Error(`object ${rideId} is not a SegmentRidePositionV4`);
