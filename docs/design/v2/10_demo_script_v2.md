@@ -1,5 +1,15 @@
 # Wick Markets — Demo Script v2 (Production-Honest Edition)
 
+> ⚠️ **Era note — read first.** This is the v2-era 3-minute *presentation* script
+> (wallet-based `buy_touch` flow, Arcade + threat-model framing). The **shipped,
+> judge-facing demo is now no-wallet**: **Wick Pro** ([`/pro`](https://wick-markets.vercel.app/pro))
+> — one-tap Black-Scholes options off a live DeepBook mark — and the tap-hold
+> **Ride** ([`/ride`](https://wick-markets.vercel.app/ride)). For the current
+> runnable walkthrough use [`DEMO.md`](../../../DEMO.md) (the 60-second judge
+> guide) and the [README](../../../README.md); treat the wallet/Arcade beats
+> below as historical pitch context. The *thesis* (verify-it-yourself, production-
+> honest) is unchanged and stronger than ever — see `npm run judge` / `npm run safety`.
+
 > Sui DeepBook hackathon submission. v2 incorporates 9 hardening specs
 > (H1–H12) and 137 redteam findings. Total runtime: 3:00.
 >
