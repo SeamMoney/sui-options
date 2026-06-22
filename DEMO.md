@@ -41,8 +41,9 @@ live σ · settlement-consistent P&L · mobile-first. Not "trust us" — the pri
 ## Also worth a look
 
 - **[/coach](https://wick-markets.vercel.app/coach)** — the live DeepBook **options desk**: the
-  CandleVision pattern coach · a live Black-Scholes quote (CALL/PUT premium, Δ, break-even, and the
-  **payoff hockey-stick**) · the real on-chain **order book** (resting bids/asks with depth bars, 24h
+  CandleVision pattern coach · a live Black-Scholes quote (CALL/PUT premium, **Δ**, **θ** time-decay,
+  **ν** vega, break-even, and the **payoff hockey-stick**) · the real on-chain **order book**
+  (resting bids/asks with depth bars, 24h
   volume, and streaming recent fills) · Suiscan pool links — all on the live mark, toggle SUI / BTC /
   DEEP. The whole DeepBook integration laid bare in one screen.
 - **[/ride](https://wick-markets.vercel.app/ride)** — the original tap-hold touch/no-touch game.
