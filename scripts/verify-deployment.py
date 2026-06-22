@@ -172,6 +172,16 @@ faucet_drips = int(faucet_sui / 2)
 faucet_ok = faucet_drips >= 20
 print(f"\nfaucet wallet (drips SUI so judges can fund a burner — api/README):")
 print(f"  {'✓' if faucet_ok else '⚠ LOW'}  {faucet_sui:>12,.1f} SUI  (~{faucet_drips:,} drips of 2 SUI)  {FAUCET_WALLET[:12]}…")
+# Anti-contention readiness (informational): the faucet's per-request random
+# gas-coin picker only engages with ≥2 usable coins. One big coin → concurrent
+# drips equivocate (the ~20% 500s the frontend + CLI now retry). The demo works
+# either way; for the permanent, snappier fix run scripts/split-faucet-coins.ts.
+_fc = rpc("suix_getCoins", [FAUCET_WALLET, "0x2::sui::SUI", None, 50])
+_usable = len([c for c in (_fc.get("data") or []) if int(c["balance"]) >= 220_000_000]) if _fc else 0
+print(
+    f"  {'✓' if _usable >= 2 else 'ℹ'}  {_usable} usable gas coin(s)"
+    + ("" if _usable >= 2 else "  — 1 coin contends; run scripts/split-faucet-coins.ts for the permanent fix")
+)
 
 print()
 sys.exit(1 if (missing or absent or not origins_ok or not faucet_ok) else 0)
