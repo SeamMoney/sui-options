@@ -52,6 +52,36 @@ Always read `deployments/testnet.json` for the current set.
 
 ## Object model (see `docs/architecture.md` for full structs)
 
+Sui-native by design: **no `Coin<T>` per market**. `key`-only `Market` objects
+reference a single shared `MartingalerVault` by `ID`, and player positions are
+owned NFTs — so the vault is the one counterparty and markets stay cheap to spin up.
+
+```mermaid
+flowchart TB
+    subgraph global["Global / per-collateral"]
+        V["MartingalerVault&lt;C&gt; (key)<br/>treasury · per-market locks · abort pools<br/>· FIFO claim queue · fee buckets"]
+        O["WickOracle (feeds ticks)"]
+    end
+    subgraph perMarket["Per-market"]
+        M["Market&lt;C&gt; (key)<br/>status · multiplier · sigma · fee snapshot"]
+        P["PathObservation (key, shared)<br/>oracle barrier-cross · deadband anti-jitter"]
+    end
+    subgraph nfts["Player-owned (key, store)"]
+        POS["Position<br/>side · stake · payout_if_win"]
+        RIDE["RidePosition<br/>multiplier_bps · escrowed · settlement enum"]
+    end
+    M -. "ID ref" .-> V
+    M -. "ID ref" .-> P
+    O ==>|"ticks"| P
+    POS -->|"points at (ID)"| M
+    RIDE -->|"points at (ID)"| M
+    V ==>|"holds escrow · pays winners"| POS
+    V ==>|"holds escrow · pays winners"| RIDE
+    classDef vault fill:#10b981,stroke:#065f46,color:#062b22;
+    class V vault;
+    classDef default fill:#0b1220,stroke:#334155,color:#e2e8f0;
+```
+
 - `Market<phantom C>` (`key`) — supply totals, status, payout multiplier, sigma,
   fee snapshot; references its `MartingalerVault` + `PathObservation` by `ID`.
 - `Position` (`key, store`) — `side`, `stake`, `payout_if_win`, `pwe_at_open`;
