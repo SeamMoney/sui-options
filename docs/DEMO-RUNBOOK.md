@@ -38,9 +38,11 @@ This is the differentiator. Pick **one** of these — both are bulletproof:
   flip **"dishonest house"** and watch the verifier catch a tampered candle. Then
   in the terminal: `npm run verify:fairness` (honest PASS) · `:tamper` (caught).
 - **/pro round, in the judge's own browser** — terminal: `npm run play -- --seed 4242`
-  prints `{ commit, seed, paramsJson }`. Open **`scripts/verify-pro.html`**, paste
-  the three values → **HONEST ✓**. Say: *"That SHA-256 ran in your browser. No
-  server, no trust — the price path was committed before the bet."*
+  prints `{ commit, seed, paramsJson }`. Open the **live page
+  [wick-markets.vercel.app/api/verify-pro](https://wick-markets.vercel.app/api/verify-pro)**
+  (or the offline `scripts/verify-pro.html`), paste the three values → **HONEST ✓**.
+  Say: *"That SHA-256 ran in your browser. No server, no trust — the price path was
+  committed before the bet."*
 
 **The one-liner that proves everything:** `npm run judge` → **PASS — 7/7**
 (live demo · ride fairness honest+tamper+rug · live P&L==settlement · /pro
