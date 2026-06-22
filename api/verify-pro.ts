@@ -112,7 +112,10 @@ document.getElementById("g").onclick=async()=>{const c=document.getElementById("
 if(!/^[0-9a-f]{64}$/.test(c)){o.className="bad";v.innerHTML='<span class="badv">✗ commit must be 64 hex chars</span>';o.querySelector(".rc").textContent="";o.querySelector(".pc").textContent=c||"(empty)";return}
 if(!/^-?\\d+$/.test(s)){o.className="bad";v.innerHTML='<span class="badv">✗ seed must be a whole number</span>';o.querySelector(".rc").textContent="";o.querySelector(".pc").textContent=c;return}
 const r=await h(s+":"+p),ok=r===c;o.className=ok?"ok":"bad";v.innerHTML=ok?'<span class="okv">✓ HONEST — the revealed seed+params hash to the published commit. The path was fixed before you bet.</span>':'<span class="badv">✗ MISMATCH — these values do NOT hash to the published commit.</span>';
-o.querySelector(".rc").textContent=r;o.querySelector(".pc").textContent=c}</script></body></html>`;
+o.querySelector(".rc").textContent=r;o.querySelector(".pc").textContent=c};
+// Shareable link: #commit=…&seed=…&params=… pre-fills + auto-verifies. The hash
+// is client-side only (never sent to the server), so it stays trust-minimized.
+const applyHash=()=>{try{const h=new URLSearchParams(location.hash.slice(1));const c=h.get("commit"),s=h.get("seed"),p=h.get("params")??h.get("paramsJson");if(c)document.getElementById("c").value=c;if(s)document.getElementById("s").value=s;if(p!=null)document.getElementById("p").value=p;if(c&&s&&p!=null)document.getElementById("g").click()}catch(e){}};applyHash();addEventListener("hashchange",applyHash);</script></body></html>`;
 
 export default function handler(req: ReqLike, res: ResLike): void {
   res.setHeader("Access-Control-Allow-Origin", "*");

@@ -319,6 +319,10 @@ curl -s -X POST https://wick-markets.vercel.app/api/verify-pro \
 # → {"matches":true,"verdict":"HONEST …"}   (confirm yourself: printf '1:test' | sha256sum)
 ```
 
+> **Shareable verification link:** the page also reads URL-*hash* params (client-side only,
+> never sent to the server) — `…/api/verify-pro#commit=…&seed=…&params=<url-encoded>` pre-fills
+> and auto-verifies on load. Share "verify my round honest: <link>" and anyone confirms it.
+
 Or as a **clickable link** (GET, the same three values URL-encoded — read-only):
 
 ```
