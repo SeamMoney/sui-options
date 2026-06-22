@@ -4,7 +4,7 @@
 
 > **Now with `MARKET HALT` events (v4.26)** — ~1.5% per second the market freezes and wipes any open ride. Calibrated to a +3.93% house edge so the protocol survives. The roll is deterministic from `keccak256(segment_key)` — anyone can replay and verify the halt was honest. That's how the house wins.
 
-[![CI](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml/badge.svg)](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml) [![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 686/686](https://img.shields.io/badge/move%20tests-686%2F686-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
+[![CI](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml/badge.svg)](https://github.com/SeamMoney/sui-options/actions/workflows/ci.yml) [![status — live testnet](https://img.shields.io/badge/status-live%20testnet-10b981)]() [![Move tests 687/687](https://img.shields.io/badge/move%20tests-687%2F687-10b981)]() [![Sui — testnet](https://img.shields.io/badge/sui-testnet-3b82f6)]() [![hackathon — Sui Overflow 2026](https://img.shields.io/badge/hackathon-Sui%20Overflow%202026-f59e0b)]()
 
 <p align="center">
   <img src="docs/assets/wick-chat.svg" width="600" alt="A chat between a curious dev and a Wick veteran" />
@@ -32,7 +32,7 @@ A provably-fair touch-binary arcade. Three things are simultaneously true:
 
 1. **Real options math.** Touch / no-touch and double-no-touch (DNT) corridors with a Bachelier-derived cashout curve, asymmetric impact fee on profit, a Martingaler loss-recycling LP vault, and per-position + per-side + global probability-weighted-exposure caps.
 2. **Real Sui randomness.** Every candle is derived from a `sui::random::Random` 32-byte draw committed inside `record_segment`. The draw is gated by Sui's **PTB-Random structural rule** (the verifier rejects any PTB that places attacker code after a `Random`-consuming MoveCall), so the standard "test-and-abort grinder" doesn't work. See [`docs/design/v2/17a_sui_randomness_spike.md`](docs/design/v2/17a_sui_randomness_spike.md).
-3. **Real auditability.** The same `seeded_path::expand_segment` that the chain runs to produce a candle has a **byte-identical TypeScript port** (`sdk/src/seededPath.ts`). 10k random vectors are checked via a rolling blake2b digest in CI on every commit. The `/verify` CLI lets any user replay any closed ride's on-chain `segment_keys` and confirm the settlement. And the contracts that hold the funds carry **686 Move tests** where every fund-safety property maps to a named test you can run individually — see [`move/SAFETY.md`](move/SAFETY.md).
+3. **Real auditability.** The same `seeded_path::expand_segment` that the chain runs to produce a candle has a **byte-identical TypeScript port** (`sdk/src/seededPath.ts`). 10k random vectors are checked via a rolling blake2b digest in CI on every commit. The `/verify` CLI lets any user replay any closed ride's on-chain `segment_keys` and confirm the settlement. And the contracts that hold the funds carry **687 Move tests** where every fund-safety property maps to a named test you can run individually — see [`move/SAFETY.md`](move/SAFETY.md).
 
 And it isn't only the candles. **Every output traces back to the chain's `sui::random` keys, end to end** — and `npm run audit:ride -- --market <id> --ride <id>` proves the whole chain for any real ride in one command:
 
@@ -247,7 +247,7 @@ Vault solvency under the rug: at the live 100M TUSD seed with a 500 TUSD per-rou
 
 | Layer | Verification |
 |---|---|
-| `move/sources/*.move` (26 modules) | **686 / 686** Move tests pass on every commit (`sui move test`) — incl. invariant, adversarial, e2e replay, full DNT lifecycle, deadband, FSM determinism, and the v4.26 rug-roll suite. **Every fund-safety property maps to a named test** in [`move/SAFETY.md`](move/SAFETY.md) (run one with `sui move test <name>`): no double-pay on any settlement path, settle-only-against-own-market, every open-path abort guard (stake range · funded escrow · market + per-user caps · aborted-market), DNT mutual-exclusion, oracle-version pinning, pull-oracle feed integrity |
+| `move/sources/*.move` (26 modules) | **687 / 687** Move tests pass on every commit (`sui move test`) — incl. invariant, adversarial, e2e replay, full DNT lifecycle, deadband, FSM determinism, and the v4.26 rug-roll suite. **Every fund-safety property maps to a named test** in [`move/SAFETY.md`](move/SAFETY.md) (run one with `sui move test <name>`): no double-pay on any settlement path, settle-only-against-own-market, every open-path abort guard (stake range · funded escrow · market + per-user caps · aborted-market), DNT mutual-exclusion, oracle-version pinning, pull-oracle feed integrity |
 | `seeded_path::expand_segment` vs `sdk/src/seededPath.ts` | 10k random vectors, rolling blake2b digest, **byte-identical** |
 | Touch / DNT settlement on Sui testnet | Smoke ride 2026-05-23 — opened, recorded 3 segments, closed with CASHOUT, `verify.ts` PASS (extrema match + verdict match) |
 | Asymmetric impact fee for DNT | 15 / 15 DNT tests pass including `lock_and_settle_dnt_market_with_*` |
@@ -284,7 +284,7 @@ git clone https://github.com/SeamMoney/sui-options && cd sui-options
 npm install                                # all workspaces in one go
 
 # Move
-cd move && sui move test && cd ..          # 686/686
+cd move && sui move test && cd ..          # 687/687
 
 # upgrade Move package on testnet (preserves all existing singletons)
 ./scripts/deploy-testnet.sh                # OR sui client upgrade --upgrade-capability <cap>
@@ -322,7 +322,7 @@ npm run chart:keep                         # ~30 SUI/hr; Ctrl+C closes the ride
 
 ```
 move/sources/      26 Move modules — market, segment_market, vault, fee_router, …
-move/tests/        686 Move tests including conformance, invariants, adversarial, e2e replay, v4.26 rug-roll suite
+move/tests/        687 Move tests including conformance, invariants, adversarial, e2e replay, v4.26 rug-roll suite
 sdk/src/           @wick/sdk — PTB builders, typed event parsers, deterministic walk TS port
 frontend/src/      Vite + React + Sui dApp Kit; live testnet markets
 keeper/src/        Cranker + segment-market poller; permissionless on Move side
