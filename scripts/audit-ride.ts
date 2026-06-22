@@ -52,32 +52,65 @@ function step(title: string, script: string): boolean {
   return (r.status ?? 1) === 0;
 }
 
+function norm(id: string): string {
+  const h = (id.startsWith("0x") ? id.slice(2) : id).toLowerCase().padStart(64, "0");
+  return `0x${h}`;
+}
+
+type PreCheck =
+  | { kind: "ok" }
+  | { kind: "open" }
+  | { kind: "mismatch"; rideMarket: string };
+
 /**
- * Refuse to "COMPLETE PASS" an OPEN ride. Each verifier SKIPS (prints "still
- * OPEN" and exits 0) when a ride has no settlement yet, so the aggregate would
- * otherwise claim the verdict + payout are "honest" when neither exists — a
- * vacuous pass. Read the ride's `closed` flag first and report honestly instead.
- * Best-effort: an RPC/lookup failure falls through so a real audit is never
- * blocked by the pre-check; synthetic (mock://) modes have no live object.
+ * One live read of the ride object, guarding two ways the aggregate audit could
+ * mislead a judge:
+ *   • OPEN ride — each verifier SKIPS (prints "still OPEN", exits 0), so the
+ *     aggregate would claim the verdict + payout are "honest" when neither
+ *     exists yet (a vacuous pass).
+ *   • market/ride MISMATCH — auditing a ride against the wrong --market reads a
+ *     different market's segments and produces a confusing "the chain lied"
+ *     FALSE alarm — the worst possible output for a fairness demo.
+ * Best-effort: an RPC/lookup failure (or a mock:// rpc) returns "ok" so a real
+ * audit is never blocked by the pre-check.
  */
-async function rideIsOpen(): Promise<boolean> {
+async function preCheck(): Promise<PreCheck> {
   const rideId = argVal("--ride");
+  const market = argVal("--market");
   const rpc = argVal("--rpc") ?? DEFAULT_RPC;
-  if (!rideId || rpc.startsWith("mock://")) return false;
+  if (!rideId || rpc.startsWith("mock://")) return { kind: "ok" };
   try {
     const client = new SuiJsonRpcClient({ network: "testnet", url: rpc });
     const o = (await client.getObject({
       id: rideId,
       options: { showContent: true },
-    })) as { data?: { content?: { fields?: { closed?: unknown } } } };
-    return o?.data?.content?.fields?.closed === false;
+    })) as { data?: { content?: { fields?: { closed?: unknown; market_id?: unknown } } } };
+    const f = o?.data?.content?.fields;
+    if (!f) return { kind: "ok" }; // unreadable → let the verifiers report
+    const rideMarket = typeof f.market_id === "string" ? f.market_id : undefined;
+    if (market && rideMarket && norm(rideMarket) !== norm(market)) {
+      return { kind: "mismatch", rideMarket };
+    }
+    if (f.closed === false) return { kind: "open" };
+    return { kind: "ok" };
   } catch {
-    return false; // never block a real audit on a flaky pre-check
+    return { kind: "ok" }; // never block a real audit on a flaky pre-check
   }
 }
 
 async function main(): Promise<void> {
-  if (await rideIsOpen()) {
+  const pre = await preCheck();
+  if (pre.kind === "mismatch") {
+    console.log(`\n${"═".repeat(72)}`);
+    console.log("  ✋ MARKET / RIDE MISMATCH — refusing to audit (would falsely read 'chain lied').");
+    console.log(`     This ride belongs to market ${pre.rideMarket}`);
+    console.log(`     but --market was ${argVal("--market")}.`);
+    console.log("     Re-run with the ride's own market (see `npm run rides:recent`).");
+    console.log("═".repeat(72));
+    process.exitCode = 2;
+    return;
+  }
+  if (pre.kind === "open") {
     console.log(`\n${"═".repeat(72)}`);
     console.log("  ⏳ RIDE STILL OPEN — nothing to audit yet.");
     console.log("     No settlement, verdict, or payout exists until the ride closes.");
