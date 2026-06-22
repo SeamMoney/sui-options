@@ -31,6 +31,7 @@
 /// drawn key. The PTB-command rule (only TransferObjects/MergeCoins after a
 /// Random MoveCall) plus the constant-gas walk closes the test-and-abort
 /// grinding attack at the protocol layer. See doc 17a §6 for the proof.
+#[allow(deprecated_usage)]
 module wick::segment_market;
 
 use std::type_name::{Self, TypeName};

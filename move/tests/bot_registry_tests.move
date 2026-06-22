@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[test_only]
+#[allow(deprecated_usage)]
 module wick::bot_registry_tests;
 
 use sui::test_scenario as ts;

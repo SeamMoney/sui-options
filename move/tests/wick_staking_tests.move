@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[test_only]
+#[allow(deprecated_usage)]
 module wick::wick_staking_tests;
 
 use sui::balance;

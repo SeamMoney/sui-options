@@ -9,6 +9,7 @@
 // previously had no dedicated test).
 
 #[test_only]
+#[allow(deprecated_usage)]
 module wick::oracle_version_lock_tests;
 
 use sui::object;

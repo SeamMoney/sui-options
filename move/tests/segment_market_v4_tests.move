@@ -40,6 +40,7 @@
 ///  26. nearer_barrier helper picks the closer of two.
 ///  27. deadband_zero_yields_barrier_passthrough.
 #[test_only]
+#[allow(deprecated_usage)]
 module wick::segment_market_v4_tests;
 
 use sui::clock::{Self as clock, Clock};

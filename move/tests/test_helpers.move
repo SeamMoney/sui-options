@@ -3,6 +3,7 @@
 
 #[test_only]
 /// Shared test fixtures for the C.3 vault-backed market world.
+#[allow(deprecated_usage)]
 module wick::test_helpers;
 
 use std::string;

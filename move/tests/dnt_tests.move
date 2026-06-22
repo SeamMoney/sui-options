@@ -11,6 +11,7 @@
 ///   5. dnt_neither_touched is false when either side breaches
 ///   6. lock_and_settle on a held DNT pays the INSIDE side
 ///   7. lock_and_settle on a breached DNT pays the OUTSIDE side
+#[allow(deprecated_usage)]
 module wick::dnt_tests;
 
 use std::string;

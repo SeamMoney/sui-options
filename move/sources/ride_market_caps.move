@@ -11,6 +11,7 @@
 /// location. Can be folded into Market<C> later as a refactor.
 ///
 /// The `public(package)` mutators are called only by `wick::ride_position`.
+#[allow(deprecated_usage)]
 module wick::ride_market_caps;
 
 use sui::table::{Self, Table};

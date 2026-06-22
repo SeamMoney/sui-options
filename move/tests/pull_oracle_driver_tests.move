@@ -9,6 +9,7 @@
 // had no dedicated test.
 
 #[test_only]
+#[allow(deprecated_usage)]
 module wick::pull_oracle_driver_tests;
 
 use std::string;
