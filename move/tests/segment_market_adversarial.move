@@ -158,6 +158,26 @@ fun open_window_race_after_boundary_aborts_cleanly() {
     sc.end();
 }
 
+// Safety: open a segment ride with ZERO escrow → EZeroEscrow (=8). Mirrors the
+// v4 guard; the legacy module is separate deployed code, so it gets its own
+// rejection test rather than relying on the v4 coverage.
+#[test]
+#[expected_failure(abort_code = 8, location = wick::segment_market)]
+fun open_with_zero_escrow_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, clk) = mk_core_world(&mut sc);
+
+    let stake = MIN_STAKE;
+    let ride = sm::open_segment_ride<SUI>(
+        &mut market, &mut vault, &bots, sm::barrier_upper(), stake,
+        mint_sui(0, &mut sc), &clk, sc.ctx(),
+    );
+
+    sm::test_only_destroy_ride(ride); // unreachable
+    teardown_core(vault, vcap, market, bots, bcap, clk);
+    sc.end();
+}
+
 #[test]
 #[expected_failure(abort_code = E_BARRIER_CAP_EXCEEDED, location = wick::segment_market)]
 fun per_barrier_cap_exhaustion_keeps_other_barrier_open() {
