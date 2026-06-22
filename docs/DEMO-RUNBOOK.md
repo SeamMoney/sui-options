@@ -5,8 +5,10 @@ guide; this is for the person at the keyboard). Target: **~3 minutes**. Every
 URL and command below is verified working. Have two things open before you start:
 a phone-sized browser on **`/pro`** and a terminal in the repo.
 
-> **Pre-flight (30s before, off-camera):** `npm run smoke:demo` → "demo is live & green".
-> If it isn't, see *Fallbacks* — you can run the entire fairness story offline.
+> **Pre-flight (30s before, off-camera):** `npm run check:demo-ready` → one
+> **✅ DEMO READY** verdict (on-chain objects + vaults + faucet runway, *and* the
+> live routes / faucet / verify / DeepBook feed). If it isn't green, see *Fallbacks*
+> — you can run the entire fairness story offline.
 
 ---
 
