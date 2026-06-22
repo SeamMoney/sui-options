@@ -81,14 +81,24 @@ async function postFaucet(
   path: string,
   recipient: string,
 ): Promise<{ digest: string; label: string }> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ recipient }),
-  });
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    die(`${path} → HTTP ${res.status}: ${JSON.stringify(body)}`);
+  // Retry on server-side 5xx — the shared faucet wallet's single-gas-coin
+  // contention intermittently equivocates (~10-20%). A cold judge run must ride
+  // that out instead of dying, so retry up to 4× with backoff; 4xx (validation)
+  // and 429 (cooldown) die immediately. Mirrors the frontend FaucetButton (#523).
+  const MAX_ATTEMPTS = 4;
+  let body: Record<string, unknown> = {};
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient }),
+    });
+    body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (res.ok) break;
+    if (res.status < 500 || attempt === MAX_ATTEMPTS - 1) {
+      die(`${path} → HTTP ${res.status}: ${JSON.stringify(body)}`);
+    }
+    await sleep(400 * (attempt + 1)); // back off before retrying the contention
   }
   // Derive the human label from the actual response so it never drifts from the
   // server's configured drip (SUI faucet → amount_mist; TUSD faucet → amount_raw).
