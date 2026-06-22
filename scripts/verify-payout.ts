@@ -114,6 +114,9 @@ function usage(): never {
   console.error(
     "usage: npx tsx scripts/verify-payout.ts --market <SegmentMarketV4 id> --ride <SegmentRidePositionV4 id> [--rpc <url>]",
   );
+  console.error(
+    "  need a ride? 'npm run rides:recent' lists real closed rides + a ready-to-run command, or 'npm run audit:latest' audits the newest with no args.",
+  );
   process.exit(2);
 }
 
