@@ -18,8 +18,19 @@ const LOCAL_COOLDOWN_MS = 30_000;
 
 interface FaucetSuccess {
   digest: string;
-  amount_mist: string;
+  amount_mist?: string; // /api/faucet (SUI gas), 9 decimals
+  amount_raw?: string; // /api/faucet-tusd (TUSD stake), 6 decimals
   recipient: string;
+}
+
+/** Format a faucet amount for the success toast straight from the response, so
+ *  the copy can never drift from the server's configured drip (it read a stale
+ *  hardcoded "0.2 SUI / 10 TUSD" after the drips were bumped to 2 SUI / 50 TUSD). */
+function fmtDrip(raw: string | undefined, decimals: number, unit: string): string {
+  if (!raw) return unit;
+  const n = Number(raw) / 10 ** decimals;
+  // trim trailing zeros: 2 SUI, 50 TUSD, 1.5 SUI …
+  return `${Number(n.toFixed(decimals)).toLocaleString()} ${unit}`;
 }
 interface FaucetError {
   error: string;
@@ -115,9 +126,9 @@ export function FaucetButton(props: {
 
       // At least one of the two succeeded. Show a single combined toast.
       const lines: string[] = [];
-      if (suiOk) lines.push("✓ 0.2 SUI for gas");
+      if (suiOk) lines.push(`✓ ${fmtDrip(suiData.amount_mist, 9, "SUI")} for gas`);
       else lines.push(`✗ SUI failed: ${suiData.error ?? "unknown"}`);
-      if (tusdOk) lines.push("✓ 10 TUSD for staking");
+      if (tusdOk) lines.push(`✓ ${fmtDrip(tusdData.amount_raw, 6, "TUSD")} for staking`);
       else lines.push(`✗ TUSD failed: ${tusdData.error ?? "unknown"}`);
 
       const successDigest = suiData.digest ?? tusdData.digest;
