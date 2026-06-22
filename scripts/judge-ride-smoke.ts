@@ -51,7 +51,14 @@ const m = D.segment_markets_v4.at(-1);
 const MARKET = m.market as string;
 const VAULT = m.vault as string;
 const COLL = m.collateral as string;
-const STAKE = BigInt(m.min_stake_per_segment ?? 10_000);
+// Stake at MAX per-segment to faithfully reproduce the ride a judge actually
+// plays: the /ride UI (useSegmentRideV4, v4.30) stakes at max_stake_per_segment,
+// so its escrow is max × round × 1.1 (≈12.375 TUSD on the live market). Opening
+// at min here would (a) prove a smaller ride than the judge plays and (b) pass
+// even when the faucet drips below the funding gate (the #373 lockout: 10 TUSD
+// > a 0.825 min-escrow, so a min-stake smoke never caught it). Matching max
+// means this cold loop only succeeds if funding genuinely clears the gate.
+const STAKE = BigInt(m.max_stake_per_segment ?? m.min_stake_per_segment ?? 10_000);
 const ESCROW = (STAKE * BigInt(m.round_duration_segments ?? 75) * 11n) / 10n;
 
 const client = new SuiJsonRpcClient({ url: RPC, network: "testnet" });
