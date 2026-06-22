@@ -93,6 +93,9 @@ console.log(`  ── verify this round (the path was committed before the revea
 console.log(`    commit     : ${engine.commit}`);
 console.log(`    seed       : ${reveal.seed}`);
 console.log(`    paramsJson : ${reveal.paramsJson}`);
-console.log(`    re-hash it : SHA-256("<seed>:<paramsJson>") must equal commit. Confirm it any way you like —`);
-console.log(`                 paste the three values into scripts/verify-pro.html (client-side, offline),`);
-console.log(`                 POST them to /api/verify-pro, or call the SDK's verifyProRound(commit, seed, paramsJson).\n`);
+const verifyLink =
+  `https://wick-markets.vercel.app/api/verify-pro` +
+  `#commit=${engine.commit}&seed=${reveal.seed}&params=${encodeURIComponent(reveal.paramsJson)}`;
+console.log(`    verify     : open this link — it re-hashes in YOUR browser (client-side, nothing sent):`);
+console.log(`                 ${verifyLink}`);
+console.log(`                 (or: scripts/verify-pro.html offline · POST /api/verify-pro · SDK verifyProRound).\n`);
