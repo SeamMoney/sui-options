@@ -127,6 +127,15 @@ test("ABORTED_REFUND: no stake consumed (payout 0, forfeit 0)", () => {
   assert.ok(checkPayoutIdentity(4, 0n, 0n, 5n, MULT).length > 0);
 });
 
+test("an unknown settlement_kind FAILs closed, even if conservation holds", () => {
+  // kind 5 is not a real on-chain settlement. Even a conserving split
+  // (payout + forfeit == stake_paid) must be refused — the verifier has no
+  // payout rule for it, so it can't certify the amount honest.
+  const errs = checkPayoutIdentity(5, 150_000n, 150_000n, 0n, MULT);
+  assert.ok(errs.length > 0, "unknown kind must produce a violation");
+  assert.match(errs.join(" "), /unknown settlement_kind 5/);
+});
+
 
 // ── nextSegmentIndexAtClose binary search (the #314 late-ride speedup) ───────
 // recorded_at_ms is monotonic in k, so the boundary search must return the
