@@ -51,6 +51,22 @@ export function Verify() {
       setLive({ s: "error", e: err instanceof Error ? err.message : String(err) });
     }
   };
+  // "Dishonest house" for the LIVE result: we can't tamper the chain, so we
+  // tamper the CHAIN-REPORTED value of one fetched candle and re-run the same
+  // match — proving the verifier flags a lie on real data too, not just the
+  // sample. Pure UI derivation over the fetched result; no re-fetch.
+  const [tamperLive, setTamperLive] = useState(false);
+  const liveView = useMemo(() => {
+    const r = live.r;
+    if (!r || r.rows.length === 0) return r;
+    if (!tamperLive) return r;
+    const rows = r.rows.map((row, i) =>
+      i === r.rows.length - 1
+        ? { ...row, chainHigh: row.chainHigh + 5_000_000n, match: false } // forge +$5 on the last candle
+        : row,
+    );
+    return { ...r, rows, allMatch: false };
+  }, [live.r, tamperLive]);
 
   return (
     <div className="min-h-full bg-[#0a0b0e] text-slate-100 font-mono">
@@ -172,23 +188,36 @@ export function Verify() {
             </p>
           )}
 
-          {live.s === "done" && live.r && (
+          {live.s === "done" && liveView && (
             <div className="mt-5">
               <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-slate-400">
                 <span
-                  className={`text-sm font-bold ${live.r.allMatch ? "text-emerald-400" : "text-rose-400"}`}
+                  className={`text-sm font-bold ${liveView.allMatch ? "text-emerald-400" : "text-rose-400"}`}
                 >
-                  {live.r.allMatch ? "✓ LIVE — every candle reproduces" : "✗ MISMATCH"}
+                  {liveView.allMatch
+                    ? "✓ LIVE — every candle reproduces"
+                    : tamperLive
+                      ? "✗ caught the tampered candle"
+                      : "✗ MISMATCH"}
                 </span>
                 <a
-                  href={`https://suiscan.xyz/testnet/object/${live.r.marketId}`}
+                  href={`https://suiscan.xyz/testnet/object/${liveView.marketId}`}
                   target="_blank"
                   rel="noreferrer"
                   className="text-sky-400 hover:underline"
                 >
-                  market {live.r.marketId.slice(0, 10)}… ↗
+                  market {liveView.marketId.slice(0, 10)}… ↗
                 </a>
-                <span>{live.r.totalSegments.toLocaleString()} segments recorded on-chain</span>
+                <span>{liveView.totalSegments.toLocaleString()} segments recorded on-chain</span>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={tamperLive}
+                    onChange={(e) => setTamperLive(e.target.checked)}
+                    className="accent-rose-500"
+                  />
+                  simulate a dishonest house
+                </label>
               </div>
               <div className="overflow-x-auto rounded-lg border border-slate-800">
                 <table className="w-full text-xs">
@@ -205,7 +234,7 @@ export function Verify() {
                     </tr>
                   </thead>
                   <tbody>
-                    {live.r.rows.map((r) => (
+                    {liveView.rows.map((r) => (
                       <tr key={r.k} className="border-t border-slate-900">
                         <Td>{r.k}</Td>
                         <Td>{formatPrice(r.open)}</Td>
