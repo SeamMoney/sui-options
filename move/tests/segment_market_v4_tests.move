@@ -433,6 +433,8 @@ fun close_no_touch_within_round_yields_cashout() {
     let stake = 1_000u64;
     let escrow_amt = stake * ROUND_DURATION;
     let escrow = mint_sui(escrow_amt, &mut sc);
+    // Snapshot the vault before the ride for the conservation check below.
+    let vault_before = mv::treasury_value(&vault);
     let mut ride = sm4::open_segment_ride_v4<SUI>(
         &mut market, &mut vault, &bots,
         stake, escrow, &clk, sc.ctx(),
@@ -454,6 +456,12 @@ fun close_no_touch_within_round_yields_cashout() {
 
     // Settlement = CASHOUT, no touch.
     assert!(sm4::settlement_kind(&ride) == sm4::settlement_cashout(), 0);
+    // Conservation on the (common) early-cashout path. This test previously
+    // checked only the settlement KIND, not a single coin of value. Whatever
+    // the Bachelier cashout works out to, the vault's balance must move by
+    // exactly (escrow deposited − value handed to the user) — no value minted
+    // or lost in the vault on the most-travelled close path.
+    assert!(mv::treasury_value(&vault) == vault_before + escrow_amt - payout.value(), 1);
 
     test_utils::destroy(payout);
     sm4::test_only_destroy_ride(ride);
