@@ -172,6 +172,24 @@ interface Args {
 type SettlementModel = "v4.26" | "v4.27";
 let SETTLEMENT_MODEL: SettlementModel = "v4.26";
 
+/// Resolve the default settlement model from `deployments/testnet.json`'s
+/// optional `settlementModel` field. The v4.27 package upgrade sets this to
+/// "v4.27" (alongside bumping `package_id`), so the live `/verify` auto-switches
+/// to strict cross-round verification in lockstep with the deploy — one trigger,
+/// no separate flag flip. Absent / unreadable / anything but "v4.27" ⇒ "v4.26"
+/// (the current deployment). An explicit `--settlement-model` always wins.
+export function settlementModelFromDeployments(): SettlementModel {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const dep = JSON.parse(
+      readFileSync(join(here, "..", "deployments", "testnet.json"), "utf8"),
+    ) as { settlementModel?: string };
+    return dep.settlementModel === "v4.27" ? "v4.27" : "v4.26";
+  } catch {
+    return "v4.26";
+  }
+}
+
 function usage(): never {
   console.error(
     "usage: npx tsx scripts/verify-v4.ts --market <SegmentMarketV4 id> [--ride <id>] [--from K --to K] [--rpc <url>]",
@@ -775,7 +793,11 @@ async function findRoundRug(
 }
 
 async function verify(args: Args): Promise<boolean> {
-  SETTLEMENT_MODEL = args.settlementModel ?? "v4.26";
+  // Explicit flag wins; otherwise synthetic mocks default to v4.26, and the live
+  // path reads the model the deployment declares (so the deploy is one trigger).
+  SETTLEMENT_MODEL =
+    args.settlementModel ??
+    (args.rpc.startsWith("mock://") ? "v4.26" : settlementModelFromDeployments());
   const synthetic = args.rpc.startsWith("mock://");
   const synthMode: SynthMode = args.rpc.includes("rugtouch")
     ? "rugtouch"
