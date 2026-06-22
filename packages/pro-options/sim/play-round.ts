@@ -98,4 +98,5 @@ const verifyLink =
   `#commit=${engine.commit}&seed=${reveal.seed}&params=${encodeURIComponent(reveal.paramsJson)}`;
 console.log(`    verify     : open this link — it re-hashes in YOUR browser (client-side, nothing sent):`);
 console.log(`                 ${verifyLink}`);
+console.log(`    or terminal: npm run verify:pro-round -- --commit ${engine.commit} --seed ${reveal.seed} --params '${reveal.paramsJson}'`);
 console.log(`                 (or: scripts/verify-pro.html offline · POST /api/verify-pro · SDK verifyProRound).\n`);
