@@ -948,6 +948,20 @@ async function verify(args: Args): Promise<boolean> {
     ]),
   );
   console.log("");
+  // Vacuous-pass guard: `allIntegrityOk` starts true and only flips on a
+  // mismatch, so a range with ZERO recorded segments (idle/empty market,
+  // segments pruned, or an out-of-range --from/--to) would otherwise print
+  // "the chain was honest" having verified NOTHING. Refuse to bless a
+  // 0-segment audit. (Same class as the audit:deployment / audit:ride /
+  // check:rugs guards — #410/#421/#423.)
+  if (rows.length === 0) {
+    console.log(
+      "INCONCLUSIVE — 0 segments in range; nothing was verified " +
+        "(market idle/empty, segments pruned, or an out-of-range --from/--to). " +
+        "This is NOT a pass — pick a populated round/range and re-run.",
+    );
+    return false;
+  }
   console.log(
     `extrema replay: ${allIntegrityOk ? `match — all ${rows.length} segments reproduce from the chain's own keys` : "MISMATCH"}`,
   );
