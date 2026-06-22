@@ -412,7 +412,7 @@ export async function nextSegmentIndexAtClose(
   return lo;
 }
 
-type ClosedEvent = { stakePaid: bigint; payout: bigint; forfeit: bigint; bounty: bigint; settlementKind: number };
+type ClosedEvent = { stakePaid: bigint; payout: bigint; forfeit: bigint; bounty: bigint; settlementKind: number; txDigest: string };
 
 /** Archival fallback RPC: keeps historic events that PublicNode prunes. */
 const ARCHIVAL_RPC = "https://fullnode.testnet.sui.io:443";
@@ -441,6 +441,7 @@ export async function queryRideClosed(
           forfeit: asBig(j.forfeit),
           bounty: asBig(j.bounty),
           settlementKind: Number(asBig(j.settlement_kind)),
+          txDigest: typeof asObj(ev.id).txDigest === "string" ? (asObj(ev.id).txDigest as string) : "",
         };
       }
     }
@@ -521,6 +522,9 @@ async function main(): Promise<boolean> {
 
   console.log("");
   console.log(`settlement:        ${SETTLEMENT_NAME[closed.settlementKind] ?? closed.settlementKind}`);
+  if (closed.txDigest) {
+    console.log(`settle tx:         ${closed.txDigest}  ↗ ${suiscan("tx", closed.txDigest)}`);
+  }
   console.log(`segments held:     ${segmentsHeld}  (entry ${ride.entry} → close @ index ${nextAtClose}, round cap ${market.roundDuration})`);
   console.log(`stake/segment:     ${fmt(ride.stakePerSegment)}   escrow cap: ${fmt(ride.escrowed)}`);
   console.log(`stake_paid:        ours ${fmt(stakePaidDerived)}  ·  chain ${fmt(closed.stakePaid)}  ${stakePaidDerived === closed.stakePaid ? "✓ match" : "✗ MISMATCH"}`);
