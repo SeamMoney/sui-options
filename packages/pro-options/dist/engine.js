@@ -143,7 +143,18 @@ export class RoundEngine {
         const pos = this.positions.get(id);
         if (!pos)
             return 0;
-        return settlementPnlAtSpot(pos, this.spotAt(nowMs));
+        return settlementPnlAtSpot(pos, this.markSpot(pos, nowMs));
+    }
+    /**
+     * The spot an open position is marked at, at `nowMs`: the live spot while the
+     * option is alive, but FROZEN at the expiry spot once it has expired. Settlement
+     * (`settleAtExpiry`) pays `intrinsic` at `spotAt(pos.expiryMs)`, so an expired
+     * but not-yet-settled position (the window between expiry and the rAF settle
+     * tick) must show that same frozen value — otherwise the headline "live P&L"
+     * marks it at a later, wrong spot and diverges from what settlement pays.
+     */
+    markSpot(pos, nowMs) {
+        return this.spotAt(Math.min(nowMs, pos.expiryMs));
     }
     /**
      * Total settlement-projected P&L across the whole book at `nowMs`: open
@@ -153,10 +164,9 @@ export class RoundEngine {
      * both call the same intrinsic settlement on the same spot.
      */
     livePnl(nowMs) {
-        const spot = this.spotAt(nowMs);
         let total = 0;
         for (const pos of this.positions.values())
-            total += settlementPnlAtSpot(pos, spot);
+            total += settlementPnlAtSpot(pos, this.markSpot(pos, nowMs));
         return total;
     }
     /** Total premium paid across the book — the natural denominator for a P&L %. */
