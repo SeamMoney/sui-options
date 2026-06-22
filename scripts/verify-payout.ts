@@ -262,7 +262,7 @@ async function segmentRecordedAt(client: SuiJsonRpcClient, tableId: string, k: b
  * segment, not active today) is treated as past the boundary so the search
  * still terminates safely.
  */
-async function nextSegmentIndexAtClose(
+export async function nextSegmentIndexAtClose(
   client: SuiJsonRpcClient,
   tableId: string,
   entry: bigint,
