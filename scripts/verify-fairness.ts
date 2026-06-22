@@ -24,13 +24,8 @@
  * Exit 0 = proof holds for every preset. Non-zero = a commit didn't bind.
  */
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { MARKET_PRESETS, RoundEngine, roundConfigFromPreset, presetById } from "../packages/pro-options/src/index";
-
-/** Independent verifier — does NOT call any pro-options code. */
-function independentCommit(seed: number, paramsJson: string): string {
-  return createHash("sha256").update(`${seed}:${paramsJson}`).digest("hex");
-}
+import { independentCommit } from "./pro-commit";
 
 // `--tamper` flips the demo: a dishonest house publishes an honest commit, then
 // tries to swap a DIFFERENT path under it at reveal. The independent verifier
