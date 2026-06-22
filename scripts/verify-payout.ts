@@ -171,6 +171,12 @@ export function checkPayoutIdentity(
     // ABORTED_REFUND — escrow refunded 1:1; no stake consumed, no bounty.
     if (payout !== 0n) errs.push(`ABORTED_REFUND payout ${payout} != 0`);
     if (forfeit !== 0n) errs.push(`ABORTED_REFUND forfeit ${forfeit} != 0`);
+  } else {
+    // Fail CLOSED: the on-chain enum is OPEN/TOUCH_WIN/CASHOUT/EXPIRED_LOSS/
+    // ABORTED_REFUND (0–4; OPEN is handled before this). A kind outside that set
+    // is a settlement the verifier has no payout rule for — refuse to pass it
+    // rather than bless it on the conservation check alone.
+    errs.push(`unknown settlement_kind ${kind} — the verifier has no payout rule for it`);
   }
   return errs;
 }
