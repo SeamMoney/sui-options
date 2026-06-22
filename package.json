@@ -116,7 +116,8 @@
     "ci": "npm run build:packages && npm run build:sdk && npm run check:dist && npm run typecheck && npm test && npm run build:frontend",
     "check:dist": "bash scripts/check-dist.sh",
     "safety": "node scripts/safety-report.mjs",
-    "check:demo-ready": "bash scripts/check-demo-ready.sh"
+    "check:demo-ready": "bash scripts/check-demo-ready.sh",
+    "check:doc-counts": "bash scripts/check-doc-counts.sh"
   },
   "overrides": {
     "@mysten/sui": "^2.16.0"
