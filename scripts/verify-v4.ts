@@ -346,6 +346,11 @@ async function discoverLiveMarket(client: RpcClient): Promise<string> {
 
 async function readMarket(client: RpcClient, marketId: string): Promise<MarketInfo> {
   const o = asObject(await client.getObject({ id: marketId, options: { showContent: true, showType: true } }));
+  if (o.data == null) {
+    throw new Error(
+      `object ${marketId} was not found on-chain. Check the --market id — it must be the exact 0x-prefixed id of a live SegmentMarketV4 (copy it from deployments/testnet.json or SuiScan).`,
+    );
+  }
   const data = asObject(o.data);
   const content = asObject(data.content);
   if (content.dataType !== "moveObject") {
@@ -419,6 +424,11 @@ async function readRugConfig(
 
 async function readRide(client: RpcClient, rideId: string): Promise<RideInfo> {
   const o = asObject(await client.getObject({ id: rideId, options: { showContent: true, showType: true } }));
+  if (o.data == null) {
+    throw new Error(
+      `object ${rideId} was not found on-chain. Check the --ride id — it must be the exact 0x-prefixed id of a closed SegmentRidePositionV4 (e.g. from a RideClosedV4 event or 'npm run rides:recent').`,
+    );
+  }
   const data = asObject(o.data);
   const content = asObject(data.content);
   if (content.dataType !== "moveObject") {
