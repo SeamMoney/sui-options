@@ -1600,3 +1600,37 @@ fun open_segment_ride_v4_rejects_zero_escrow() {
     teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
     sc.end();
 }
+
+// Safety: a ride can only be settled against the market it was opened on —
+// closing against a DIFFERENT market aborts EWrongMarket (=2). Stops a ride
+// being settled against a more-favourable market's barriers/state.
+#[test]
+#[expected_failure(abort_code = 2, location = wick::segment_market_v4)]
+fun close_segment_ride_v4_rejects_wrong_market() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    // A SECOND market on the same vault (distinct object id).
+    let mut other_market = mk_market(&vault, &mut sc, &clk);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    // Close against the WRONG market → EWrongMarket (=2).
+    let payout = sm4::close_segment_ride_v4<SUI>(
+        &mut ride, &mut other_market, &mut vault, &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(payout); // unreachable
+    sm4::test_only_destroy_ride(ride);
+    sm4::test_only_destroy_market(other_market);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
