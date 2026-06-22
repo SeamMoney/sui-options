@@ -18,11 +18,12 @@ cd "$(dirname "$0")/.."
 #   "Total tests: 641"  ·  shields badge "move%20tests-641%2F641"
 # Edge forms that were silently UNMONITORED (each a false-pass risk if it were the
 # lone laggard): move/SAFETY.md's "641/641 passing"; the BOLDED main README claim
-# "**641 / 641** Move tests" (the \*{0,2} lets markdown bold through); and the
-# README cmd comment "# 641/641". sync:count (sync-move-count.mjs) rewrites all of
-# these, so the GUARD's coverage must match what the sync touches.
+# "**641 / 641** Move tests" (the \*{0,2} lets markdown bold through); the README
+# cmd comment "# 641/641"; and the shields-badge ALT text "![Move tests 641/641]".
+# sync:count (sync-move-count.mjs) rewrites all of these, so the GUARD's coverage
+# must match what the sync touches.
 counts=$(grep -rhoE \
-  "[0-9]{3} ?/ ?[0-9]{3}\*{0,2} (Move )?(tests|passing)|# ?[0-9]{3} ?/ ?[0-9]{3}|[0-9]{3} Move tests|Total tests: [0-9]{3}|move%20tests-[0-9]{3}" \
+  "[0-9]{3} ?/ ?[0-9]{3}\*{0,2} (Move )?(tests|passing)|Move tests [0-9]{3} ?/ ?[0-9]{3}|# ?[0-9]{3} ?/ ?[0-9]{3}|[0-9]{3} Move tests|Total tests: [0-9]{3}|move%20tests-[0-9]{3}" \
   --include="*.md" . 2>/dev/null \
   | grep -v node_modules \
   | grep -oE "[0-9]{3}" | sort -u)
