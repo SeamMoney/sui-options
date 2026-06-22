@@ -29,6 +29,12 @@ function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npx tsx scripts/verify-randomness.ts [--market <id>] [--n <count>] [--rpc <url>]   (or: npm run verify:randomness)");
+  console.log("  Proves each record_segment tx consumed the 0x…08 system Random object (keys ⟸ sui::random).");
+  console.log("  Defaults: busiest market, n=6, archival fullnode (PublicNode prunes tx bodies).");
+  process.exit(0);
+}
 const RPC = arg("--rpc") ?? process.env.WICK_API_RPC ?? "https://fullnode.testnet.sui.io";
 const N = Math.max(1, Number(arg("--n") ?? "6"));
 const RPC_TIMEOUT_MS = 25_000;

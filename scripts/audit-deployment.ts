@@ -25,6 +25,11 @@ import { execFileSync } from "node:child_process";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..");
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npx tsx scripts/audit-deployment.ts [--window <N>] [--rpc <url>]   (or: npm run audit:deployment)");
+  console.log("  Verifies every live v4 market's recent candles reproduce from the chain's own keys (markets from deployments/testnet.json).");
+  process.exit(0);
+}
 const RPC = process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 
 function arg(name: string, fallback: string): string {
