@@ -871,6 +871,20 @@ async function verify(args: Args): Promise<boolean> {
       }
     }
 
+    // Parity with the market-audit 0-segment guard (~line 983): a closed ride whose
+    // window replayed ZERO candles verified NOTHING — a "trust nothing" tool must not
+    // print "honest" having checked nothing. (A pruned/missing entry-round is already
+    // caught fail-closed via allIntegrityOk=false → FAIL; this covers the degenerate
+    // zero-candle hold or an out-of-range window where integrity stayed true.)
+    if (rows.length === 0) {
+      console.log("");
+      console.log(
+        "INCONCLUSIVE — 0 segments in this ride's window; nothing was replayed " +
+          "(degenerate zero-candle hold, or an out-of-range window). This is NOT a pass.",
+      );
+      return false;
+    }
+
     const derived = deriveSettlementKind(
       rugAffectsRide,
       touchedInWindow,
