@@ -39,6 +39,18 @@ const FALLBACK_RPCS = [
   "https://sui-testnet-rpc.publicnode.com",
   "https://fullnode.testnet.sui.io:443",
 ];
+const RPC_TIMEOUT_MS = 20_000;
+
+/** Reject if a call hasn't settled in `ms` — a hanging node becomes a thrown
+ *  timeout so ResilientClient falls back instead of stalling the round sweep
+ *  (matches verify-v4 / verify-payout / verify-barriers). */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 interface Args {
   market?: string;
@@ -76,7 +88,7 @@ class ResilientClient {
   private async tryAll<T>(fn: (c: SuiJsonRpcClient) => Promise<T>): Promise<T> {
     let lastErr: unknown;
     for (const c of this.clients) {
-      try { return await fn(c); } catch (e) { lastErr = e; }
+      try { return await withTimeout(fn(c), RPC_TIMEOUT_MS); } catch (e) { lastErr = e; }
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
