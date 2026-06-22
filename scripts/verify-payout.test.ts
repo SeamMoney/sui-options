@@ -12,7 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { checkPayoutIdentity, deriveStakePaid, multiplierProvenanceError, nextSegmentIndexAtClose, queryRideClosed, readRide, readMarket } from "./verify-payout.js";
+import { cashoutSecondsRemaining, checkPayoutIdentity, deriveStakePaid, multiplierProvenanceError, nextSegmentIndexAtClose, queryRideClosed, readRide, readMarket } from "./verify-payout.js";
 import {
   isqrtU64,
   bachelierCashoutFactor,
@@ -320,4 +320,15 @@ test("deriveStakePaid: segments-held cap, escrow cap, and zero-hold all hold", (
   // Zero hold (closed at/below entry — a 0-segment quick cashout): nothing paid.
   assert.deepEqual(deriveStakePaid(2n, 2n, 75n, 100n, 1_000_000n), { segmentsHeld: 0n, stakePaid: 0n });
   assert.deepEqual(deriveStakePaid(1n, 2n, 75n, 100n, 1_000_000n), { segmentsHeld: 0n, stakePaid: 0n });
+});
+
+test("cashoutSecondsRemaining: segments-to-round-end × 400ms, clamped at the boundary", () => {
+  // Round 0, dur 75, closed at index 10 → 65 segs left × 400ms = 26s.
+  assert.equal(cashoutSecondsRemaining(0n, 75n, 10n, 400n), 26n);
+  // Closed exactly at the round boundary (index 75) → 0s left.
+  assert.equal(cashoutSecondsRemaining(0n, 75n, 75n, 400n), 0n);
+  // Closed PAST the boundary (held cross-round) → clamped to 0, never negative.
+  assert.equal(cashoutSecondsRemaining(0n, 75n, 80n, 400n), 0n);
+  // Round 1: end = 150; closed at 80 → 70 segs × 400ms = 28s.
+  assert.equal(cashoutSecondsRemaining(1n, 75n, 80n, 400n), 28n);
 });
