@@ -171,7 +171,9 @@ Once funded, the next call to `/api/faucet` succeeds without a redeploy
   drips equivocate on it. **One-time fix (no code change):**
   `WICK_FAUCET_PRIVATE_KEY=… npx tsx scripts/split-faucet-coins.ts 12` splits the
   wallet into ~12 coins (transferred back to itself — funds never leave) so the
-  anti-contention picker spreads load and the 500s stop.
+  anti-contention picker spreads load and the 500s stop. Add `--dry-run` to preview
+  first. It's a **permanent** one-time fix — drips never re-merge coins, so the pool
+  stays split.
 
 ### Local testing
 
