@@ -21,11 +21,17 @@
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_RPC = "https://sui-testnet-rpc.publicnode.com";
 
 function hasFlag(name: string): boolean {
   return process.argv.includes(name);
+}
+function argVal(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
 if (hasFlag("-h") || hasFlag("--help") || !hasFlag("--market") || !hasFlag("--ride")) {
@@ -46,24 +52,62 @@ function step(title: string, script: string): boolean {
   return (r.status ?? 1) === 0;
 }
 
-const barriers = step(
-  "1/3  ROUND BARRIERS — not cherry-picked   (scripts/verify-barriers.ts)",
-  "verify-barriers.ts",
-);
-const candlesAndHalt = step(
-  "2/3  CANDLES · MARKET HALT · VERDICT   (scripts/verify-v4.ts)",
-  "verify-v4.ts",
-);
-const payout = step("3/3  PAYOUT AMOUNT   (scripts/verify-payout.ts)", "verify-payout.ts");
-
-console.log(`\n${"═".repeat(72)}`);
-const pass = barriers && candlesAndHalt && payout;
-if (pass) {
-  console.log("  ✅ COMPLETE AUDIT PASS — barriers, candles, house edge, verdict, AND payout are honest.");
-} else {
-  console.log(
-    `  ❌ AUDIT FAILED — barriers: ${barriers ? "PASS" : "FAIL"} · candles/halt/verdict: ${candlesAndHalt ? "PASS" : "FAIL"} · payout: ${payout ? "PASS" : "FAIL"}`,
-  );
+/**
+ * Refuse to "COMPLETE PASS" an OPEN ride. Each verifier SKIPS (prints "still
+ * OPEN" and exits 0) when a ride has no settlement yet, so the aggregate would
+ * otherwise claim the verdict + payout are "honest" when neither exists — a
+ * vacuous pass. Read the ride's `closed` flag first and report honestly instead.
+ * Best-effort: an RPC/lookup failure falls through so a real audit is never
+ * blocked by the pre-check; synthetic (mock://) modes have no live object.
+ */
+async function rideIsOpen(): Promise<boolean> {
+  const rideId = argVal("--ride");
+  const rpc = argVal("--rpc") ?? DEFAULT_RPC;
+  if (!rideId || rpc.startsWith("mock://")) return false;
+  try {
+    const client = new SuiJsonRpcClient({ network: "testnet", url: rpc });
+    const o = (await client.getObject({
+      id: rideId,
+      options: { showContent: true },
+    })) as { data?: { content?: { fields?: { closed?: unknown } } } };
+    return o?.data?.content?.fields?.closed === false;
+  } catch {
+    return false; // never block a real audit on a flaky pre-check
+  }
 }
-console.log("═".repeat(72));
-process.exitCode = pass ? 0 : 1;
+
+async function main(): Promise<void> {
+  if (await rideIsOpen()) {
+    console.log(`\n${"═".repeat(72)}`);
+    console.log("  ⏳ RIDE STILL OPEN — nothing to audit yet.");
+    console.log("     No settlement, verdict, or payout exists until the ride closes.");
+    console.log("     Re-run audit:ride after close_ride / crank_expired_ride.");
+    console.log("═".repeat(72));
+    process.exitCode = 2;
+    return;
+  }
+
+  const barriers = step(
+    "1/3  ROUND BARRIERS — not cherry-picked   (scripts/verify-barriers.ts)",
+    "verify-barriers.ts",
+  );
+  const candlesAndHalt = step(
+    "2/3  CANDLES · MARKET HALT · VERDICT   (scripts/verify-v4.ts)",
+    "verify-v4.ts",
+  );
+  const payout = step("3/3  PAYOUT AMOUNT   (scripts/verify-payout.ts)", "verify-payout.ts");
+
+  console.log(`\n${"═".repeat(72)}`);
+  const pass = barriers && candlesAndHalt && payout;
+  if (pass) {
+    console.log("  ✅ COMPLETE AUDIT PASS — barriers, candles, house edge, verdict, AND payout are honest.");
+  } else {
+    console.log(
+      `  ❌ AUDIT FAILED — barriers: ${barriers ? "PASS" : "FAIL"} · candles/halt/verdict: ${candlesAndHalt ? "PASS" : "FAIL"} · payout: ${payout ? "PASS" : "FAIL"}`,
+    );
+  }
+  console.log("═".repeat(72));
+  process.exitCode = pass ? 0 : 1;
+}
+
+void main();
