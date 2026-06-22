@@ -45,7 +45,7 @@ keys ⟸ sui::random   (verify:randomness — un-grindable, gated by Sui's PTB-R
   └─ payout          ⟸ the verdict                  (verify-payout — exact, to the unit)
 ```
 
-The house chooses nothing: not the keys, not the barriers, not the candles, not the verdict, not the money. If a candle in your loss looks wrong, replay it. The whole ride is reproducible bit-for-bit.
+The house chooses nothing: not the keys, not the barriers, not the candles, not the verdict, not the money. **And it can't change the rules after you bet** — the multiplier, rug chance, barrier offset, deadband, and spread are set once at market bootstrap with *no on-chain setter* (the only rug-chance mutator is `#[test_only]`, compiled out of the published package; traceability in [`move/SAFETY.md`](move/SAFETY.md)). Immutable rules, verifiable outputs. If a candle in your loss looks wrong, replay it. The whole ride is reproducible bit-for-bit.
 
 ---
 
