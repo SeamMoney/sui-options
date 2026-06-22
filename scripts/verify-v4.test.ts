@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { rollRugFired } from "./rugRoll.js";
-import { effectiveBarriers, segmentTouches } from "./verify-v4.js";
+import { deriveSettlementKind, effectiveBarriers, segmentTouches } from "./verify-v4.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "verify-v4.ts");
@@ -237,4 +237,29 @@ test("segmentTouches: inclusive boundary on both barriers (exactly-at = touch)",
   // Clear wick through either side → touch.
   assert.equal(segmentTouches(990n, 1_030n, upEff, loEff), true);
   assert.equal(segmentTouches(970n, 1_010n, upEff, loEff), true);
+});
+
+test("deriveSettlementKind: full precedence rug > touch > time-expiry > cashout", () => {
+  // Minimal ride: round 0, entry segment 2. With dur 75 the round ends at index 75.
+  const r = {
+    marketId: "0x0", entrySegmentIndex: 2n, roundIndex: 0n, upperBarrier: 0n,
+    lowerBarrier: 0n, closed: true, closedAtMs: 0n, settlementKind: 0,
+  };
+  const DUR = 75n; // SETTLEMENT_* : TOUCH_WIN=1, CASHOUT=2, EXPIRED_LOSS=3
+  // CASHOUT: no rug, no touch, closed before round end (maxK 4 → next 5 < 75).
+  assert.equal(deriveSettlementKind(false, false, 4n, r, DUR), 2);
+  // TOUCH_WIN: a touch in-window beats a cashout.
+  assert.equal(deriveSettlementKind(false, true, 4n, r, DUR), 1);
+  // TIME-EXPIRY → EXPIRED_LOSS: held to the round end, no touch, no rug
+  // (maxK 74 → next 75 >= rideRoundEnd 75). THIS branch is unreachable by the
+  // synthetic 8-segment modes — they never span a 75-segment round.
+  assert.equal(deriveSettlementKind(false, false, 74n, r, DUR), 3);
+  // held PAST the end (cross-round) → still EXPIRED.
+  assert.equal(deriveSettlementKind(false, false, 100n, r, DUR), 3);
+  // RUG beats everything, even a touch → EXPIRED_LOSS (the house-edge precedence).
+  assert.equal(deriveSettlementKind(true, true, 4n, r, DUR), 3);
+  // TOUCH beats time-expiry: touched AND held to the end → still TOUCH_WIN.
+  assert.equal(deriveSettlementKind(false, true, 74n, r, DUR), 1);
+  // No segment in window (maxK null) → next = entry 2 < 75 → CASHOUT, not expiry.
+  assert.equal(deriveSettlementKind(false, false, null, r, DUR), 2);
 });

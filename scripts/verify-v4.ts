@@ -656,7 +656,7 @@ async function verifySegments(
  * rug→EXPIRED_LOSS > TOUCH_WIN > round-expiry EXPIRED_LOSS > CASHOUT. The rug
  * beats a later touch — a ride open when the halt fired loses, full stop.
  */
-function deriveSettlementKind(
+export function deriveSettlementKind(
   rugAffectsRide: boolean,
   touchedInWindow: boolean,
   maxInWindowK: bigint | null,
