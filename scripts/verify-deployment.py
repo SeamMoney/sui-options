@@ -162,5 +162,16 @@ if wallets:
         active = bool(owned and owned.get("data") is not None)
         print(f"  {'✓' if active else '·'} {lbl:22s} {sui_bal(addr):>10,.2f} SUI  {addr[:12]}…")
 
+# The faucet wallet (api/README) drips SUI so a judge can fund a burner and play
+# /ride — without runway here, "demo-ready" is a lie. It's an env-configured
+# account, not a manifest object, so pin the documented address. Fail the check
+# if it can't cover a handful of fund cycles (2 SUI/drip).
+FAUCET_WALLET = "0xc9179f15614b95517c7377e721b7a9d0d56eeaea1b9074b27e2c760cdb22c298"
+faucet_sui = sui_bal(FAUCET_WALLET)
+faucet_drips = int(faucet_sui / 2)
+faucet_ok = faucet_drips >= 20
+print(f"\nfaucet wallet (drips SUI so judges can fund a burner — api/README):")
+print(f"  {'✓' if faucet_ok else '⚠ LOW'}  {faucet_sui:>12,.1f} SUI  (~{faucet_drips:,} drips of 2 SUI)  {FAUCET_WALLET[:12]}…")
+
 print()
-sys.exit(1 if (missing or absent or not origins_ok) else 0)
+sys.exit(1 if (missing or absent or not origins_ok or not faucet_ok) else 0)
