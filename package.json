@@ -2,7 +2,7 @@
   "name": "wick-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Wick Markets \u2014 Sui touch/no-touch options. Workspaces: sdk, api, keeper, frontend.",
+  "description": "Wick Markets — Sui touch/no-touch options. Workspaces: sdk, api, keeper, frontend.",
   "workspaces": [
     "sdk",
     "api",
@@ -106,13 +106,14 @@
     "bots:tick": "npm -w wick-bots run tick",
     "test": "npm run test:offline && npm run test:live",
     "test:offline": "npm -w @wick/sdk test && npm -w wick-bots test && npm -w wick-keeper test && npm -w @wick/api test && npm run test:candle-vision && npm -w @sui-options/candle-vision-react test && npm run test:pro-options && npm run test:verify-v4 && npm run test:audit-rugs && npm run test:rug-roll && npm run test:verify-payout && npm run test:verify-barriers && npm run test:vault-solvency && npm run test:verify-randomness && npm run test:audit-deployment && npm run test:gas-report && npm run test:verify-replay && npm run test:greeks-display && npm run test:audit-ride && npm run test:chart-live && npm run test:faucet-runway && npm run test:live-verify",
-    "test:live": "echo 'no network-requiring unit tests \u2014 live verification runs via e2e:* and check:* targets'",
+    "test:live": "echo 'no network-requiring unit tests — live verification runs via e2e:* and check:* targets'",
     "test:move": "cd move && sui move test",
     "conformance": "npm -w @wick/sdk run conformance",
     "conformance:check": "npm run conformance && git diff --exit-code move/tests/seeded_path_conformance.move",
     "typecheck": "npm -w frontend run typecheck && npm -w @wick/api run typecheck && npm -w wick-keeper run typecheck && npm -w wick-bots run typecheck",
     "ci": "npm run build:packages && npm run build:sdk && npm run check:dist && npm run typecheck && npm test && npm run build:frontend",
-    "check:dist": "bash scripts/check-dist.sh"
+    "check:dist": "bash scripts/check-dist.sh",
+    "safety": "node scripts/safety-report.mjs"
   },
   "overrides": {
     "@mysten/sui": "^2.16.0"
