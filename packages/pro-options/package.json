@@ -47,7 +47,7 @@
   "scripts": {
     "build": "tsc && node ../../scripts/patch-esm-imports.mjs dist",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/engine.test.ts && tsx test/host.test.ts && tsx test/black-scholes.test.ts",
+    "test": "tsx test/engine.test.ts && tsx test/host.test.ts && tsx test/black-scholes.test.ts && tsx test/primitives.test.ts",
     "play": "tsx sim/play-round.ts",
     "prepack": "npm run build && npm run test"
   },
