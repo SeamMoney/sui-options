@@ -12,7 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { checkPayoutIdentity, multiplierProvenanceError, nextSegmentIndexAtClose, queryRideClosed, readRide, readMarket } from "./verify-payout.js";
+import { checkPayoutIdentity, deriveStakePaid, multiplierProvenanceError, nextSegmentIndexAtClose, queryRideClosed, readRide, readMarket } from "./verify-payout.js";
 import {
   isqrtU64,
   bachelierCashoutFactor,
@@ -308,4 +308,16 @@ test("readMarket: parses tableId + cashout inputs", async () => {
 
 test("readMarket: rejects a non-market object type", async () => {
   await assert.rejects(() => readMarket(mockObject("0x2::coin::Coin", {}), "0xmkt"));
+});
+
+test("deriveStakePaid: segments-held cap, escrow cap, and zero-hold all hold", () => {
+  // Normal: held 8 segments (entry 2 → close index 10), 100/seg, escrow ample.
+  assert.deepEqual(deriveStakePaid(10n, 2n, 75n, 100n, 1_000_000n), { segmentsHeld: 8n, stakePaid: 800n });
+  // Round-duration cap: close index 100, entry 2 → raw 98, capped to round_dur 75.
+  assert.deepEqual(deriveStakePaid(100n, 2n, 75n, 100n, 1_000_000n), { segmentsHeld: 75n, stakePaid: 7_500n });
+  // Escrow cap: 8 × 100 = 800 would exceed a 500 escrow → paid is capped to 500.
+  assert.deepEqual(deriveStakePaid(10n, 2n, 75n, 100n, 500n), { segmentsHeld: 8n, stakePaid: 500n });
+  // Zero hold (closed at/below entry — a 0-segment quick cashout): nothing paid.
+  assert.deepEqual(deriveStakePaid(2n, 2n, 75n, 100n, 1_000_000n), { segmentsHeld: 0n, stakePaid: 0n });
+  assert.deepEqual(deriveStakePaid(1n, 2n, 75n, 100n, 1_000_000n), { segmentsHeld: 0n, stakePaid: 0n });
 });

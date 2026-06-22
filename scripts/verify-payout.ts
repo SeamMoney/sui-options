@@ -247,6 +247,28 @@ export function multiplierProvenanceError(
     : `ride multiplier ${rideMultiplierBps}bps != market's configured ${marketMultiplierBps}bps`;
 }
 
+/**
+ * Re-derive stake_paid (what the rider actually paid as they held) from object
+ * state, mirroring Move: `segments_held = min(next_segment_index@close − entry,
+ * round_duration)` and `stake_paid = min(stake_per_segment × segments_held,
+ * escrowed)`. This is the load-bearing money quantity (the loss on an expiry, the
+ * base of every payout); pure so both caps — the per-round duration cap and the
+ * escrow cap — are unit-tested, not merely live-validated.
+ */
+export function deriveStakePaid(
+  nextAtClose: bigint,
+  entry: bigint,
+  roundDuration: bigint,
+  stakePerSegment: bigint,
+  escrowed: bigint,
+): { segmentsHeld: bigint; stakePaid: bigint } {
+  const rawHeld = nextAtClose > entry ? nextAtClose - entry : 0n;
+  const segmentsHeld = rawHeld > roundDuration ? roundDuration : rawHeld;
+  const uncapped = stakePerSegment * segmentsHeld;
+  const stakePaid = uncapped > escrowed ? escrowed : uncapped;
+  return { segmentsHeld, stakePaid };
+}
+
 export async function readRide(client: GetObject, id: string): Promise<{ ride: Ride; marketId: string }> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
   const content = asObj(asObj(o.data).content);
@@ -454,12 +476,13 @@ async function main(): Promise<boolean> {
     ride.closedAtMs,
     market.nextSegmentIndex,
   );
-  const rawHeld = nextAtClose > ride.entry ? nextAtClose - ride.entry : 0n;
-  const segmentsHeld = rawHeld > market.roundDuration ? market.roundDuration : rawHeld;
-  const stakePaidDerived =
-    ride.stakePerSegment * segmentsHeld > ride.escrowed
-      ? ride.escrowed
-      : ride.stakePerSegment * segmentsHeld;
+  const { segmentsHeld, stakePaid: stakePaidDerived } = deriveStakePaid(
+    nextAtClose,
+    ride.entry,
+    market.roundDuration,
+    ride.stakePerSegment,
+    ride.escrowed,
+  );
 
   const closed = await findRideClosedEvent(client, args.rpc, market.packageId, args.market, args.ride);
 
