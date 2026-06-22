@@ -21,6 +21,7 @@ const BOB: address = @0xB;
 
 const STARTING_PRICE: u64 = 100_000_000_000;  // 100.0
 const BARRIER_ABOVE: u64 = 105_000_000_000;   // 105.0
+const BARRIER_BELOW: u64 = 95_000_000_000;    // 95.0
 
 fun mk_oracle_at(expiry_ms: u64, sc: &mut ts::Scenario, clk: &clock::Clock): (WickOracle, random_walk_driver::RandomWalk) {
     random_walk_driver::new_for_testing(
@@ -737,6 +738,83 @@ fun dnt_deadband_filters_lower_micro_flutter() {
 
     assert!(option::is_some(po::lower_touched_at(&p)), 4);
     assert!(!po::dnt_neither_touched(&p), 5);
+
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(p);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+// === touch_below coverage (the path_observation audit found the record()-level
+// touch_below cross-detection was untested — only touch_above was). These pin
+// the touch_below trigger SIGN + N-confirmation against future edits; a flipped
+// sign here would mis-settle every single-barrier touch-below market. ===
+
+#[test]
+fun three_consecutive_crossings_below_lock_touch() {
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let (mut oracle, _rw) = mk_oracle_at(1_000_000, &mut sc, &clk);
+    let mut p = po::new_v2(
+        &oracle,
+        BARRIER_BELOW,
+        po::touch_below(),
+        0, 1, 3, 60_000,
+        sc.ctx(),
+    );
+
+    clk.increment_for_testing(100);
+    push_obs(&mut oracle, 94_000_000_000, 100);
+    po::record(&mut p, &oracle, &clk);
+    assert!(!po::is_touched(&p), 0);
+    assert!(po::consecutive_cross_count(&p) == 1, 1);
+
+    clk.increment_for_testing(100);
+    push_obs(&mut oracle, 93_000_000_000, 200);
+    po::record(&mut p, &oracle, &clk);
+    assert!(!po::is_touched(&p), 2);
+    assert!(po::consecutive_cross_count(&p) == 2, 3);
+
+    clk.increment_for_testing(100);
+    push_obs(&mut oracle, 92_000_000_000, 300);
+    po::record(&mut p, &oracle, &clk);
+    assert!(po::is_touched(&p), 4);
+    assert!(po::consecutive_cross_count(&p) == 3, 5);
+
+    sui::test_utils::destroy(oracle);
+    sui::test_utils::destroy(_rw);
+    sui::test_utils::destroy(p);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+#[test]
+fun single_bad_tick_below_does_not_lock_outcome() {
+    let mut sc = ts::begin(ALICE);
+    let mut clk = clock::create_for_testing(sc.ctx());
+    let (mut oracle, _rw) = mk_oracle_at(1_000_000, &mut sc, &clk);
+    let mut p = po::new_v2(
+        &oracle,
+        BARRIER_BELOW,
+        po::touch_below(),
+        0, 1, 3, 60_000,
+        sc.ctx(),
+    );
+
+    let prices = vector[90_000_000_000, 101_000_000_000, 102_000_000_000, 100_000_000_000, 99_000_000_000, 98_000_000_000];
+    let mut i = 0;
+    while (i < 6) {
+        clk.increment_for_testing(100);
+        let ts_ms = (i + 1) * 100;
+        push_obs(&mut oracle, *vector::borrow(&prices, i), ts_ms);
+        po::record(&mut p, &oracle, &clk);
+        i = i + 1;
+    };
+
+    assert!(!po::is_touched(&p), 0);
+    assert!(po::consecutive_cross_count(&p) == 0, 1);
+    assert!(po::observation_count(&p) == 6, 2);
 
     sui::test_utils::destroy(oracle);
     sui::test_utils::destroy(_rw);
