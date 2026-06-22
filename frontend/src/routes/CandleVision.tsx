@@ -1295,6 +1295,16 @@ function CandleVisionScannerChart() {
 
       if (trimmed) {
         setSeriesDataMaybeFollowLatest(toSeriesData(next));
+        // The oldest bar was dropped, so every logical index shifted down by one.
+        // markManualPosition (below) refreshes latestIndex, but entryIndex is an
+        // absolute index captured at open — decrement it so the entry anchor stays
+        // on its candle (clamp at 0 once it scrolls off the left edge).
+        if (manualPositionRef.current) {
+          manualPositionRef.current = {
+            ...manualPositionRef.current,
+            entryIndex: Math.max(0, manualPositionRef.current.entryIndex - 1),
+          };
+        }
       } else {
         series.update({
           time: latest.time as UTCTimestamp,
