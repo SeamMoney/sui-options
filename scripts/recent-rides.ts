@@ -134,6 +134,16 @@ async function main() {
   // fired — i.e. its entry segment ≤ the rug segment. A ride that entered after
   // the rug bet into an already-halted round and just time-expired. Read the
   // (persisted) ride object's entry to decide precisely.
+  //
+  // v4.27 DEPLOY-NOTE: this `entry ≤ rug_seg` test, keyed on the ride's OWN
+  // `round_index`, is EXACTLY the durable per-round rug condition Move #694
+  // enforces — so this label needs NO change for the v4.27 upgrade (cf. #706 for
+  // verify-v4). It is already v4.27-correct. The only caveat is on the pre-fix
+  // v4.26 chain: a cross-round ride that was open at its round's rug could ESCAPE
+  // that rug on-chain (the bug #683/#694 fix), so its EXPIRED_LOSS came from
+  // time-expiry, not the halt — and this label can then over-attribute HALT to
+  // it. The v4.27 upgrade closes that escape, making the on-chain outcome match
+  // this label exactly; no label change is part of the deploy.
   async function wasHalted(rideId: string, marketId: string, round: bigint): Promise<boolean> {
     const rugSeg = rugSegByRound.get(`${marketId}:${round}`);
     if (rugSeg == null) return false;
