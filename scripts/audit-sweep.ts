@@ -24,6 +24,12 @@ import { fileURLToPath } from "node:url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { rideClosedV4EventType, parseRideClosedV4Event } from "../sdk/src/segmentMarketV4.js";
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npx tsx scripts/audit-sweep.ts [--n <count>] [--full] [--rpc <url>]   (or: npm run audit:sweep)");
+  console.log("  Bulk-audits the last N closed v4 rides (--full runs the complete 3-verifier audit per ride). Read-only.");
+  process.exit(0);
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(here, "..");
 
