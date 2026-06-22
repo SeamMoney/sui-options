@@ -31,6 +31,19 @@ function arg(name: string): string | undefined {
 }
 const RPC = arg("--rpc") ?? process.env.WICK_API_RPC ?? "https://fullnode.testnet.sui.io";
 const N = Math.max(1, Number(arg("--n") ?? "6"));
+const RPC_TIMEOUT_MS = 25_000;
+
+/** Reject if a call hasn't settled in `ms`. verify:randomness needs tx bodies
+ *  (only the archival fullnode keeps them — no public-node fallback is possible),
+ *  so a hang can't be recovered, but the timeout still turns an indefinite stall
+ *  in prove:live / judge --with-chain into a clean, retryable failure. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 export const RANDOM_OBJECT = "0x0000000000000000000000000000000000000000000000000000000000000008";
 
@@ -82,7 +95,7 @@ async function main(): Promise<void> {
   // The SegmentRecordedV4 event type uses the module's TYPE package — read it
   // off a live market object rather than guessing the (upgraded) package id.
   const probeMarket = marketFilter ?? busiestMarket();
-  const o = await client.getObject({ id: probeMarket, options: { showType: true } });
+  const o = await withTimeout(client.getObject({ id: probeMarket, options: { showType: true } }), RPC_TIMEOUT_MS);
   const typePkg = (o.data?.type ?? "").split("::")[0];
   if (!typePkg) throw new Error(`could not read market type for ${probeMarket}`);
 
@@ -102,7 +115,7 @@ async function main(): Promise<void> {
   const digests: string[] = [];
   let cursor: { txDigest: string; eventSeq: string } | null = null;
   for (let p = 0; p < 8 && digests.length < N; p++) {
-    const page = await client.queryEvents({ query: { MoveEventType: eventType }, cursor, limit: 25, order: "descending" });
+    const page = await withTimeout(client.queryEvents({ query: { MoveEventType: eventType }, cursor, limit: 25, order: "descending" }), RPC_TIMEOUT_MS);
     for (const e of page.data) {
       const j = (e.parsedJson ?? {}) as { market_id?: string };
       if (marketFilter && j.market_id !== marketFilter) continue;
@@ -116,7 +129,7 @@ async function main(): Promise<void> {
 
   const checks: CrankCheck[] = [];
   for (const digest of digests) {
-    const tb = await client.getTransactionBlock({ digest, options: { showInput: true } });
+    const tb = await withTimeout(client.getTransactionBlock({ digest, options: { showInput: true } }), RPC_TIMEOUT_MS);
     const tx = (tb.transaction?.data?.transaction as Record<string, unknown>) ?? undefined;
     const cmds = (tx?.transactions as Array<{ MoveCall?: { function?: string } }>) ?? [];
     const fn = cmds.find((t) => t.MoveCall)?.MoveCall?.function ?? "";
