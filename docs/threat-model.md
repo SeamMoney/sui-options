@@ -100,6 +100,48 @@ MAX_PAYOUT_PER_BARRIER`; the B7 pile-on simulation observed zero cap violations.
 
 ---
 
+## 2026-05-25 v4.26 MARKET HALT (rug-pull) house edge
+
+The v4.26 arcade adds a per-segment **MARKET HALT** ("rug"): on each recorded
+segment the round may halt with probability `rug_chance_bps` (150 = 1.5% on the
+live market), settling all open rides in that round to `EXPIRED_LOSS`. This is
+the house-edge mechanism (a small, calibrated positive edge — see
+[`26_rug_pull_house_edge_v4.md`](design/v2/26_rug_pull_house_edge_v4.md)). Because
+it directly decides whether a rider wins or loses, it is the most attractive
+target for a cheating house, so its honesty is **fully re-derivable on-chain**.
+
+The halt is a public dice roll, not a house decision. A round halts at segment
+`k` iff `keccak256(segment_key_k ‖ object::id(market) ‖ bcs(round_index))`,
+first 8 bytes as a little-endian `u64`, taken `% 10_000`, is `< rug_chance_bps`.
+`segment_key_k` is the same Sui-randomness-derived key that drives the candle, so
+the roll inherits the A0 randomness properties above — the house cannot choose it.
+
+Threats and defenses (all checked by `npm run check:rugs`, `scripts/audit-rugs.ts`):
+
+- **T-RUG-1 — faked halt**: halt a round the dice did *not* call, to wipe a
+  winning ride. Defense: the audit re-derives the published roll for the claimed
+  halt segment and rejects any halt whose roll is `≥ rug_chance_bps`.
+- **T-RUG-2 — suppressed halt** (the load-bearing one): keep a winning ride alive
+  past a rug it owed, by emitting no halt or a late one. Defense: the audit
+  sweeps **every** round — not just emitted halts — derives the *first*
+  qualifying segment, and confirms the chain halted at exactly that segment. A
+  round that should have halted but did not, or halted after its first qualifier,
+  fails. This makes "the house cannot hold a rug back" airtight.
+- **T-RUG-3 — rate tampering**: quietly raise `rug_chance_bps`. Defense: the
+  config is immutable after bootstrap (the house can't change the rules), and the
+  published `rug_chance_bps` is what the audit checks every roll against, so any
+  change is both visible and enforced against.
+- **T-RUG-4 — payout shaving on the wipe**: a halted ride settles `EXPIRED_LOSS`
+  (payout 0); `scripts/verify-payout.ts` re-derives the settlement amount and the
+  conservation identity, so the wipe cannot be used to mis-route escrow.
+
+Boundary: this proves the rug was *honest given the recorded keys*; it rests on
+the same A0 randomness obligation as the candles (the dynamic gas-side-channel
+harness is still deferred, above). The edge is an **honest** edge — a published,
+per-segment dice roll, not a discretionary house action.
+
+---
+
 ## 1. Headline findings
 
 The single worst attack across the entire corpus is **#1 in
