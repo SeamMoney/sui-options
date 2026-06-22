@@ -1,5 +1,12 @@
 # Wick gamification direction — session notes
 
+> ⚠️ **HISTORICAL / OUT-OF-SCOPE.** Gamification (tournaments / badges, E.1/E.2)
+> was **cut from hackathon scope** (see `AGENTS.md`), and the trading bots this
+> doc describes drive the **retired v1 trade ABI** — `npm run bots:run` no
+> longer settles against the current package (use `npm run chart:keep` to
+> animate the live v4 chart). Kept as a design-direction record only.
+
+
 **Session date:** 2026-05-11
 **Branch:** `claude/add-trading-bots-testnet-ougdg`
 **Status going in:** hackathon MVP working end-to-end on testnet — Move package deployed, 40 tests passing, keeper auto-settling, frontend live, multi-actor `demo.sh` conserves to the mist.
