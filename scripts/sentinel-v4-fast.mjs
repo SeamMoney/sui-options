@@ -258,7 +258,10 @@ async function signAndExecute(tx, label) {
 // stale one. Non-contention errors (e.g. a real abort) fail fast. `buildTx`
 // may be sync or async. Without this, a transient close failure leaks an
 // unclosed ride toward the per-user cap and eventually stalls the chart.
-const RETRYABLE = /needs to be rebuilt|unavailable for consumption|rejected as invalid|equivocat|reserved for another|not available for consumption/i;
+// Include RPC TIMEOUTS: a `withTimeout`-rejected close ("… timed out after …ms")
+// is transient, but if it isn't retried the ride leaks toward the per-user cap
+// and eventually freezes the chart (#705's timeout, but on the CLOSE path).
+const RETRYABLE = /needs to be rebuilt|unavailable for consumption|rejected as invalid|equivocat|reserved for another|not available for consumption|timed out|timeout/i;
 async function execWithRetry(buildTx, label, attempts = 4) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
@@ -331,9 +334,28 @@ const IDLE_POLL_MS = Number(process.env.IDLE_POLL_MS ?? "2000");
 if (CRANKER_MODE === "always") {
   log(`mode: ALWAYS-ACTIVE — sentinel ride keeps chart alive 24/7`);
   let loop = 0;
+  // Rides whose CLOSE failed (after in-tx retries). Retried at the top of every
+  // loop BEFORE opening a new ride, so a transient close failure can't leak them
+  // toward the per-user cap (max_rides_per_user) and permanently freeze the
+  // chart. close settles a ride by its OWN round (incl. an already-expired one),
+  // so the retry drains the leak. Failures stay queued and retry next loop.
+  const pendingCloses = [];
   while (true) {
     loop += 1;
     const tStart = Date.now();
+    if (pendingCloses.length > 0) {
+      const stillStuck = [];
+      for (const rid of pendingCloses) {
+        try {
+          await execWithRetry(() => buildCloseTx(rid), `recover-close`);
+          log(`[${loop}] recovered a leaked ride ${rid.slice(0, 10)}… (drained per-user cap)`);
+        } catch {
+          stillStuck.push(rid);
+        }
+      }
+      pendingCloses.length = 0;
+      pendingCloses.push(...stillStuck);
+    }
     // 1. OPEN
     let openRes;
     try {
@@ -348,7 +370,13 @@ if (CRANKER_MODE === "always") {
       if (/no .*coins owned|InsufficientGas|GasBalanceTooLow|insufficient.*(gas|balance)/i.test(msg)) {
         log(`[${loop}] ⛔ FUNDS-EXHAUSTED — operator wallet out of escrow/gas; the live chart will FREEZE until refilled: ${msg.slice(0, 140)}`);
       } else {
-        log(`[${loop}] open failed: ${msg.slice(0, 100)} — sleep 10s`);
+        // If rides are queued for recovery, surface it: a per-user-cap stall
+        // (EPerUserRideLimit) clears as the loop-top drain closes them — not a
+        // silent freeze.
+        const pend = pendingCloses.length
+          ? ` (${pendingCloses.length} leaked closes queued — draining to clear the per-user cap)`
+          : "";
+        log(`[${loop}] open failed: ${msg.slice(0, 100)}${pend} — sleep 10s`);
       }
       await sleep(10_000);
       continue;
@@ -390,7 +418,10 @@ if (CRANKER_MODE === "always") {
       await execWithRetry(() => buildCloseTx(rideId), `close-${loop}`);
       log(`[${loop}] CLOSE in ${((Date.now() - tStart) / 1000).toFixed(1)}s`);
     } catch (err) {
-      log(`[${loop}] close failed: ${err.message?.slice(0, 100)}`);
+      // Queue the unclosed ride for retry at the next loop top instead of
+      // leaking it toward the per-user cap (which would freeze the chart).
+      log(`[${loop}] close failed: ${err.message?.slice(0, 100)} — queued for retry (${pendingCloses.length + 1} pending)`);
+      if (activeSentinelRideId) pendingCloses.push(activeSentinelRideId);
     }
     activeSentinelRideId = null;
     await sleep(500); // breath between loops
