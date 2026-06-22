@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "prebuild": "npm --prefix ../sdk run build && npm --prefix ../packages/candle-vision run build && npm --prefix ../packages/candle-vision-react run build && npm --prefix ../packages/pro-options run build",
