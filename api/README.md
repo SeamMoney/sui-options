@@ -301,6 +301,15 @@ Content-Type: application/json
 { "commit": "<64-hex SHA-256>", "seed": 1337, "paramsJson": "<exact revealed params>" }
 ```
 
+**Try it live** (a self-checking example — the commit is `sha256("1:test")`):
+
+```bash
+curl -s -X POST https://wick-markets.vercel.app/api/verify-pro \
+  -H 'content-type: application/json' \
+  -d '{"commit":"95800a04e5f0d6e79aac11fd3006d928108bc752f9d2f677a29de47dbefe7e0a","seed":1,"paramsJson":"test"}'
+# → {"matches":true,"verdict":"HONEST …"}   (confirm yourself: printf '1:test' | sha256sum)
+```
+
 Or as a **clickable link** (GET, the same three values URL-encoded — read-only):
 
 ```
