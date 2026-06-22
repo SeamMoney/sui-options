@@ -231,6 +231,22 @@ export function checkPayoutIdentity(
   return errs;
 }
 
+/**
+ * Multiplier provenance. The win payout = stake × the ride's *snapshotted*
+ * multiplier, which Move sets equal to the market's CONFIGURED multiplier at
+ * open (`ride.multiplier_bps = market.multiplier_bps`, immutable). Returns a
+ * violation string if the ride's rate doesn't match the market's configured one
+ * (a quietly-lowered rate), or null if it's the honest configured rate.
+ */
+export function multiplierProvenanceError(
+  rideMultiplierBps: bigint,
+  marketMultiplierBps: bigint,
+): string | null {
+  return rideMultiplierBps === marketMultiplierBps
+    ? null
+    : `ride multiplier ${rideMultiplierBps}bps != market's configured ${marketMultiplierBps}bps`;
+}
+
 export async function readRide(client: GetObject, id: string): Promise<{ ride: Ride; marketId: string }> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
   const content = asObj(asObj(o.data).content);
@@ -452,9 +468,9 @@ async function main(): Promise<boolean> {
   console.log(`segments held:     ${segmentsHeld}  (entry ${ride.entry} → close @ index ${nextAtClose}, round cap ${market.roundDuration})`);
   console.log(`stake/segment:     ${fmt(ride.stakePerSegment)}   escrow cap: ${fmt(ride.escrowed)}`);
   console.log(`stake_paid:        ours ${fmt(stakePaidDerived)}  ·  chain ${fmt(closed.stakePaid)}  ${stakePaidDerived === closed.stakePaid ? "✓ match" : "✗ MISMATCH"}`);
-  const multOk = ride.multiplierBps === market.multiplierBps;
+  const multErr = multiplierProvenanceError(ride.multiplierBps, market.multiplierBps);
   console.log(
-    `multiplier:        ride ${fmt(ride.multiplierBps)} bps  ·  market ${fmt(market.multiplierBps)} bps  ${multOk ? "✓ configured rate" : "✗ MISMATCH"}`,
+    `multiplier:        ride ${fmt(ride.multiplierBps)} bps  ·  market ${fmt(market.multiplierBps)} bps  ${multErr === null ? "✓ configured rate" : "✗ MISMATCH"}`,
   );
   console.log(`payout:            ${fmt(closed.payout)}   forfeit: ${fmt(closed.forfeit)}   bounty: ${fmt(closed.bounty)}`);
 
@@ -462,14 +478,10 @@ async function main(): Promise<boolean> {
   if (stakePaidDerived !== closed.stakePaid) {
     errs.push(`re-derived stake_paid ${stakePaidDerived} != chain ${closed.stakePaid}`);
   }
-  // Multiplier provenance: the win payout = stake × ride.multiplier, so the
-  // ride's snapshotted multiplier must equal the market's CONFIGURED multiplier
-  // (Move sets `ride.multiplier_bps = market.multiplier_bps` at open, and the
-  // market value is immutable). Otherwise the payout could be honest against a
-  // ride whose rate was quietly lowered below what the market advertises.
-  if (!multOk) {
-    errs.push(`ride multiplier ${ride.multiplierBps}bps != market's configured ${market.multiplierBps}bps`);
-  }
+  // Multiplier provenance: the ride's snapshotted multiplier must equal the
+  // market's CONFIGURED (immutable) one, else the payout is honest against a
+  // quietly-lowered rate. (Pure check — unit-tested in verify-payout.test.ts.)
+  if (multErr !== null) errs.push(multErr);
   errs.push(
     ...checkPayoutIdentity(
       closed.settlementKind,

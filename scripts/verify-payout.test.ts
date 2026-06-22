@@ -12,7 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { checkPayoutIdentity, nextSegmentIndexAtClose, queryRideClosed, readRide, readMarket } from "./verify-payout.js";
+import { checkPayoutIdentity, multiplierProvenanceError, nextSegmentIndexAtClose, queryRideClosed, readRide, readMarket } from "./verify-payout.js";
 import {
   isqrtU64,
   bachelierCashoutFactor,
@@ -134,6 +134,16 @@ test("an unknown settlement_kind FAILs closed, even if conservation holds", () =
   const errs = checkPayoutIdentity(5, 150_000n, 150_000n, 0n, MULT);
   assert.ok(errs.length > 0, "unknown kind must produce a violation");
   assert.match(errs.join(" "), /unknown settlement_kind 5/);
+});
+
+test("multiplier provenance: ride rate must equal the market's configured rate", () => {
+  // The configured rate (17500bps = 1.75×) is honest — no violation.
+  assert.equal(multiplierProvenanceError(17_500n, 17_500n), null);
+  // A ride whose multiplier was quietly lowered below the market's is rejected,
+  // even though `payout = stake × ride.multiplier` would self-consistently pass.
+  const err = multiplierProvenanceError(15_000n, 17_500n);
+  assert.ok(err !== null, "a lowered ride multiplier must be flagged");
+  assert.match(err!, /15000bps != market's configured 17500bps/);
 });
 
 
