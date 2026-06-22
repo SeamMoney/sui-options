@@ -46,6 +46,34 @@ assertFixtureDetects('morning-star', 'morning-star');
 assertFixtureDetects('vision-momentum', 'vision-momentum');
 assertFixtureDetects('vision-compression', 'vision-compression');
 
+// Regression for #608 (audit Finding 1): one candle must never carry BOTH a bullish
+// and a bearish single-bar label at once. An uptrend → near-doji bar with a long lower
+// wick scores Hanging Man (bearish) AND Dragonfly/Takuri (bullish) simultaneously;
+// resolveSingleBarDirectionConflicts keeps the dominant direction and drops the opposite,
+// so the Pattern Coach never renders LONG and SHORT on the same candle. Verified to FAIL
+// (both directions present) when that resolver is neutered.
+const uptrendDoji: CandleInput[] = [];
+{
+  let p = 100;
+  for (let i = 0; i < 16; i += 1) {
+    const o = p;
+    const cl = p + 1.2;
+    uptrendDoji.push({ open: o, high: cl + 0.3, low: o - 0.3, close: cl, time: i, volume: 100 });
+    p = cl;
+  }
+  uptrendDoji.push({ open: 128, high: 129, low: 118, close: 128.6, time: 16, volume: 100 });
+}
+const lastBarEvents = detectUnifiedCandlePatterns(uptrendDoji).filter(
+  (event) => event.endIndex === uptrendDoji.length - 1 && event.startIndex === event.endIndex,
+);
+const lastBarDirs = new Set(lastBarEvents.map((event) => event.direction));
+assert.ok(
+  !(lastBarDirs.has('bullish') && lastBarDirs.has('bearish')),
+  `one candle must not carry both bullish and bearish single-bar labels (contradiction-resolution #608); got: ${lastBarEvents
+    .map((event) => `${event.label}(${event.direction})`)
+    .join(', ')}`,
+);
+
 const candles = baseCandles(120);
 const showcaseEvents = createPatternShowcaseEvents(candles);
 assert.equal(showcaseEvents.length, CANDLE_VISION_PATTERN_CATALOG.length, 'showcase should expose every catalog entry');
