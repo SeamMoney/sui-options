@@ -28,6 +28,18 @@ const TUSD_TREASURY_CAP =
 const MIST_PER_SUI = 1_000_000_000n;
 const DRIP_MIST = 2n * MIST_PER_SUI; // /api/faucet drips 2 SUI/request
 const DEFAULT_MIN_SUI = 20; // ~10 drips of headroom before we alert
+const RPC_TIMEOUT_MS = 20_000;
+
+// Per-call RPC timeout so a stuck endpoint can't hang the probe (and, via
+// check:all, the whole demo-health gate) indefinitely — matches the fleet's
+// resilience pattern (verify-barriers #434, check:rugs #437, verify-randomness #441).
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 function argVal(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -61,7 +73,7 @@ async function firstWorkingClient(rpcOverride?: string): Promise<SuiJsonRpcClien
   for (const url of urls) {
     try {
       const c = new SuiJsonRpcClient({ url, network: "testnet" });
-      await c.getLatestSuiSystemState?.().catch(() => undefined);
+      await withTimeout(Promise.resolve(c.getLatestSuiSystemState?.()), RPC_TIMEOUT_MS).catch(() => undefined);
       return c;
     } catch (e) {
       lastErr = e;
@@ -75,14 +87,14 @@ async function main(): Promise<void> {
   const minSuiMist = BigInt(Math.round(minSui)) * MIST_PER_SUI;
 
   const client = await firstWorkingClient(argVal("--rpc"));
-  const cap = asObj(await client.getObject({ id: TUSD_TREASURY_CAP, options: { showOwner: true } }));
+  const cap = asObj(await withTimeout(client.getObject({ id: TUSD_TREASURY_CAP, options: { showOwner: true } }), RPC_TIMEOUT_MS));
   const owner = asObj(asObj(cap.data).owner).AddressOwner;
   if (typeof owner !== "string") {
     console.error("✗ faucet-runway: could not resolve the faucet wallet (TUSD cap owner).");
     process.exitCode = 1;
     return;
   }
-  const bal = asObj(await client.getBalance({ owner, coinType: "0x2::sui::SUI" }));
+  const bal = asObj(await withTimeout(client.getBalance({ owner, coinType: "0x2::sui::SUI" }), RPC_TIMEOUT_MS));
   const balanceMist = BigInt(String(bal.totalBalance ?? "0"));
   const sui = Number(balanceMist) / Number(MIST_PER_SUI);
 
