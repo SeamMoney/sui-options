@@ -128,7 +128,7 @@ export interface MarketInfo {
   rugChanceBps: bigint;
 }
 
-async function readMarket(client: ResilientClient, marketId: string): Promise<MarketInfo> {
+export async function readMarket(client: ResilientClient, marketId: string): Promise<MarketInfo> {
   const o = asObject(await client.getObject({ id: marketId, options: { showContent: true, showType: true } }));
   const content = asObject(asObject(o.data).content);
   const type = asString(content.type);
@@ -195,7 +195,7 @@ export async function firstQualifyingSegment(
 }
 
 /** Read one segment's 32-byte key from the market's Table<u64, SegmentRecord>. */
-async function readSegmentKey(
+export async function readSegmentKey(
   client: ResilientClient,
   tableId: string,
   k: bigint,
