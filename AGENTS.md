@@ -160,6 +160,8 @@ npm test               # == test:offline (test:live is a no-op placeholder)
 
 `test:offline` is the cold gate: it never touches the network (the chart/faucet/audit tests use fixtures, not the live demo), so a red result is a real code regression, not a flaky market. `test:live` is currently a no-op — live verification against the running testnet demo lives in the `check:*` / `e2e:*` / `prove:live` / `verify:fairness:live` targets, so run **`npm run prove:live`** (or `check:all`) when the demo is up to confirm the chart is alive, the faucet has runway, and the on-chain randomness → markets → audit → solvency chain still passes.
 
+One more CI-down gap: changes to **sdk / pro-options / candle-vision** source need `npm run check:dist`. The frontend and `/pro` resolve those packages through each one's **committed `dist/`** (file: deps, not src), so editing their `src/` without rebuilding + committing `dist/` silently ships stale code to the live demo. CI runs `check:dist` (rebuild all four packages, diff against the committed dist) but it's down — so after any edit under those `src/` trees, run `npm run check:dist` and commit the rebuilt `dist/` before merging. (It's deterministic + offline; it's just slow, which is why it's not folded into `test:offline`.)
+
 ## Sibling workspaces — do not bleed into them
 
 - `/Users/maxmohammadi/aptos-prop-amm` — separate Aptos research workspace (Decibel, D, Aptos AMM patterns)
