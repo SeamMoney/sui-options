@@ -754,7 +754,7 @@ async function verify(args: Args): Promise<boolean> {
 
   console.log(`network:  ${synthetic ? "synthetic (offline)" : args.rpc}`);
   console.log(`market:   ${marketId}${synthetic ? "" : `  ↗ ${suiscan("object", marketId)}`}`);
-  console.log(`package:  ${market.packageId}`);
+  console.log(`package:  ${market.packageId}${synthetic ? "" : `  ↗ ${suiscan("object", market.packageId)}`}`);
   console.log(
     `segments: ${market.nextSegmentIndex} recorded · deadband ${market.deadbandBps}bps · round ${market.roundDurationSegments} seg`,
   );
