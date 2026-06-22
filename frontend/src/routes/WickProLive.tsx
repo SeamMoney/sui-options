@@ -70,11 +70,16 @@ interface MarkPoint {
 
 function fmtSignedUsd(n: number, dp = 2): string {
   const s = Math.abs(n).toFixed(dp);
-  return `${n < 0 ? "−" : "+"}$${s}`;
+  // Decide the sign AFTER rounding: a value that rounds to zero (e.g. -0.004 ->
+  // "0.00") must not render "−$0.00", and -0 must not render "+$0.00" oddly.
+  const neg = n < 0 && parseFloat(s) !== 0;
+  return `${neg ? "−" : "+"}$${s}`;
 }
 function fmtPct(frac: number): string {
   const pct = frac * 100;
-  return `${pct < 0 ? "−" : "+"}${Math.abs(pct).toFixed(1)}%`;
+  const s = Math.abs(pct).toFixed(1);
+  const neg = pct < 0 && parseFloat(s) !== 0;
+  return `${neg ? "−" : "+"}${s}%`;
 }
 function fmtPrice(n: number): string {
   if (n >= 100) return n.toFixed(2);
