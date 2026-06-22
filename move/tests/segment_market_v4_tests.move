@@ -44,6 +44,7 @@ module wick::segment_market_v4_tests;
 
 use sui::clock::{Self as clock, Clock};
 use sui::coin::{Self, Coin};
+use sui::object;
 use sui::sui::SUI;
 use sui::test_scenario as ts;
 use sui::test_utils;
@@ -1521,6 +1522,33 @@ fun open_segment_ride_v4_rejects_stake_above_max() {
     let escrow = mint_sui(bad_stake * ROUND_DURATION, &mut sc);
     let ride = sm4::open_segment_ride_v4<SUI>(
         &mut market, &mut vault, &bots, bad_stake, escrow, &clk, sc.ctx(),
+    );
+
+    sm4::test_only_destroy_ride(ride); // unreachable
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+// Safety: no new ride can open on a market the vault has marked ABORTED — an
+// aborted market only refunds existing positions 1:1, it never takes new bets.
+// All input checks pass; the EMarketAborted (=3) guard is the gate.
+#[test]
+#[expected_failure(abort_code = 3, location = wick::segment_market_v4)]
+fun open_segment_ride_v4_rejects_aborted_market() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    // Mark THIS market aborted in the vault.
+    mv::test_mark_market_aborted<SUI>(&mut vault, object::id(&market));
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
     );
 
     sm4::test_only_destroy_ride(ride); // unreachable
