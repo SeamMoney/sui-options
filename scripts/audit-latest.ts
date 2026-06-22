@@ -56,8 +56,50 @@ function asStr(v: unknown): string {
   return typeof v === "string" ? v : String(v);
 }
 
+const RPC_TIMEOUT_MS = 20_000;
+
+interface ListRpc {
+  getObject(a: { id: string; options?: { showType?: boolean; showContent?: boolean } }): Promise<unknown>;
+  queryEvents(a: unknown): Promise<unknown>;
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
+/** getObject/queryEvents across endpoints, falling back on a thrown error or a
+ *  per-call timeout — so the judge-facing audit:latest survives a node hiccup
+ *  while it finds the ride (the audit itself delegates to the resilient
+ *  audit-ride). The old best-effort liveness ping always returned the first
+ *  endpoint and never actually fell back. */
+function makeResilientClient(urls: string[]): ListRpc {
+  const seen = new Set<string>();
+  const clients = urls
+    .filter((u) => u && !seen.has(u) && seen.add(u))
+    .map((url) => new SuiJsonRpcClient({ url, network: "testnet" }));
+  async function tryAll<T>(fn: (c: SuiJsonRpcClient) => Promise<T>): Promise<T> {
+    let last: unknown;
+    for (const c of clients) {
+      try {
+        return await withTimeout(fn(c), RPC_TIMEOUT_MS);
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last instanceof Error ? last : new Error(String(last));
+  }
+  return {
+    getObject: (a) => tryAll((c) => c.getObject(a as never)),
+    queryEvents: (a) => tryAll((c) => c.queryEvents(a as never)),
+  };
+}
+
 /** The market object's type-origin package (RideClosedV4 is tagged with it). */
-async function typePackage(client: SuiJsonRpcClient, marketId: string): Promise<string> {
+async function typePackage(client: ListRpc, marketId: string): Promise<string> {
   const o = asObj(await client.getObject({ id: marketId, options: { showType: true } }));
   const type = asStr(asObj(o.data).type);
   const marker = "::segment_market_v4::SegmentMarketV4<";
@@ -66,27 +108,12 @@ async function typePackage(client: SuiJsonRpcClient, marketId: string): Promise<
   return type.slice(0, i);
 }
 
-async function firstWorkingClient(rpcOverride?: string): Promise<SuiJsonRpcClient> {
-  const urls = [rpcOverride, ...FALLBACK_RPCS].filter(Boolean) as string[];
-  let lastErr: unknown;
-  for (const url of urls) {
-    try {
-      const c = new SuiJsonRpcClient({ url, network: "testnet" });
-      await c.getLatestSuiSystemState?.().catch(() => undefined); // cheap liveness ping (best-effort)
-      return c;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("no usable RPC");
-}
-
 async function main(): Promise<void> {
   const rpc = argVal("--rpc");
   const market = argVal("--market") ?? ruggedMarketFromDeployment();
   if (!market) throw new Error("no --market and no market in deployments/testnet.json");
 
-  const client = await firstWorkingClient(rpc);
+  const client = makeResilientClient([rpc ?? "", ...FALLBACK_RPCS]);
   const pkg = await typePackage(client, market);
 
   // Newest RideClosedV4 for this market (scan a few pages; events are tagged
