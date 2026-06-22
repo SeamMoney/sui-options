@@ -89,6 +89,17 @@ try {
   const btc = num((body2.match(/(\d{4,6}(\.\d+)?)/) || [])[1] ?? "");
   check("BTC mark re-priced (≫ SUI range)", Number.isFinite(btc) && btc > 1000, `btc≈${btc}`);
 
+  // ── asset switch re-marks to DEEP (DeepBook's own token) ────────────────────
+  await page.getByRole("button", { name: "DEEP" }).click().catch(() => {});
+  await page.waitForTimeout(4500);
+  await shot("coach-03-deep.png");
+  const body3 = await page.locator("body").innerText();
+  check(
+    "DEEP desk re-marks to DEEP/USDC pool (live)",
+    /DEEP\/USDC/i.test(body3) && /DEEPBOOK/i.test(body3),
+    /DEEP\/USDC/i.test(body3) ? "DEEP/USDC live" : "no DEEP/USDC label",
+  );
+
   check("no uncaught page/console errors", errors.length === 0, errors.slice(0, 2).join(" || "));
 } catch (e) {
   check("flow completed without throwing", false, String(e).slice(0, 160));
