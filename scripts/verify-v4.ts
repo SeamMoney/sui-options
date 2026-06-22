@@ -716,7 +716,9 @@ async function verify(args: Args): Promise<boolean> {
           ? "tamper"
           : args.rpc.includes("gap")
             ? "gap"
-            : "honest";
+            : args.rpc.includes("touch")
+              ? "touch"
+              : "honest";
   const client: RpcClient = synthetic
     ? buildSyntheticClient(synthMode)
     : makeResilientClient([args.rpc, ...FALLBACK_RPCS]);
@@ -985,7 +987,7 @@ async function verify(args: Args): Promise<boolean> {
 // a later-round touch won it — state the verifier can't reconstruct). The
 // in-round derivation is CASHOUT, so the verdict mismatches; the verifier must
 // PASS with "not independently checkable", NOT cry "chain lied".
-type SynthMode = "honest" | "tamper" | "rug" | "crossloss" | "crosswin" | "gap";
+type SynthMode = "honest" | "tamper" | "rug" | "crossloss" | "crosswin" | "gap" | "touch";
 
 const SYNTH_MARKET = "0x" + "5e6".padEnd(64, "0");
 const SYNTH_RIDE = "0x" + "47de".padEnd(64, "0");
@@ -1010,6 +1012,7 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
   const crossloss = mode === "crossloss";
   const crosswin = mode === "crosswin";
   const gap = mode === "gap"; // drop segment 5 (a hole below the recorded head)
+  const touch = mode === "touch"; // upper barrier inside the up-excursion → TOUCH_WIN
   // Deterministic keys: byte i of segment k = (k*7 + i*3 + 11) mod 251.
   const segs: SynthSeg[] = [];
   let state = newState(SYNTH_HOME, DEFAULT_VOL_REGIME_INIT, SYNTH_HOME);
@@ -1036,6 +1039,12 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
   // so the honest verdict is CASHOUT.
   const upper = SYNTH_HOME + (SYNTH_HOME * SYNTH_BARRIER_OFFSET_BPS) / 10_000n;
   const lower = SYNTH_HOME - (SYNTH_HOME * SYNTH_BARRIER_OFFSET_BPS) / 10_000n;
+  // Touch mode: place the upper barrier halfway between home and the walk's
+  // in-window high (≈1.030×home with this seed), so the price wicks UP through
+  // it (even after the +deadband) and the honest verdict is TOUCH_WIN. The
+  // lower barrier stays at −10% (untouched). Locks the jackpot-verdict path.
+  const winMax = [segs[2]!, segs[3]!, segs[4]!].reduce((a, s) => (s.max > a ? s.max : a), 0n);
+  const touchUpper = SYNTH_HOME + (winMax - SYNTH_HOME) / 2n;
   const rideClosedAt = segs[4]!.recordedAtMs;
 
   function walkStateJson(w: WalkState): Record<string, unknown> {
@@ -1086,14 +1095,14 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
                 // chain then settles EXPIRED_LOSS. Honest/tamper: enter at 2.
                 entry_segment_index: rug ? "0" : "2",
                 round_index: "0",
-                upper_barrier_price: upper.toString(),
+                upper_barrier_price: (touch ? touchUpper : upper).toString(),
                 lower_barrier_price: lower.toString(),
                 closed: true,
                 closed_at_ms: rideClosedAt.toString(),
                 settlement_kind: String(
                   rug || crossloss
                     ? SETTLEMENT_EXPIRED_LOSS
-                    : crosswin
+                    : crosswin || touch
                       ? SETTLEMENT_TOUCH_WIN
                       : SETTLEMENT_CASHOUT,
                 ),

@@ -96,6 +96,20 @@ test("cross-round TOUCH_WIN (later-round touch) PASSes with caveat, not 'chain l
   assert.equal(code, 0, "a cross-round TOUCH_WIN must PASS (exit 0)");
 });
 
+test("in-round TOUCH_WIN: verify-v4 DERIVES the jackpot verdict from the candles (verdict: match)", () => {
+  // Upper barrier inside the walk's up-excursion → the price wicks through it
+  // in-window, so verify-v4 must independently derive TOUCH_WIN and confirm it
+  // equals the chain's settlement. (Unlike crosswin, this is checkable, not
+  // softened — it locks the jackpot verdict path, the highest-stakes settlement.)
+  const { code, out } = run("mock://touch-v4");
+  assert.match(out, /extrema replay:\s+match \(every segment\)/);
+  assert.match(out, /off-chain verdict:\s+TOUCH_WIN/);
+  assert.match(out, /on-chain verdict:\s+TOUCH_WIN/);
+  assert.match(out, /verdict:\s+match/);
+  assert.match(out, /PASS — the chain was honest/);
+  assert.equal(code, 0, "an honest in-round touch-win must PASS (exit 0)");
+});
+
 test("a suppressed segment (gap below the head) FAILs closed, not silent-truncated", () => {
   // The market reports next_segment_index=8 but segment 5 is missing — a hole the
   // honest chain (contiguous record_segment_v4 indices) can't produce. The
