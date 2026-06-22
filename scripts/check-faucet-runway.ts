@@ -27,7 +27,9 @@ const TUSD_TREASURY_CAP =
   "0x7db5b3edead4f503ce8ef19ace6eca26e961edd08871042ad5de6f870a369b11";
 const MIST_PER_SUI = 1_000_000_000n;
 const DRIP_MIST = 2n * MIST_PER_SUI; // /api/faucet drips 2 SUI/request
-const DEFAULT_MIN_SUI = 20; // ~10 drips of headroom before we alert
+const DEFAULT_MIN_SUI = 40; // ~20 drips of headroom — matches the demo-ready
+                            // floor in scripts/verify-deployment.py (#536) so the
+                            // two faucet-runway checks agree on "is the faucet healthy"
 const RPC_TIMEOUT_MS = 20_000;
 
 // Per-call RPC timeout so a stuck endpoint can't hang the probe (and, via
