@@ -1,7 +1,7 @@
 {
   "name": "@wick/api",
   "version": "0.1.0",
-  "description": "HTTP API for Wick Markets \u2014 read-only endpoints over the on-chain protocol.",
+  "description": "HTTP API for Wick Markets — read-only endpoints over the on-chain protocol.",
   "type": "module",
   "private": true,
   "scripts": {
@@ -22,5 +22,6 @@
     "@types/node": "^22.13.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
-  }
+  },
+  "license": "MIT"
 }
