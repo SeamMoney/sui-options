@@ -126,6 +126,16 @@ export async function fetchDeepBookMark(
   }
   const bid = Number(bids[0]![0]);
   const ask = Number(asks[0]![0]);
+  // Guard non-finite / non-positive top-of-book (matches the filtering in
+  // fetchDeepBookDepth/Trades). Without this, a malformed/null price string from
+  // the indexer yields mid=NaN, which propagates to a literal "$NaN" header + bet
+  // buttons + "+$NaN" P&L on /pro — and the cold-start fallback never fires (it
+  // checks `=== null`, and NaN !== null). Throwing flips the hook to stale/cold-start.
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) {
+    throw new Error(
+      `deepbook ${pool}: malformed top-of-book price (bid=${bids[0]![0]}, ask=${asks[0]![0]})`,
+    );
+  }
   const mid = (bid + ask) / 2;
   const spreadBps = mid > 0 ? ((ask - bid) / mid) * 10_000 : 0;
   const tsMs = Number(data.timestamp) || Date.now();
