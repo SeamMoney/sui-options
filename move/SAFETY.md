@@ -6,7 +6,7 @@ ones that protect funds. This file maps each safety property (the list in
 "The collateral invariant") to the named test(s) that prove it, so an auditor or
 judge can run a specific test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **592/592 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **593/593 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
@@ -62,6 +62,7 @@ state transition. Bugs here are direct loss of funds.
 |---|---|---|
 | Open after the round boundary aborts cleanly (no torn state) | `open_window_race_after_boundary_aborts_cleanly` | `segment_market_adversarial.move` |
 | Concurrent-ride cap holds at the max | `concurrent_open_cap_holds_at_max_concurrent_rides` | `segment_market_adversarial.move` |
+| Per-user ride cap bounds one account's exposure | `open_segment_ride_v4_enforces_per_user_cap` | `segment_market_v4_tests.move` |
 | One barrier's cap exhaustion leaves the other open | `per_barrier_cap_exhaustion_keeps_other_barrier_open` | `segment_market_adversarial.move` |
 | A ride spanning a round boundary is settled by a permissionless backup crank | `ride_spans_round_boundary_and_permissionless_backup_crank_settles` | `segment_market_adversarial.move` |
 

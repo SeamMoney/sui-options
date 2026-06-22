@@ -1440,3 +1440,48 @@ fun rug_fires_at_expected_rate() {
     teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
     sc.end();
 }
+
+// Safety: one user can't exceed the per-user concurrent-ride cap
+// (max_rides_per_user). This bounds a single account's exposure on a market;
+// the (max_rides_per_user)+1-th open aborts EPerUserRideLimit (=10). (The
+// market-wide concurrent cap is covered in segment_market_adversarial.move.)
+#[test]
+#[expected_failure(abort_code = 10, location = wick::segment_market_v4)]
+fun open_segment_ride_v4_enforces_per_user_cap() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let seed = mint_sui(100_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    let stake = 1_000u64;
+    let escrow_amt = stake * ROUND_DURATION;
+
+    // MAX_PER_USER opens by the same sender all succeed.
+    let mut rides = vector::empty<sm4::SegmentRidePositionV4>();
+    let mut i = 0;
+    while (i < MAX_PER_USER) {
+        let e = mint_sui(escrow_amt, &mut sc);
+        let r = sm4::open_segment_ride_v4<SUI>(
+            &mut market, &mut vault, &bots, stake, e, &clk, sc.ctx(),
+        );
+        vector::push_back(&mut rides, r);
+        i = i + 1;
+    };
+
+    // One more by the same user exceeds the cap → EPerUserRideLimit (=10).
+    let e_over = mint_sui(escrow_amt, &mut sc);
+    let r_over = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, e_over, &clk, sc.ctx(),
+    );
+
+    // Unreachable below (kept for compilation).
+    vector::push_back(&mut rides, r_over);
+    while (!vector::is_empty(&rides)) {
+        sm4::test_only_destroy_ride(vector::pop_back(&mut rides));
+    };
+    vector::destroy_empty(rides);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
