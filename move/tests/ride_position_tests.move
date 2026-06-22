@@ -365,6 +365,38 @@ fun crank_expired_ride_pays_user_and_bounty() {
     sc.end();
 }
 
+// Safety: a still-live ride can't be force-settled as a loss — cranking before
+// expiry is rejected → ENotExpired. Otherwise a keeper could rob a rider of the
+// rest of their window (and a possible touch). v4 has the analogous guard.
+#[test]
+#[expected_failure(abort_code = rp::ENotExpired)]
+fun crank_expired_ride_before_expiry_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut vault, vcap, mut caps, rcap, bots, bcap,
+         upo_obj, pcap, mut wts, wcap, mut pool, scap, clk) = mk_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow(&mut vault, seed);
+
+    let escrow = mint_sui(100_000, &mut sc);
+    let mut ride = rp::open_ride<SUI>(
+        &mut caps, &path, &mut vault, &bots,
+        1_000_000, escrow, &clk, sc.ctx(),
+    );
+
+    // Clock NOT advanced past expiry — cranking the still-live ride must abort.
+    sc.next_tx(KEEPER);
+    let bounty = rp::crank_expired_ride<SUI>(
+        &mut ride, &mut caps, &path, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(bounty); // unreachable
+    test_utils::destroy(ride);
+    teardown_world(oracle, rw, path, vault, vcap, caps, rcap, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 #[test]
 #[expected_failure(abort_code = rp::ETouchedMustSelfClose)]
 fun crank_when_touched_aborts() {
