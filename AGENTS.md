@@ -50,13 +50,13 @@ If a task seems to require any of the above, stop and ask.
 
 ## The collateral invariant — load-bearing
 
-After every state transition in `move/`:
+User collateral is escrowed in the `MartingalerVault`. After every state transition in `move/`, the vault conserves every unit — nothing minted, nothing lost:
 
 ```
-collateral_vault == total_touch_supply == total_no_touch_supply
+cumulative_in − cumulative_out == held      (held = treasury + side_bucket + Σ per-market locks)
 ```
 
-Any function that mutates supplies or the vault must preserve this. The conservation test (`conservation_in_minus_out_equals_held` in `move/tests/martingaler_vault_tests.move`) and the rest of the `sui move test` suite must pass before any commit. Bugs here are direct loss-of-funds. See [`move/SAFETY.md`](move/SAFETY.md) for the full map of every safety property to the named test that proves it.
+Any function that mutates the vault or a market's stakes/exposure must preserve this. (The older `collateral_vault == total_touch_supply == total_no_touch_supply` phrasing is from the **retired v1 complete-set model**; in v2 a depositor stakes into ONE side via `deposit_open`, so `touch_stakes`/`no_touch_stakes` are independent accumulators — a touch-only market simply has `no_touch_stakes == 0` — and that cross-side equality is **not** the v2 invariant.) The conservation test (`conservation_in_minus_out_equals_held` in `move/tests/martingaler_vault_tests.move`) and the rest of the `sui move test` suite must pass before any commit. Bugs here are direct loss-of-funds. See [`move/SAFETY.md`](move/SAFETY.md) for the full map of every safety property to the named test that proves it.
 
 ## Safety properties the Move package must enforce
 
