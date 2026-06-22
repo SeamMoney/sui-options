@@ -13,9 +13,12 @@ exotics, and the **ride** streaming-touch primitive — all collateralised by th
 - **Entry facade:** [`sources/wick.move`](sources/wick.move).
 
 The package is `wick` (26 modules under `sources/`). The **collateral
-invariant** — `collateral_vault == total_touch_supply == total_no_touch_supply`
-after every transition — is load-bearing and asserted across the vault/market
-test suites ([`tests/martingaler_vault_tests.move`](tests/martingaler_vault_tests.move),
+invariant** — the `MartingalerVault` conserves every unit
+(`cumulative_in − cumulative_out == held`) after every transition (the older
+`collateral_vault == total_touch_supply == total_no_touch_supply` phrasing is a
+retired-v1 artifact — see [`SAFETY.md`](SAFETY.md)) — is load-bearing and
+asserted across the vault/market test suites
+([`tests/martingaler_vault_tests.move`](tests/martingaler_vault_tests.move),
 [`tests/market_tests.move`](tests/market_tests.move),
 [`tests/segment_market_v4_tests.move`](tests/segment_market_v4_tests.move)).
 
