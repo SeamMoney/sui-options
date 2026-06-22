@@ -219,6 +219,46 @@ fun close_ride_without_touch_returns_cashout() {
     sc.end();
 }
 
+// Safety: a v2 ride settles ONCE — a second close on an already-closed ride is
+// rejected → EAlreadyClosed (no double-pay; close_ride mutates ride.closed).
+#[test]
+#[expected_failure(abort_code = rp::EAlreadyClosed)]
+fun close_ride_twice_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (mut oracle, rw, path, mut vault, vcap, mut caps, rcap, bots, bcap,
+         upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) = mk_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow(&mut vault, seed);
+    push_obs(&mut oracle, 104_500_000_000, 1_000);
+
+    let escrow = mint_sui(100_000, &mut sc);
+    let mut ride = rp::open_ride<SUI>(
+        &mut caps, &path, &mut vault, &bots,
+        1_000_000, escrow, &clk, sc.ctx(),
+    );
+
+    clk.increment_for_testing(10_000);
+    push_obs(&mut oracle, 104_500_000_000, 11_000);
+
+    // First close settles the ride.
+    let payout1 = rp::close_ride<SUI>(
+        &mut ride, &mut caps, &path, &oracle, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+    // Second close on the now-closed ride must abort.
+    let payout2 = rp::close_ride<SUI>(
+        &mut ride, &mut caps, &path, &oracle, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(payout1); // unreachable
+    test_utils::destroy(payout2);
+    test_utils::destroy(ride);
+    teardown_world(oracle, rw, path, vault, vcap, caps, rcap, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 #[test]
 fun close_ride_with_touch_pays_multiplier() {
     let mut sc = ts::begin(ALICE);
