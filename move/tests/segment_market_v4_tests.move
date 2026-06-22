@@ -832,6 +832,35 @@ fun abort_segment_ride_v4_past_deadline_refunds_one_to_one() {
     sc.end();
 }
 
+// Safety: a ride canNOT be abort-refunded BEFORE the abort deadline
+// (ENotPastAbortDeadline=16). The happy path above refunds 1:1 only once the
+// ride is genuinely stuck past the deadline; without this guard a player could
+// bail out 1:1 on a ride that's about to lose and make the vault eat it. Mirror
+// of that test with NO clock advance — the abort must reject.
+#[test]
+#[expected_failure(abort_code = 16, location = wick::segment_market_v4)]
+fun abort_segment_ride_v4_before_deadline_rejected() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+
+    let stake = 1_000u64;
+    let escrow = mint_sui(stake * ROUND_DURATION, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    // No clock advance → still well before the abort deadline → must reject.
+    let refund = sm4::abort_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(refund); // unreachable
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Safety: a ride settled via crank_expired cannot be re-settled (the same
 /// no-double-pay guard as close, on the permissionless-crank path).
 #[test]
