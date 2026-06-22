@@ -255,12 +255,19 @@ async function readRugConfig(
   // Dynamic-field object: the RugConfig struct lives at content.fields.value.fields.
   const cf = obj(obj(obj(obj(obj(d.data).content).fields).value).fields);
   if (cf.rug_chance_bps == null) return null;
-  // rugged_at_segment is an Option<u64>: { fields: { vec: [..] } } | { vec: [..] }.
-  const ro = cf.rugged_at_segment as Record<string, unknown> | null | undefined;
+  // rugged_at_segment is an Option<u64>. The RPC renders Some(x) as a BARE
+  // value (string/number) — and, on some shapes, as { fields: { vec: [x] } }.
+  // None is null/absent. Handle every form (the bare-string case is the live one).
+  const ro = cf.rugged_at_segment as unknown;
   let ruggedAt: bigint | null = null;
   if (ro != null) {
-    const vec = (obj(ro.fields).vec ?? (ro as Record<string, unknown>).vec) as unknown[] | undefined;
-    if (Array.isArray(vec) && vec.length > 0) ruggedAt = big(vec[0]);
+    if (typeof ro === "string" || typeof ro === "number" || typeof ro === "bigint") {
+      ruggedAt = big(ro);
+    } else {
+      const vec = (obj((ro as Record<string, unknown>).fields).vec ??
+        (ro as Record<string, unknown>).vec) as unknown[] | undefined;
+      if (Array.isArray(vec) && vec.length > 0) ruggedAt = big(vec[0]);
+    }
   }
   return { rugChanceBps: big(cf.rug_chance_bps), ruggedAt };
 }
@@ -280,20 +287,31 @@ export async function verifyRoundRug(rpcUrl: string, marketId: string): Promise<
   const tableId = String(obj(obj(obj(f.segments).fields).id).id);
   const dur = big(f.round_duration_segments);
   const next = big(f.next_segment_index);
-  const round = big(f.cached_round_index);
 
   const cfg = await readRugConfig(client, marketId);
   if (!cfg || cfg.rugChanceBps === 0n) {
     return {
-      enabled: false, rugChanceBps: 0n, roundIndex: round, chainRuggedAt: null,
+      enabled: false, rugChanceBps: 0n, roundIndex: 0n, chainRuggedAt: null,
       computedFirstFire: null, fireRoll: null, segmentsScanned: 0, honest: true,
     };
   }
 
-  // Scan the current round's recorded segments [start, next) for the first fire.
-  const start = dur > 0n ? round * dur : 0n;
+  // Anchor the round to the data we're verifying — the segment the chain says
+  // it halted at if there's a claimed halt, else the latest recorded segment —
+  // NOT the market's `cached_round_index`, which lags/races the live segment
+  // stream (the round can roll between our non-atomic reads). round = anchor /
+  // round_duration is the exact Move formula (`current_round = next_idx / dur`),
+  // so the roll's round_index matches what the chain used at record time.
+  const anchor = cfg.ruggedAt ?? (next > 0n ? next - 1n : 0n);
+  const round = dur > 0n ? anchor / dur : 0n;
+  const start = round * dur;
+  // If the chain claims a halt at s, we only need [start, s] to confirm s is the
+  // FIRST fire of its round (an earlier suppressed fire still surfaces; a faked
+  // halt where s didn't fire still fails). With no claimed halt, scan every
+  // recorded segment of the round to prove none fired.
+  const scanEnd = cfg.ruggedAt !== null ? cfg.ruggedAt + 1n : next;
   const ks: bigint[] = [];
-  for (let k = start; k < next; k++) ks.push(k);
+  for (let k = start; k < scanEnd; k++) ks.push(k);
   const recs = await Promise.all(ks.map((k) => readRecord(client, tableId, k)));
   let firstFire: bigint | null = null;
   let fireRoll: bigint | null = null;
