@@ -83,6 +83,33 @@ try {
   const canvases = await page.locator("canvas").count();
   check("chart canvas present", canvases > 0, `${canvases} canvas`);
 
+  // ...but "present" isn't "drawn". The #308 bug rendered the canvas while the
+  // chart got ZERO on-chain candles (v4 events were keyed on the wrong package),
+  // so the canvas existed but was blank. Sample its pixels: a real seeded chart
+  // paints many colours; an empty/white-screen canvas has ~1. Give the p5 chart
+  // a moment longer to seed from the market's recorded segments first.
+  await page.waitForTimeout(3500);
+  const drawn = await page.evaluate(() => {
+    const c = document.querySelector("canvas");
+    if (!c || !c.width || !c.height) return { ok: false, reason: "no sized canvas" };
+    const ctx = c.getContext("2d");
+    if (!ctx) return { ok: true, reason: "non-2d canvas (assume drawn)", colours: -1 };
+    try {
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      const colours = new Set();
+      for (let i = 0; i < d.length; i += 400) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
+      return { ok: colours.size > 3, colours: colours.size };
+    } catch (e) {
+      // A cross-origin-tainted canvas can't be read — treat as drawn, not a fail.
+      return { ok: true, reason: "tainted (assume drawn)", colours: -1 };
+    }
+  });
+  check(
+    "chart is actually drawn (not a blank/zero-candle canvas)",
+    drawn.ok,
+    drawn.colours >= 0 ? `${drawn.colours} distinct colours` : drawn.reason,
+  );
+
   check("no uncaught page/console errors", errors.length === 0, `${errors.length} errors`);
   errors.slice(0, 5).forEach((e) => console.log(`      · ${e}`));
 
