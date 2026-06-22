@@ -366,6 +366,22 @@ fun two_sided_market_clears_correctly() {
     assert!(alice_payout.value() > STAKE, 0);   // touch wins, profit > 0
     assert!(bob_payout.value() == 0, 1);
 
+    // Vault-level conservation through a full two-sided touch-market settlement
+    // (deposits → fee routing → leveraged winner payout). Every bucket still
+    // sums to exactly cumulative_in − cumulative_out, so the payout + fees
+    // neither minted nor leaked collateral. Mirrors the DNT-exotic guards;
+    // completes conservation coverage across all OPTIONS settlement shapes.
+    let mkt_id = object::id(&mkt);
+    let held = mv::treasury_value(&vault)
+        + mv::side_bucket_value(&vault)
+        + mv::protocol_fees_value(&vault)
+        + mv::staker_fees_value(&vault)
+        + mv::insurance_fees_value(&vault)
+        + mv::queue_total(&vault)
+        + mv::lock_value(&vault, mkt_id)
+        + mv::abort_pool_value(&vault, mkt_id);
+    assert!(mv::cumulative_in(&vault) - mv::cumulative_out(&vault) == (held as u128), 2);
+
     test_utils::destroy(alice_payout); test_utils::destroy(bob_payout);
     let _ = BOB;
     test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
