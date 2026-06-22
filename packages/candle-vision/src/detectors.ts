@@ -741,6 +741,34 @@ function shiftAggregatedEvent(event: CandlePatternEvent, offset: number, allCand
   };
 }
 
+// A single candle can fire opposite-direction single-bar patterns at once — e.g. a
+// near-doji bar in an uptrend scores both Hanging Man (bearish) and Dragonfly Doji
+// (bullish), so the Pattern Coach would tag the SAME candle LONG and SHORT. Keep the
+// dominant direction (the highest-confidence directional event on that candle) and
+// drop the opposite-direction single-bar events. Same-direction and neutral events are
+// untouched (a real downtrend hammer keeps its Hammer + Dragonfly, both bullish).
+function resolveSingleBarDirectionConflicts(events: CandlePatternEvent[]): CandlePatternEvent[] {
+  const byCandle = new Map<number, CandlePatternEvent[]>();
+  for (const event of events) {
+    if (event.startIndex !== event.endIndex) continue; // single-bar patterns only
+    const list = byCandle.get(event.endIndex) ?? [];
+    list.push(event);
+    byCandle.set(event.endIndex, list);
+  }
+  const dropped = new Set<string>();
+  for (const list of byCandle.values()) {
+    const directional = list.filter((e) => e.direction === 'bullish' || e.direction === 'bearish');
+    const hasBull = directional.some((e) => e.direction === 'bullish');
+    const hasBear = directional.some((e) => e.direction === 'bearish');
+    if (!hasBull || !hasBear) continue; // no opposite-direction conflict on this candle
+    const dominant = directional.reduce((best, e) => (e.confidence > best.confidence ? e : best), directional[0]);
+    for (const e of directional) {
+      if (e.direction !== dominant.direction) dropped.add(e.id);
+    }
+  }
+  return dropped.size ? events.filter((e) => !dropped.has(e.id)) : events;
+}
+
 function dedupeAggregatedEvents(events: CandlePatternEvent[]) {
   const sorted = events
     .slice()
@@ -755,7 +783,7 @@ function dedupeAggregatedEvents(events: CandlePatternEvent[]) {
     selected.push(event);
   }
 
-  return selected.sort((a, b) => a.endIndex - b.endIndex || a.startIndex - b.startIndex);
+  return resolveSingleBarDirectionConflicts(selected).sort((a, b) => a.endIndex - b.endIndex || a.startIndex - b.startIndex);
 }
 
 export function detectExpandedCandlePatterns(candles: CandleInput[], options: CandlePatternDetectorOptions = {}) {
