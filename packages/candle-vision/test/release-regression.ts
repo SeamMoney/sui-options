@@ -43,6 +43,7 @@ assertFixtureDetects('piercing-line', 'piercing-line');
 assertFixtureDetects('dark-cloud-cover', 'dark-cloud-cover');
 assertFixtureDetects('morning-star', 'morning-star');
 assertFixtureDetects('vision-momentum', 'vision-momentum');
+assertFixtureDetects('vision-compression', 'vision-compression');
 
 const candles = baseCandles(120);
 const showcaseEvents = createPatternShowcaseEvents(candles);

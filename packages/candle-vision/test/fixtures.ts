@@ -88,4 +88,15 @@ export const patternFixtures: Record<string, CandleInput[]> = {
     { time: 6, open: 108, high: 111, low: 107.5, close: 110.7, volume: 150 },
     { time: 7, open: 110.7, high: 113.6, low: 110.2, close: 113.2, volume: 160 },
   ],
+  // Volatility contraction: wide ranges tightening into a coil — the counterpart
+  // to vision-momentum, also surfaced by the coach.
+  'vision-compression': [
+    { time: 1, open: 100, high: 104, low: 96, close: 101, volume: 120 },
+    { time: 2, open: 101, high: 105, low: 97, close: 99, volume: 120 },
+    { time: 3, open: 99, high: 102.5, low: 97.5, close: 100.5, volume: 110 },
+    { time: 4, open: 100.5, high: 102, low: 99, close: 100, volume: 100 },
+    { time: 5, open: 100, high: 101, low: 99.3, close: 100.4, volume: 90 },
+    { time: 6, open: 100.4, high: 100.9, low: 99.8, close: 100.2, volume: 85 },
+    { time: 7, open: 100.2, high: 100.6, low: 99.9, close: 100.3, volume: 80 },
+  ],
 };
