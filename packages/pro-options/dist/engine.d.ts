@@ -73,6 +73,15 @@ export declare class RoundEngine {
      */
     livePnlOf(id: string, nowMs: number): number;
     /**
+     * The spot an open position is marked at, at `nowMs`: the live spot while the
+     * option is alive, but FROZEN at the expiry spot once it has expired. Settlement
+     * (`settleAtExpiry`) pays `intrinsic` at `spotAt(pos.expiryMs)`, so an expired
+     * but not-yet-settled position (the window between expiry and the rAF settle
+     * tick) must show that same frozen value — otherwise the headline "live P&L"
+     * marks it at a later, wrong spot and diverges from what settlement pays.
+     */
+    private markSpot;
+    /**
      * Total settlement-projected P&L across the whole book at `nowMs`: open
      * positions marked to the intrinsic settlement at the current spot, closed
      * positions at their realized value. This is the ONE number the headline

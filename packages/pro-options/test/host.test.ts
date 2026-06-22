@@ -85,6 +85,40 @@ check("engine.livePnl at expiry equals realized playerPnl (live == settlement)",
   assert.ok(engine.premiumAtRisk() > 0, "premium denominator should be positive");
 });
 
+check("livePnl freezes an expired-but-unsettled position at its expiry spot (live == settlement in the unsettled window)", () => {
+  const preset = presetById("volatile")!;
+  const cfg = roundConfigFromPreset({ preset, seed: 7, startedAtMs: 0 });
+  const engine = new RoundEngine(cfg);
+
+  const liveStart = cfg.round.lobbyMs;
+  // Expire MID-round so the price path keeps moving past the position's expiry.
+  const expiry = liveStart + Math.floor(cfg.round.liveMs / 2);
+  // Deep-ITM call: intrinsic tracks spot, so any mark-to-now drift is unmistakable.
+  engine.open({ id: "mid", side: "call", strike: preset.startPrice * 0.5, expiryMs: expiry, contracts: 2, nowMs: 1_000 });
+
+  // Precondition: the spot genuinely moves between expiry and a later in-round tick.
+  const laterMs = expiry + Math.floor(cfg.round.liveMs / 4);
+  assert.notEqual(engine.spotAt(expiry), engine.spotAt(laterMs), "precondition: spot must move after expiry");
+
+  // The headline at the expiry instant, then again later while the position is
+  // STILL OPEN (the rAF settle tick lags the 200ms headline refresh). It must
+  // stay FROZEN at the expiry value — settlement pays intrinsic at spotAt(expiry),
+  // so marking to the later moved spot would make the headline lie.
+  const atExpiry = engine.livePnl(expiry);
+  const pastExpiry = engine.livePnl(laterMs); // not settled yet
+  assert.ok(
+    Math.abs(pastExpiry - atExpiry) < 1e-9,
+    `livePnl drifted after expiry: ${atExpiry} -> ${pastExpiry} (must freeze at the expiry spot)`,
+  );
+
+  // And it equals what settlement actually realizes.
+  engine.settleAll();
+  assert.ok(
+    Math.abs(pastExpiry - engine.playerPnl()) < 1e-9,
+    `post-expiry livePnl(${pastExpiry}) != realized playerPnl(${engine.playerPnl()})`,
+  );
+});
+
 check("reveal() exposes the preimage so a THIRD PARTY can verify the commit", () => {
   const preset = presetById("trending")!;
   const cfg = roundConfigFromPreset({ preset, seed: 42, startedAtMs: 0 });
