@@ -164,6 +164,9 @@ function usage(): never {
   console.error(
     "  rug demo:      npx tsx scripts/verify-v4.ts --rpc mock://rug-v4 --ride 0xmock --home 1000000000   (MARKET HALT → EXPIRED_LOSS)",
   );
+  console.error(
+    "  need a real ride? 'npm run rides:recent' lists closed rides + a ready-to-run command; 'npm run audit:latest' audits the newest with no args.",
+  );
   process.exit(2);
 }
 

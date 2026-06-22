@@ -56,6 +56,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--rpc" && next) { out.rpc = next; i++; }
     else if (a === "-h" || a === "--help") {
       console.error("usage: npx tsx scripts/verify-barriers.ts --market <id> (--ride <id> | --round <N>) [--rpc <url>]");
+      console.error("  need a ride? 'npm run rides:recent' lists real closed rides + a ready-to-run command.");
       process.exit(2);
     } else throw new Error(`unknown or incomplete argument: ${a}`);
   }
