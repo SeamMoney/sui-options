@@ -133,6 +133,24 @@ try {
     `"${a.replace(/\n/g, " ")}" → "${b.replace(/\n/g, " ")}"`,
   );
 
+  // ── 3b. FLIP reverses the open position in place (UP → DOWN) ────────────
+  // FLIP (reverse your bet mid-trade) is a headline /pro control on every open
+  // position but was untested here. Verified in a real browser: UP→DOWN with a
+  // fresh P&L basis, coherent state, 0 errors. Guard it stays that way.
+  const flipBtn = page.locator("button").filter({ hasText: /FLIP/i }).first();
+  const hasFlip = (await flipBtn.count()) > 0;
+  await flipBtn.click().catch(() => {});
+  await page.waitForTimeout(2600);
+  await shot("02b-flipped.png");
+  const bodyFlip = await page.locator("body").innerText();
+  check(
+    "FLIP reverses the position in place (UP → DOWN, still live)",
+    hasFlip &&
+      /\bDOWN\b/i.test(bodyFlip) &&
+      /\d+\s*S\s*LEFT/i.test(bodyFlip) &&
+      (await page.locator("button", { hasText: "CLOSE" }).count()) > 0,
+  );
+
   // ── 4. close → back to lobby ───────────────────────────────────────────
   await page.locator("button", { hasText: "CLOSE" }).first().click();
   await page.waitForTimeout(2500);
