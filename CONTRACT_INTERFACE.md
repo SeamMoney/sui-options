@@ -195,6 +195,25 @@ events are `copy, drop`.
 
 ## Settlement & payout
 
+A v4 ride settles into exactly **one** terminal state — one-shot and mutually
+exclusive (the `Position`/`RidePosition` UID is consumed, so it can never be
+re-settled; proven by the close/crank/abort twice-aborts tests):
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> OPEN: open_ride (escrow staked)
+    OPEN --> TOUCH_WIN: price touches barrier<br/>→ multiplier × escrow
+    OPEN --> CASHOUT: release early<br/>→ Bachelier cashout
+    OPEN --> EXPIRED_LOSS: round ends, no touch<br/>→ escrow to vault
+    OPEN --> EXPIRED_LOSS: MARKET HALT (rug)<br/>wipes the open ride
+    OPEN --> ABORTED_REFUND: market aborted<br/>→ 1:1 refund, never 2:1
+    TOUCH_WIN --> [*]
+    CASHOUT --> [*]
+    EXPIRED_LOSS --> [*]
+    ABORTED_REFUND --> [*]
+```
+
 - A `Position` fixes `payout_if_win` at open (from the market's
   `payout_multiplier_bps` and the probability-weighted entry `pwe_at_open`). On
   settle the winning side redeems `payout_if_win`; the losing side gets nothing.
