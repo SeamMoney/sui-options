@@ -47,10 +47,11 @@ if (existsSync(safetyMd)) {
   if (m) suiteCount = Number(m[1]);
 }
 
-const g = "\x1b[32m";
-const b = "\x1b[1m";
-const d = "\x1b[90m";
-const r = "\x1b[0m";
+const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+const g = useColor ? "\x1b[32m" : "";
+const b = useColor ? "\x1b[1m" : "";
+const d = useColor ? "\x1b[90m" : "";
+const r = useColor ? "\x1b[0m" : "";
 
 console.log(`\n${b}Wick — on-chain safety, at a glance${r} ${d}(live-counted from move/tests/)${r}\n`);
 console.log(
