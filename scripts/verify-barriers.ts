@@ -151,23 +151,35 @@ export function barriersFromSpot(spot: bigint, offsetBps: bigint): { upper: bigi
   return { upper: spot + offset, lower: spot > offset ? spot - offset : 1n };
 }
 
+/**
+ * Which on-chain value is the round-roll spot for `round`? Move's
+ * `ensure_round_current` rolls when `next_segment_index` reaches `round·dur`, so
+ * the walk price at that moment is `state_after(round·dur − 1).price`. Round 0 is
+ * seeded at bootstrap from the home price instead (no prior roll), carried as the
+ * `home` field of every segment's `state_after`. Pure so the segment-index choice
+ * (the subtle part of the #335 derivation) is unit-testable without the chain.
+ */
+export function roundRollSpotSource(
+  round: bigint,
+  roundDur: bigint,
+): { segment: bigint; field: "home" | "price" } {
+  return round === 0n
+    ? { segment: 0n, field: "home" }
+    : { segment: round * roundDur - 1n, field: "price" };
+}
+
 /** Re-derive a round's (upper, lower) barriers from the chain's own walk. */
 async function deriveBarriers(client: ResilientClient, m: MarketInfo, round: bigint): Promise<{ spot: bigint; upper: bigint; lower: bigint }> {
-  let spot: bigint;
-  if (round === 0n) {
-    // Round 0 is seeded at bootstrap from the home price (no prior round-roll).
-    // `home` is carried unchanged in every segment's state_after.
-    const s0 = await readState(client, m.tableId, 0n);
-    if (!s0) throw new Error("segment 0 not recorded; cannot derive round-0 barriers");
-    spot = s0.home;
-  } else {
-    // ensure_round_current rolls when next_segment_index reaches round·dur, at
-    // which point market.walk == state_after(round·dur − 1).
-    const k = round * m.roundDur - 1n;
-    const s = await readState(client, m.tableId, k);
-    if (!s) throw new Error(`segment ${k} (round-roll spot for round ${round}) not recorded`);
-    spot = s.price;
+  const src = roundRollSpotSource(round, m.roundDur);
+  const s = await readState(client, m.tableId, src.segment);
+  if (!s) {
+    throw new Error(
+      round === 0n
+        ? "segment 0 not recorded; cannot derive round-0 barriers"
+        : `segment ${src.segment} (round-roll spot for round ${round}) not recorded`,
+    );
   }
+  const spot = src.field === "home" ? s.home : s.price;
   const { upper, lower } = barriersFromSpot(spot, m.offsetBps);
   return { spot, upper, lower };
 }
