@@ -52,7 +52,7 @@ function bytes(v: unknown): Uint8Array {
 }
 
 /** Decode an on-chain WalkState struct (a SegmentRecord.state_after `fields`). */
-function decodeWalk(f: Record<string, unknown>): WalkState {
+export function decodeWalk(f: Record<string, unknown>): WalkState {
   const m = obj(obj(f.momentum).fields);
   return {
     price: big(f.price),
@@ -90,6 +90,53 @@ async function readRecord(
   };
 }
 
+/** A fetched segment ready for replay (the on-chain key + what the chain claimed). */
+export interface LiveSegmentRecord {
+  k: number;
+  key: Uint8Array;
+  min: bigint;
+  max: bigint;
+  stateAfter: WalkState;
+}
+
+/**
+ * The pure core: replay each segment from the carried walk state via the
+ * byte-identical `expandSegment` and compare the recomputed extrema + carried
+ * state to what the chain published. No RPC — so it's unit-testable offline
+ * (scripts/live-verify.test.ts) AND reused by `verifyLiveMarket` after fetch.
+ */
+export function replayAndMatch(
+  predState: WalkState,
+  records: LiveSegmentRecord[],
+): { rows: LiveVerifyRow[]; allMatch: boolean } {
+  let prev = predState;
+  let allMatch = true;
+  const rows: LiveVerifyRow[] = [];
+  for (const rec of records) {
+    const r = expandSegment(prev, rec.key);
+    const match =
+      r.min === rec.min &&
+      r.max === rec.max &&
+      r.newState.price === rec.stateAfter.price &&
+      r.newState.volRegime === rec.stateAfter.volRegime &&
+      r.newState.momentum.mag === rec.stateAfter.momentum.mag &&
+      r.newState.momentum.neg === rec.stateAfter.momentum.neg;
+    allMatch = allMatch && match;
+    rows.push({
+      k: rec.k,
+      open: r.candles[0]?.open ?? prev.price,
+      high: r.max,
+      low: r.min,
+      close: r.candles[r.candles.length - 1]?.close ?? r.newState.price,
+      chainHigh: rec.max,
+      chainLow: rec.min,
+      match,
+    });
+    prev = rec.stateAfter;
+  }
+  return { rows, allMatch };
+}
+
 /**
  * Verify the most recent `window` segments of a live SegmentMarketV4. Returns
  * a per-segment match table. Throws on an unreachable RPC / wrong object type
@@ -124,33 +171,13 @@ export async function verifyLiveMarket(
   const pred = await readRecord(client, tableId, from - 1n);
   if (!pred) throw new Error("predecessor segment unavailable; market may be too young");
 
-  let prev = pred.stateAfter;
-  let allMatch = true;
-  const rows: LiveVerifyRow[] = [];
+  const records: LiveSegmentRecord[] = [];
   for (let k = from; k < to; k++) {
     const rec = await readRecord(client, tableId, k);
     if (!rec) break;
-    const r = expandSegment(prev, rec.key);
-    const match =
-      r.min === rec.min &&
-      r.max === rec.max &&
-      r.newState.price === rec.stateAfter.price &&
-      r.newState.volRegime === rec.stateAfter.volRegime &&
-      r.newState.momentum.mag === rec.stateAfter.momentum.mag &&
-      r.newState.momentum.neg === rec.stateAfter.momentum.neg;
-    allMatch = allMatch && match;
-    rows.push({
-      k: Number(k),
-      open: r.candles[0]?.open ?? prev.price,
-      high: r.max,
-      low: r.min,
-      close: r.candles[r.candles.length - 1]?.close ?? r.newState.price,
-      chainHigh: rec.max,
-      chainLow: rec.min,
-      match,
-    });
-    prev = rec.stateAfter;
+    records.push({ k: Number(k), key: rec.key, min: rec.min, max: rec.max, stateAfter: rec.stateAfter });
   }
+  const { rows, allMatch } = replayAndMatch(pred.stateAfter, records);
   return { marketId, packageId, totalSegments: Number(nextIdx), rows, allMatch };
 }
 
