@@ -46,6 +46,56 @@ const DEFAULT_SEGMENT_MS = 400n; // segment_market_v4::DEFAULT_SEGMENT_MS
 const DEFAULT_RPC = process.env.WICK_VERIFY_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 const BPS = 10_000n;
 
+// The money verifier runs inside audit:ride/audit:latest/audit:sweep, so its
+// object reads should survive a node throttle/hang like verify-v4 (#413/#424).
+// (The RideClosedV4 event query already falls back to the archival fullnode in
+// findRideClosedEvent; this covers the getObject/getDynamicFieldObject reads.)
+const OBJ_FALLBACK_RPCS = [
+  "https://sui-testnet-rpc.publicnode.com",
+  "https://fullnode.testnet.sui.io:443",
+];
+const RPC_TIMEOUT_MS = 20_000;
+
+interface GetObject {
+  getObject(a: { id: string; options?: { showContent?: boolean; showType?: boolean } }): Promise<unknown>;
+}
+interface GetField {
+  getDynamicFieldObject(a: { parentId: string; name: { type: string; value: string } }): Promise<unknown>;
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
+/** Resilient object/field reads: try each endpoint, fall back on a thrown error
+ *  or a per-call timeout (a hanging node). A successful null/empty is returned
+ *  as-is (no fallback) so a genuinely-absent object stays absent. */
+function makeResilientReader(rpcUrl: string): GetObject & GetField {
+  const seen = new Set<string>();
+  const clients = [rpcUrl, ...OBJ_FALLBACK_RPCS]
+    .filter((u) => u && !seen.has(u) && seen.add(u))
+    .map((url) => new SuiJsonRpcClient({ url, network: "testnet" }));
+  async function tryAll<T>(fn: (c: SuiJsonRpcClient) => Promise<T>): Promise<T> {
+    let last: unknown;
+    for (const c of clients) {
+      try {
+        return await withTimeout(fn(c), RPC_TIMEOUT_MS);
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last instanceof Error ? last : new Error(String(last));
+  }
+  return {
+    getObject: (a) => tryAll((c) => c.getObject(a as never)),
+    getDynamicFieldObject: (a) => tryAll((c) => c.getDynamicFieldObject(a as never)),
+  };
+}
+
 const SETTLEMENT_NAME: Record<number, string> = {
   0: "OPEN",
   1: "TOUCH_WIN",
@@ -181,7 +231,7 @@ export function checkPayoutIdentity(
   return errs;
 }
 
-export async function readRide(client: SuiJsonRpcClient, id: string): Promise<{ ride: Ride; marketId: string }> {
+export async function readRide(client: GetObject, id: string): Promise<{ ride: Ride; marketId: string }> {
   const o = asObj(await client.getObject({ id, options: { showContent: true, showType: true } }));
   const content = asObj(asObj(o.data).content);
   if (!/::segment_market_v4::SegmentRidePositionV4$/.test(asStr(content.type))) {
@@ -206,7 +256,7 @@ export async function readRide(client: SuiJsonRpcClient, id: string): Promise<{ 
 }
 
 export async function readMarket(
-  client: SuiJsonRpcClient,
+  client: GetObject,
   id: string,
 ): Promise<{
   packageId: string;
@@ -235,7 +285,7 @@ export async function readMarket(
 
 /** Read a segment record's fields (recorded_at_ms + state_after.price), or null. */
 async function readSegmentFields(
-  client: SuiJsonRpcClient,
+  client: GetField,
   tableId: string,
   k: bigint,
 ): Promise<{ recordedAtMs: bigint; stateAfterPrice: bigint } | null> {
@@ -250,7 +300,7 @@ async function readSegmentFields(
 }
 
 /** recorded_at_ms of segment k, or null if absent. */
-async function segmentRecordedAt(client: SuiJsonRpcClient, tableId: string, k: bigint): Promise<bigint | null> {
+async function segmentRecordedAt(client: GetField, tableId: string, k: bigint): Promise<bigint | null> {
   const r = await readSegmentFields(client, tableId, k);
   return r ? r.recordedAtMs : null;
 }
@@ -269,7 +319,7 @@ async function segmentRecordedAt(client: SuiJsonRpcClient, tableId: string, k: b
  * still terminates safely.
  */
 export async function nextSegmentIndexAtClose(
-  client: SuiJsonRpcClient,
+  client: GetField,
   tableId: string,
   entry: bigint,
   closedAtMs: bigint,
@@ -358,13 +408,16 @@ async function findRideClosedEvent(
 
 async function main(): Promise<boolean> {
   const args = parseArgs(process.argv.slice(2));
+  // Object/field reads go through the resilient reader (fallback + timeout); the
+  // event query keeps its own client (findRideClosedEvent falls back to archival).
+  const reader = makeResilientReader(args.rpc);
   const client = new SuiJsonRpcClient({ url: args.rpc, network: "testnet" });
 
-  const { ride, marketId } = await readRide(client, args.ride);
+  const { ride, marketId } = await readRide(reader, args.ride);
   if (!sameId(marketId, args.market)) {
     throw new Error(`ride belongs to market ${marketId}, not ${args.market}`);
   }
-  const market = await readMarket(client, args.market);
+  const market = await readMarket(reader, args.market);
 
   console.log(`market:  ${args.market}`);
   console.log(`ride:    ${args.ride}`);
@@ -377,7 +430,7 @@ async function main(): Promise<boolean> {
 
   // Independently re-derive stake_paid from object state + the close window.
   const nextAtClose = await nextSegmentIndexAtClose(
-    client,
+    reader,
     market.tableId,
     ride.entry,
     ride.closedAtMs,
