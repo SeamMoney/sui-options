@@ -133,3 +133,32 @@ fun set_price_zero_aborts() {
     clk.destroy_for_testing();
     sc.end();
 }
+
+// Safety: decimals must be > 0 — a price with zero decimals would make the
+// micro-USD stake-rate math divide-by-the-wrong-scale. Aborts EZeroDecimals.
+#[test]
+#[expected_failure(abort_code = upo::EZeroDecimals)]
+fun set_price_zero_decimals_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (mut oracle, cap, clk) = setup(&mut sc);
+    upo::set_price<SUI>(&cap, &mut oracle, 5_000_000, 0, &clk); // 0 decimals
+    test_utils::destroy(oracle);
+    test_utils::destroy(cap);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
+// Safety: price_entry on an oracle with no price set aborts EUnsetPrice — the
+// strict accessor (vs loss_micro_usd, which degrades to 0). No silent reads of
+// an absent price.
+#[test]
+#[expected_failure(abort_code = upo::EUnsetPrice)]
+fun price_entry_before_set_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, cap, clk) = setup(&mut sc);
+    let _entry = upo::price_entry<SUI>(&oracle); // aborts EUnsetPrice
+    test_utils::destroy(oracle);
+    test_utils::destroy(cap);
+    clk.destroy_for_testing();
+    sc.end();
+}
