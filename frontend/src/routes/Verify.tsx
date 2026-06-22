@@ -311,6 +311,48 @@ export function Verify() {
             </div>
           )}
         </section>
+
+        {/* ── Chain of custody: what's proven, and where ──────────────────── */}
+        <section className="mt-10 border-t border-slate-800 pt-8">
+          <h2 className="text-lg font-bold tracking-tight">The full chain of custody</h2>
+          <p className="mt-2 text-sm text-slate-400 leading-relaxed">
+            Every output of a ride traces back to the chain&rsquo;s{" "}
+            <code className="text-emerald-400">sui::random</code> keys — the house chooses{" "}
+            <span className="text-slate-200">nothing</span>. Two links you just re-derived right here
+            in your browser; the rest are one terminal command away (they need tx history a public
+            node prunes, so they live in the CLI).
+          </p>
+          <ul className="mt-4 space-y-1.5 text-xs">
+            {[
+              { link: "keys", from: "sui::random (0x…08)", where: "cli", cmd: "verify:randomness" },
+              { link: "barriers", from: "walk price at round-roll", where: "cli", cmd: "verify:barriers" },
+              { link: "candles", from: "expand_segment(key)", where: "browser", cmd: "this page ↑" },
+              { link: "MARKET HALT", from: "keccak256(key ‖ market ‖ round)", where: "browser", cmd: "this page ↑" },
+              { link: "verdict", from: "the candles + barriers", where: "cli", cmd: "verify-v4" },
+              { link: "payout", from: "the verdict", where: "cli", cmd: "verify:payout" },
+            ].map((r) => (
+              <li key={r.link} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span
+                  className={`inline-block w-[68px] shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-bold uppercase tracking-wider ${
+                    r.where === "browser"
+                      ? "bg-emerald-500/15 text-emerald-300"
+                      : "bg-slate-700/40 text-slate-400"
+                  }`}
+                >
+                  {r.where === "browser" ? "✓ browser" : "cli"}
+                </span>
+                <span className="text-slate-200 font-semibold">{r.link}</span>
+                <span className="text-slate-500">⟸ {r.from}</span>
+                <code className="text-slate-500">· {r.cmd}</code>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-4 text-xs text-slate-500 leading-relaxed">
+            The complete audit of any real ride — all six links — is one command:{" "}
+            <code className="text-emerald-400">npm run audit:ride -- --market &lt;id&gt; --ride &lt;id&gt;</code>{" "}
+            (or <code className="text-emerald-400">npm run prove:live</code> for the whole live protocol).
+          </p>
+        </section>
       </div>
     </div>
   );
