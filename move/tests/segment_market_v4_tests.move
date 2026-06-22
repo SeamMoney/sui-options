@@ -337,6 +337,8 @@ fun close_upper_touch_wins_with_touched_side_upper() {
     let stake = 1_000u64;
     let escrow_amt = stake * ROUND_DURATION;
     let escrow = mint_sui(escrow_amt, &mut sc);
+    // Snapshot the vault before the ride for the conservation check below.
+    let vault_before = mv::treasury_value(&vault);
     let mut ride = sm4::open_segment_ride_v4<SUI>(
         &mut market, &mut vault, &bots,
         stake, escrow, &clk, sc.ctx(),
@@ -359,6 +361,12 @@ fun close_upper_touch_wins_with_touched_side_upper() {
     assert!(sm4::settlement_kind(&ride) == sm4::settlement_touch_win(), 0);
     // stake_paid = 1_000; payout = 2_000; total_to_user = 2_000 + (escrow - 1_000)
     assert!(payout.value() == 2_000 + (escrow_amt - 1_000), 1);
+    // Conservation on the jackpot (vault-PAYS-OUT) path: the vault's balance
+    // changed by exactly (escrow deposited − value handed to the user). An
+    // over-withdraw on this path is direct loss-of-funds; this pins it. Net
+    // here the house is down (payout 2_000 > stake_paid 1_000): vault_before −
+    // 1_000.
+    assert!(mv::treasury_value(&vault) == vault_before + escrow_amt - payout.value(), 2);
 
     test_utils::destroy(payout);
     sm4::test_only_destroy_ride(ride);
