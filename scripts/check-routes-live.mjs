@@ -92,7 +92,8 @@ for (const route of ROUTES) {
   const ok = status === 200 && text.length > 60 && !!landmarkHit && realErrors.length === 0;
   if (!ok) failures++;
 
-  const tag = ok ? "\x1b[32mPASS\x1b[0m" : "\x1b[31mFAIL\x1b[0m";
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+  const tag = ok ? (useColor ? "\x1b[32mPASS\x1b[0m" : "PASS") : (useColor ? "\x1b[31mFAIL\x1b[0m" : "FAIL");
   console.log(
     `  [${tag}] ${route.path.padEnd(8)} status=${status} text=${text.length}b ` +
       `landmark=${landmarkHit ? `"${landmarkHit}"` : "MISSING"} errors=${realErrors.length}`,
@@ -131,7 +132,8 @@ for (const route of ROUTES) {
   const renderedFallback = /ONE TAP TO START|free test funds/i.test(text);
   const ok = status === 200 && !crashed && renderedFallback;
   if (!ok) failures++;
-  const tag = ok ? "\x1b[32mPASS\x1b[0m" : "\x1b[31mFAIL\x1b[0m";
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+  const tag = ok ? (useColor ? "\x1b[32mPASS\x1b[0m" : "PASS") : (useColor ? "\x1b[31mFAIL\x1b[0m" : "FAIL");
   console.log(
     `  [${tag}] ${"/zzz…".padEnd(8)} unknown route → ${crashed ? "CRASH SCREEN (stale deploy?)" : renderedFallback ? "Ride fallback (correct)" : "neither"}`,
   );
