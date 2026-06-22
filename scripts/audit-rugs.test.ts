@@ -10,11 +10,87 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { classifyRound, type RugVerdict } from "./audit-rugs.js";
+import {
+  classifyRound,
+  firstQualifyingSegment,
+  type RugVerdict,
+  type MarketInfo,
+} from "./audit-rugs.js";
+import { rollRugFired } from "./rugRoll.js";
 
 function kind(chainRug: bigint | null, firstQ: bigint | null, rollAtRug = 0n): RugVerdict {
   return classifyRound(chainRug, firstQ, rollAtRug, 150n).kind;
 }
+
+// ── Read-path coverage for `firstQualifyingSegment` ─────────────────────────
+// Previously only `classifyRound` (the pure verdict) was tested; the read +
+// roll-derivation that FEEDS it was live-only. This locks "returns the FIRST
+// segment in index order whose deterministic rug roll fires" with a mock client,
+// real keccak roll math, and real on-chain keys (so it also guards the #334
+// batched scan from a first-fire-ordering regression).
+const RUG_MARKET = "0x54e915308c596981fa94e5ff1f6f4e602e8bd1aae8c4a610cb782573310b5282";
+function keyBytes(hex: string): Uint8Array {
+  const h = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+// Real seg-458 key: fires at round 6 (roll 78 < 150). Verified live on-chain.
+const FIRING = keyBytes("0x9d3ecd317edd3f7349fcafd749d8d95ddb26f4ec1e5c6513baa6fff32d80bf95");
+// An arbitrary key that does NOT fire at round 6 (asserted below before use).
+const QUIET = keyBytes("0x" + "ab".repeat(32));
+
+const MARKET: MarketInfo = {
+  marketId: RUG_MARKET,
+  typePackage: "0xabc",
+  segmentsTableId: "0xtable",
+  roundDurationSegments: 75n,
+  nextSegmentIndex: 1000n,
+  rugChanceBps: 150n,
+};
+
+/** Mock ResilientClient: getDynamicFieldObject(k) → the key at index k (or none). */
+function mockClient(keyByK: Map<number, Uint8Array>): never {
+  return {
+    getDynamicFieldObject: async (a: { name: { value: string } }) => {
+      const k = Number(a.name.value);
+      const key = keyByK.get(k);
+      if (!key) return { data: null };
+      return {
+        data: {
+          content: { fields: { value: { fields: { key: Array.from(key) } } } },
+        },
+      };
+    },
+  } as never;
+}
+
+test("firstQualifyingSegment: the chosen QUIET key really does not fire at round 6", () => {
+  assert.equal(rollRugFired(QUIET, RUG_MARKET, 6n, 150n).fired, false);
+  assert.equal(rollRugFired(FIRING, RUG_MARKET, 6n, 150n).fired, true);
+});
+
+test("firstQualifyingSegment returns the FIRST firing segment in index order", async () => {
+  // 450,451 quiet · 452 fires · 453 fires → must return 452 (the first), not 453.
+  const m = new Map<number, Uint8Array>([
+    [450, QUIET], [451, QUIET], [452, FIRING], [453, FIRING],
+  ]);
+  const got = await firstQualifyingSegment(mockClient(m), MARKET, 6n, 450n, 454n);
+  assert.equal(got, 452n);
+});
+
+test("firstQualifyingSegment returns null when no segment fires (clean round)", async () => {
+  const m = new Map<number, Uint8Array>([[450, QUIET], [451, QUIET], [452, QUIET]]);
+  const got = await firstQualifyingSegment(mockClient(m), MARKET, 6n, 450n, 453n);
+  assert.equal(got, null);
+});
+
+test("firstQualifyingSegment skips missing segments (null reads) without false-firing", async () => {
+  // 450 missing, 451 quiet, 452 fires → 452.
+  const m = new Map<number, Uint8Array>([[451, QUIET], [452, FIRING]]);
+  const got = await firstQualifyingSegment(mockClient(m), MARKET, 6n, 450n, 453n);
+  assert.equal(got, 452n);
+});
 
 test("HONEST — chain halted at exactly the first qualifying segment", () => {
   const v = classifyRound(458n, 458n, 78n, 150n);

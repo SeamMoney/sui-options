@@ -119,7 +119,7 @@ function sameId(a: string, b: string): boolean {
 
 const RUG_CONFIG_KEY_BYTES = Array.from(new TextEncoder().encode("rug_config"));
 
-interface MarketInfo {
+export interface MarketInfo {
   marketId: string;
   typePackage: string;
   segmentsTableId: string;
@@ -162,7 +162,7 @@ async function readMarket(client: ResilientClient, marketId: string): Promise<Ma
  * none. `roll_rug` fires on the FIRST qualifying segment of a round, so this is
  * exactly the segment the chain SHOULD have rugged at (and only that one).
  */
-async function firstQualifyingSegment(
+export async function firstQualifyingSegment(
   client: ResilientClient,
   market: MarketInfo,
   round: bigint,
