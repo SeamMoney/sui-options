@@ -1,10 +1,17 @@
 # Wick Move — safety property → test traceability
 
 The Wick contracts hold user collateral, so the load-bearing properties are the
-ones that protect funds. This file maps each safety property (the list in
-[`AGENTS.md`](../AGENTS.md) "Safety properties the Move package must enforce" +
-"The collateral invariant") to the named test(s) that prove it, so an auditor or
-judge can run a specific test rather than take the claim on faith.
+ones that protect funds. This file maps every fund-safety property the package
+enforces — the [`AGENTS.md`](../AGENTS.md) "Safety properties the Move package
+must enforce" list and "The collateral invariant" at its core, plus the broader
+surface those imply: vault conservation + every money-out path (winner payout,
+fee-bucket withdrawals, protocol-fee sweep, abort refunds, LP seed-recovery),
+vault-solvency exposure caps, the full settlement-integrity chain (oracle feed →
+barrier record → settlement → payout), both ride systems (v4 segment + v2
+streaming), fee routing/theft-prevention, the staking anti-loop, house-edge, the
+immutable-config rules, and determinism — each mapped to the named test(s) (or
+compile-time guarantee) that prove it, so an auditor or judge can run a specific
+test rather than take the claim on faith.
 
 Run the whole suite: `sui move test` (from `move/`) — **684/684 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
