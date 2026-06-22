@@ -298,3 +298,25 @@ test("v4.27 mode: a later-round RUG escape is strictly REJECTED (not softened)",
   assert.doesNotMatch(out, /not independently checkable/);
   assert.equal(code, 1);
 });
+
+// The common case is a ride that opens AND settles within its own round — where
+// v4.27 is byte-identical to v4.26. Pin that the v4.27 mode preserves ALL three
+// in-round outcomes (touch above; rug + cashout here), so flipping the flag at
+// deploy can't regress the verdicts judges actually see. The rug case also
+// exercises the #694 mirror's within-round path: the durable per-round rug read
+// reduces to the live flag for the current round, and the chain cross-check
+// still matches.
+test("v4.27 mode: a within-round MARKET HALT (rug → EXPIRED_LOSS) still PASSes", () => {
+  const { code, out } = run("mock://rug-v4", ["--settlement-model", "v4.27", "--home", "1000000000"]);
+  assert.match(out, /off-chain verdict: EXPIRED_LOSS/);
+  assert.match(out, /verdict:\s+match/);
+  assert.match(out, /PASS — the chain was honest/);
+  assert.equal(code, 0);
+});
+
+test("v4.27 mode: a within-round no-touch CASHOUT still PASSes", () => {
+  const { code, out } = run("mock://synthetic-v4", ["--settlement-model", "v4.27"]);
+  assert.match(out, /off-chain verdict: CASHOUT/);
+  assert.match(out, /PASS — the chain was honest/);
+  assert.equal(code, 0);
+});
