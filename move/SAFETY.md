@@ -34,6 +34,7 @@ of funds.
 | Partial pay queues the remainder (no overdraw) | `pay_winner_partial_then_queue_remainder` | `martingaler_vault_tests.move` |
 | Empty lock ⇒ full payout queued (FIFO), never minted | `pay_winner_full_queue_when_lock_empty` | `martingaler_vault_tests.move` |
 | The generic single-collateral `vault` primitive conserves every unit (deposit→withdraw round-trips exactly), rejects a zero move, and can't over-withdraw | `deposit_withdraw_round_trip_conserves_every_unit` · `deposit_balance_adds_to_held` · `deposit_zero_aborts` · `withdraw_zero_aborts` · `withdraw_more_than_held_aborts` | `vault_tests.move` |
+| Exposure caps protect vault solvency — measured against the live vault-effective balance (which must be non-zero), a single position's payout can't exceed the per-position cap, a side's aggregate exposure can't exceed the per-side cap, an underlying's PWE can't exceed the global cap, and a correlation bucket's combined PWE can't exceed the bucket cap (so the vault can never be over-committed beyond what it can pay) | `per_position_cap_aborts_above` · `per_position_cap_zero_vault_aborts` · `per_side_cap_aborts_above` · `global_pwe_cap_aborts_above` · `correlation_bucket_cap_aborts_above_with_multi_underlying` | `risk_config_tests.move` |
 
 ## Settlement safety
 
