@@ -94,7 +94,13 @@ function computeStats(events, ranking) {
         averageStrength: events.length ? strengthTotal / events.length : 0,
     };
 }
-function scanCandles(candles, options = {}) {
+/**
+ * Run the full scan → rank → stats pipeline once, with no React. The pure core
+ * that `useCandleVisionScanner` memoizes — exported so non-React consumers
+ * (keeper, bots, a server-side coach endpoint) get the same bundled result
+ * (events, ranking, visible signals, stats) in a single call.
+ */
+export function scanCandles(candles, options = {}) {
     const { ranking: rankingOptions, ...detectorOptions } = options;
     const events = detectUnifiedCandlePatterns(candles, detectorOptions);
     const latestIndex = candles.length > 0 ? candles.length - 1 : undefined;

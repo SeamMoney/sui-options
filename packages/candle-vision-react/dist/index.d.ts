@@ -54,6 +54,13 @@ export type SignalListProps = {
     showDescription?: boolean;
     renderMeta?: (signal: RankedPatternSignal) => ReactNode;
 };
+/**
+ * Run the full scan → rank → stats pipeline once, with no React. The pure core
+ * that `useCandleVisionScanner` memoizes — exported so non-React consumers
+ * (keeper, bots, a server-side coach endpoint) get the same bundled result
+ * (events, ranking, visible signals, stats) in a single call.
+ */
+export declare function scanCandles(candles: CandleInput[], options?: CandleVisionScannerOptions): CandleVisionScannerResult;
 export declare function useCandleVisionScanner(candles: CandleInput[], options?: CandleVisionScannerOptions): CandleVisionScannerResult;
 export declare function usePatternStream(options?: PatternStreamOptions): PatternStreamResult;
 export declare function PatternStatsPanel({ stats, events, ranking, title, className, style, formatPercent, }: PatternStatsPanelProps): import("react/jsx-runtime").JSX.Element;
