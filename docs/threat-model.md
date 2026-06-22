@@ -140,6 +140,40 @@ the same A0 randomness obligation as the candles (the dynamic gas-side-channel
 harness is still deferred, above). The edge is an **honest** edge — a published,
 per-segment dice roll, not a discretionary house action.
 
+## Wick Pro (`/pro`) commit-reveal fairness
+
+`/pro` (the submission) is an off-chain Black-Scholes options round game; its
+fairness rests on **commit-reveal**, a different model from the on-chain `/ride`
+chain (judges should not conflate them). Every round publishes a
+`commit = SHA-256("${seed}:${paramsJson}")` **before the lobby opens** — before
+the player picks side/strike — and reveals `{seed, paramsJson}` at settle. The
+price path is deterministic from the seed, so the commit binds the entire path in
+advance. `npm run verify:pro-fairness` (`scripts/verify-fairness.ts`) re-hashes
+the reveal with `node:crypto`, independent of the engine, and asserts it equals
+the published commit.
+
+Threats and defenses:
+
+- **T-PRO-1 — tilt the path after the player acts.** Defense: the commit is
+  published pre-lobby, so the path is fixed before any player input; the house
+  cannot change it mid-round.
+- **T-PRO-2 — forge the reveal** (reveal a different, more favorable seed at
+  settle). Defense: the revealed seed must hash back to the published commit
+  (SHA-256 second-preimage resistance). `npm run verify:pro-fairness:tamper`
+  publishes an honest commit, swaps a different path under it at reveal, and
+  confirms the independent verifier rejects every forgery.
+- **T-PRO-3 — grind a house-favorable seed at commit time.** Defense: the commit
+  is fixed before the player chooses, so the house cannot bias a seed against a
+  choice it does not yet know; pricing fairness (live P&L == settlement) is
+  separately proven by `npm run verify:pro`. A player can re-verify their OWN
+  round: `verify:pro-fairness --seed <revealedSeed> --preset <id>`.
+
+Boundary: this proves the path was **fixed in advance and revealed honestly**,
+not that the seed came from a verifiable random function. `/pro` is the off-chain
+arcade; only the on-chain `/ride` chain derives its randomness from Sui `Random`
+(A0). Both are verifiable, by distinct tools — `verify:pro-fairness` for `/pro`,
+`audit:ride` / `check:rugs` for `/ride`.
+
 ---
 
 ## 1. Headline findings
