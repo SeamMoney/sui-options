@@ -121,23 +121,40 @@ export type RetryOutcome<T> =
  * usually succeeds. Pure + dependency-injected (`sleep`) so it is unit-tested
  * directly in api/faucet.test.ts without touching the network.
  */
+export const DEFAULT_RPC_TIMEOUT_MS = Number(process.env.FAUCET_RPC_TIMEOUT_MS ?? 8000);
+
+/** Reject `promise` if it doesn't settle within `ms`, so a hung RPC (a node that
+ * accepts the request but never sends a response body) fails fast to a retry/503
+ * instead of holding the serverless request until the platform timeout (~60s) —
+ * a judge funding a burner gets a quick, retryable error, not a stuck spinner.
+ * Mirrors the keeper's RPC-timeout guard (#703/#705). */
+export function withRpcTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`faucet RPC timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 export async function executeWithRetry<T>(
   run: () => Promise<T>,
   opts?: {
     maxAttempts?: number;
+    timeoutMs?: number;
     onError?: (err: unknown, attempt: number) => void;
     sleep?: (ms: number) => Promise<void>;
     random?: () => number;
   },
 ): Promise<RetryOutcome<T>> {
   const maxAttempts = opts?.maxAttempts ?? 4;
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_RPC_TIMEOUT_MS;
   const sleep =
     opts?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const random = opts?.random ?? Math.random;
   let lastErr: unknown = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return { ok: true, value: await run() };
+      return { ok: true, value: await withRpcTimeout(run(), timeoutMs) };
     } catch (err) {
       lastErr = err;
       opts?.onError?.(err, attempt);
@@ -199,10 +216,13 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
   const client = getClient();
   let totalMist: bigint;
   try {
-    const balance = await client.getBalance({
-      owner: signer.sender,
-      coinType: "0x2::sui::SUI",
-    });
+    const balance = await withRpcTimeout(
+      client.getBalance({
+        owner: signer.sender,
+        coinType: "0x2::sui::SUI",
+      }),
+      DEFAULT_RPC_TIMEOUT_MS,
+    );
     totalMist = BigInt(balance.totalBalance);
   } catch (err) {
     console.error("[api/faucet] getBalance failed", { error: String(err) });

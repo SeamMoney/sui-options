@@ -28,7 +28,7 @@ const TESTNET_RPC_URL =
   process.env.WICK_API_RPC ?? "https://sui-testnet-rpc.publicnode.com";
 import { Transaction } from "@mysten/sui/transactions";
 import { isValidSuiAddress, normalizeSuiAddress } from "@mysten/sui/utils";
-import { executeWithRetry } from "./faucet.js";
+import { executeWithRetry, withRpcTimeout, DEFAULT_RPC_TIMEOUT_MS } from "./faucet.js";
 
 // ── Constants pinned at module load ───────────────────────────────────────
 // Read from deployments/testnet.json at the top so the values are visible
@@ -134,10 +134,13 @@ async function handle(rawBody: unknown): Promise<JsonResponse> {
   // to top up SUI, not debug a phantom mint failure.
   let gasMist: bigint;
   try {
-    const balance = await client.getBalance({
-      owner: signer.sender,
-      coinType: "0x2::sui::SUI",
-    });
+    const balance = await withRpcTimeout(
+      client.getBalance({
+        owner: signer.sender,
+        coinType: "0x2::sui::SUI",
+      }),
+      DEFAULT_RPC_TIMEOUT_MS,
+    );
     gasMist = BigInt(balance.totalBalance);
   } catch (err) {
     console.error("[api/faucet-tusd] getBalance failed", { error: String(err) });
