@@ -213,3 +213,11 @@ test("readSegmentKey: parses the 32-byte key", async () => {
 test("readSegmentKey: missing segment → null", async () => {
   assert.equal(await readSegmentKey(keyMock(undefined), "0xt", 5n), null);
 });
+
+test("readMarket on a non-existent id gives a clear 'not found' error (the judge-typo case)", async () => {
+  // A typo'd --market makes getObject return { data: null }; readMarket must say
+  // "not found — check the id", not "is not a SegmentMarketV4 (type: undefined)"
+  // (matches the verify-v4/payout/barriers fix in #528/#532).
+  const missing = { getObject: async () => ({ data: null }) } as unknown as Parameters<typeof readMarket>[0];
+  await assert.rejects(() => readMarket(missing, "0xtypo"), /was not found on-chain/);
+});
