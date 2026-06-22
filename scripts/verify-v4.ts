@@ -270,6 +270,7 @@ interface RugConfig {
 }
 
 interface RideInfo {
+  marketId: string;
   entrySegmentIndex: bigint;
   roundIndex: bigint;
   upperBarrier: bigint;
@@ -277,6 +278,12 @@ interface RideInfo {
   closed: boolean;
   closedAtMs: bigint;
   settlementKind: number;
+}
+
+/** Compare Sui object ids tolerant of 0x-prefix / case / leading-zero noise. */
+function sameId(a: string, b: string): boolean {
+  const norm = (s: string) => s.replace(/^0x/, "").replace(/^0+/, "").toLowerCase();
+  return norm(a) === norm(b);
 }
 
 /**
@@ -412,6 +419,7 @@ async function readRide(client: RpcClient, rideId: string): Promise<RideInfo> {
   }
   const f = asObject(content.fields);
   return {
+    marketId: asString(f.market_id),
     entrySegmentIndex: asBig(f.entry_segment_index),
     roundIndex: asBig(f.round_index),
     upperBarrier: asBig(f.upper_barrier_price),
@@ -716,6 +724,16 @@ async function verify(args: Args): Promise<boolean> {
   if (args.ride) {
     const rideId = synthetic ? SYNTH_RIDE : args.ride;
     const ride = await readRide(client, rideId);
+    // Input guard: a mismatched --market/--ride pair (a copy-paste slip) would
+    // otherwise scan this market's candles against another ride's barriers/round
+    // and print a bogus "FAIL — the chain lied". Reject it as user error instead.
+    if (!sameId(ride.marketId, marketId)) {
+      console.error(
+        `\n  ride ${rideId} belongs to market ${ride.marketId}, not ${marketId}.\n` +
+          `  Pass the --market this ride was opened on (this is a mismatched pair, not a dishonest chain).`,
+      );
+      return false;
+    }
     console.log(`ride:     ${rideId}`);
     console.log(
       `          round ${ride.roundIndex} · entry segment ${ride.entrySegmentIndex} · ` +
@@ -1036,6 +1054,7 @@ function buildSyntheticClient(mode: SynthMode): RpcClient {
               dataType: "moveObject",
               type: `${SYNTH_PKG}::segment_market_v4::SegmentRidePositionV4`,
               fields: {
+                market_id: SYNTH_MARKET,
                 // Rug mode: enter at segment 0 so the seg-0 halt applies; the
                 // chain then settles EXPIRED_LOSS. Honest/tamper: enter at 2.
                 entry_segment_index: rug ? "0" : "2",
