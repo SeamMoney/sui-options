@@ -14,6 +14,14 @@
  */
 import { spawnSync } from "node:child_process";
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("usage: npm run prove:live   (no args)");
+  console.log("  Proves the LIVE deployed protocol is fair AND solvent on testnet, end to end (~90s):");
+  console.log("  randomness ⟸ sui::random → every market provably fair → a real ride's complete audit →");
+  console.log("  every MARKET HALT an honest roll → every vault solvent. Read-only; no gas, no wallet.");
+  process.exit(0);
+}
+
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const C = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
