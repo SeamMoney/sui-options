@@ -13,6 +13,8 @@ import { test } from "node:test";
 import {
   classifyRound,
   firstQualifyingSegment,
+  readMarket,
+  readSegmentKey,
   type RugVerdict,
   type MarketInfo,
 } from "./audit-rugs.js";
@@ -148,4 +150,66 @@ test("the 7 real rounds on the rugged TUSD market all classify HONEST", () => {
   for (const [round, seg] of live) {
     assert.equal(kind(seg, seg), "honest-halt", `round ${round} should be honest`);
   }
+});
+
+
+// ── readMarket / readSegmentKey parsers ─────────────────────────────────────
+// readMarket's rug_chance_bps parse is load-bearing: a wrong parse reads 0 →
+// "rug not enabled" → check:rugs silently audits NOTHING and PASSes vacuously.
+// Lock it (and the key parse) offline so a Move structure rename can't make the
+// house-edge proof a no-op without CI noticing.
+const MKT4_TYPE = "0xpkg::segment_market_v4::SegmentMarketV4<0x2::sui::SUI>";
+function marketMock(fields: Record<string, unknown>, rugBps?: number): never {
+  return {
+    getObject: async () => ({ data: { content: { type: MKT4_TYPE, fields } } }),
+    getDynamicFieldObject: async () =>
+      rugBps === undefined
+        ? { data: null }
+        : { data: { content: { fields: { value: { fields: { rug_chance_bps: String(rugBps) } } } } } },
+  } as never;
+}
+const MKT_FIELDS = {
+  segments: { fields: { id: { id: "0xTBL" } } },
+  round_duration_segments: "75", next_segment_index: "4021",
+};
+
+test("readMarket: parses tableId, round length, and the rug_chance threshold", async () => {
+  const m = await readMarket(marketMock(MKT_FIELDS, 150), "0xmkt");
+  assert.equal(m.typePackage, "0xpkg");
+  assert.equal(m.segmentsTableId, "0xTBL");
+  assert.equal(m.roundDurationSegments, 75n);
+  assert.equal(m.nextSegmentIndex, 4021n);
+  assert.equal(m.rugChanceBps, 150n);
+});
+
+test("readMarket: rug-config absent → rugChanceBps 0 (rug disabled), not a throw", async () => {
+  const m = await readMarket(marketMock(MKT_FIELDS), "0xmkt");
+  assert.equal(m.rugChanceBps, 0n);
+});
+
+test("readMarket: rejects a non-SegmentMarketV4 object", async () => {
+  const wrongType = {
+    getObject: async () => ({ data: { content: { type: "0x2::coin::Coin<0x2::sui::SUI>", fields: {} } } }),
+    getDynamicFieldObject: async () => ({ data: null }),
+  } as never;
+  await assert.rejects(() => readMarket(wrongType, "0xmkt"));
+});
+
+function keyMock(key: number[] | undefined): never {
+  return {
+    getDynamicFieldObject: async () =>
+      key === undefined
+        ? { data: null }
+        : { data: { content: { fields: { value: { fields: { key } } } } } },
+  } as never;
+}
+
+test("readSegmentKey: parses the 32-byte key", async () => {
+  const bytes = Array.from({ length: 32 }, (_, i) => i);
+  const got = await readSegmentKey(keyMock(bytes), "0xt", 5n);
+  assert.deepEqual(Array.from(got!), bytes);
+});
+
+test("readSegmentKey: missing segment → null", async () => {
+  assert.equal(await readSegmentKey(keyMock(undefined), "0xt", 5n), null);
 });
