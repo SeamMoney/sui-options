@@ -151,6 +151,10 @@ interface PositionStateV4 {
   entrySegmentIdx: number;
   upperBarrier: number;
   lowerBarrier: number;
+  /** Sticky: set once the close reaches either barrier (close>=barrier implies
+   *  high>=barrier, i.e. a real chain TOUCH_WIN). Drives a settlement-honest live
+   *  P&L — pay only on an actual touch, not on mere proximity. */
+  touched: boolean;
 }
 
 interface CompletedTradeV4 {
@@ -1451,6 +1455,7 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
               entrySegmentIdx: candles.length - 1,
               upperBarrier: round?.upperBarrier ?? last.close,
               lowerBarrier: round?.lowerBarrier ?? last.close,
+              touched: false,
             };
             positionOpenedAtMs = p.millis();
             stateRef.current.pnl = 0;
@@ -1539,7 +1544,19 @@ export function useRideGestureV4(opts: RideGestureV4Options) {
           let proximity = Math.max(progressUp, progressDn);
           proximity = Math.max(-1.2, Math.min(1.05, proximity));
 
-          const livePnl = staked * (mult - 1) * proximity;
+          // Settlement-honest live P&L. The chain settles BINARY: only an actual
+          // barrier TOUCH pays stake*(mult-1); releasing WITHOUT a touch settles
+          // CASHOUT (~$0). The old `staked*(mult-1)*proximity` rendered a green
+          // profit for an approach that pays nothing — a judge watched "+$6.80",
+          // released without touching, and got ~$0, breaking the "live==settlement"
+          // promise on the main gesture. Now: $0 until a real touch (sticky — once
+          // the close reaches a barrier, high>=barrier so the chain registers the
+          // touch and the ride is a win that stays a win), then the actual win
+          // amount. `staked` is still reported separately so the UI can show the
+          // amount at risk. A wick-only touch the close misses still surfaces
+          // correctly in the on-release settlement toast.
+          if (proximity >= 1) currentPosition.touched = true;
+          const livePnl = currentPosition.touched ? staked * (mult - 1) : 0;
           s.pnl = livePnl;
           if (now - lastPnlReportMs >= 80) {
             lastPnlReportMs = now;
