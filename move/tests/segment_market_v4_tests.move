@@ -657,6 +657,44 @@ fun record_segment_v4_rejects_when_no_active_rides() {
     sc.end();
 }
 
+// Safety (vault-solvency backstop): crank_expired refuses to settle if the
+// treasury can't cover the ride's refund + crank bounty
+// (EInsufficientTreasuryForCrank=18) — it aborts rather than under-pay. Open a
+// ride (escrow funds the treasury), drain the treasury to zero, then crank past
+// expiry → the solvency guard fires. This is the last of the v4 open/crank
+// guards to get a rejection test — adversarial coverage is now complete.
+#[test]
+#[expected_failure(abort_code = sm4::EInsufficientTreasuryForCrank, location = wick::segment_market_v4)]
+fun crank_expired_rejects_when_treasury_insufficient() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
+        mk_full_world(&mut sc);
+
+    let stake = 1_000u64;
+    let escrow_amt = stake * ROUND_DURATION;
+    let escrow = mint_sui(escrow_amt, &mut sc);
+    let mut ride = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots, stake, escrow, &clk, sc.ctx(),
+    );
+
+    // Drain the treasury to zero so it can't cover the refund + bounty.
+    let drained = mv::test_withdraw_for_ride_settlement<SUI>(&mut vault, escrow_amt, sc.ctx());
+    test_utils::destroy(drained);
+
+    sm4::test_only_bump_segment_index<SUI>(&mut market, ROUND_DURATION + 5);
+    clk.increment_for_testing(2_000);
+
+    sc.next_tx(KEEPER);
+    let bounty = sm4::crank_expired_segment_ride_v4<SUI>(
+        &mut ride, &mut market, &mut vault, &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(bounty); // unreachable
+    sm4::test_only_destroy_ride(ride);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 /// Test 9 — both-barriers-touch-in-same-segment → TOUCH_WIN with
 /// touched_side=0 (UPPER WINS per doc 25 §9 tie-break).
 ///
