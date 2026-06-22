@@ -397,6 +397,42 @@ fun crank_expired_ride_before_expiry_aborts() {
     sc.end();
 }
 
+// Safety / fairness: a ride settles only against the oracle its path is bound
+// to — closing against a foreign oracle is rejected → EOracleMismatch. Stops a
+// rider from settling on a spoofed price feed.
+#[test]
+#[expected_failure(abort_code = rp::EOracleMismatch)]
+fun close_ride_against_foreign_oracle_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut vault, vcap, mut caps, rcap, bots, bcap,
+         upo_obj, pcap, mut wts, wcap, mut pool, scap, clk) = mk_world(&mut sc);
+
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow(&mut vault, seed);
+
+    let escrow = mint_sui(100_000, &mut sc);
+    let mut ride = rp::open_ride<SUI>(
+        &mut caps, &path, &mut vault, &bots,
+        1_000_000, escrow, &clk, sc.ctx(),
+    );
+
+    // A second, unrelated oracle — the path isn't bound to it.
+    let (wrong_oracle, wrong_rw) = rwd::new_for_testing(
+        string::utf8(b"OTHER"), STARTING_PRICE, SIGMA_BPS, EXPIRY_MS, &clk, sc.ctx(),
+    );
+    let payout = rp::close_ride<SUI>(
+        &mut ride, &mut caps, &path, &wrong_oracle, &mut vault,
+        &upo_obj, &mut wts, &mut pool, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(payout); // unreachable
+    test_utils::destroy(ride);
+    test_utils::destroy(wrong_oracle);
+    test_utils::destroy(wrong_rw);
+    teardown_world(oracle, rw, path, vault, vcap, caps, rcap, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 #[test]
 #[expected_failure(abort_code = rp::ETouchedMustSelfClose)]
 fun crank_when_touched_aborts() {
