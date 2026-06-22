@@ -156,6 +156,20 @@ try {
     `btc≈${btcPrice}`,
   );
 
+  // ── 5b. asset switch re-marks to DEEP (DeepBook's own token) ────────────
+  // DEEP is symbolically central to a Sui/DeepBook submission; guard that the
+  // namesake pool prices too. Assert the pair label + live indicator rather
+  // than a price range (DEEP ≈ $0.016 would false-match other small numbers).
+  await page.getByRole("button", { name: "DEEP" }).click().catch(() => {});
+  await page.waitForTimeout(3500);
+  await shot("05-deep.png");
+  const body5 = await page.locator("body").innerText();
+  check(
+    "DEEP mark re-priced (DEEP/USDC pool, live)",
+    /DEEP\/USDC/i.test(body5) && /DEEPBOOK LIVE/i.test(body5),
+    /DEEP\/USDC/i.test(body5) ? "DEEP/USDC live" : "no DEEP/USDC label",
+  );
+
   // ── 6. no runtime errors anywhere ──────────────────────────────────────
   check(
     "no uncaught page/console errors",
