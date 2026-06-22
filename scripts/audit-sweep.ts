@@ -11,6 +11,7 @@
  *
  *   npm run audit:sweep              # last 10 rides on the rugged market
  *   npm run audit:sweep -- --n 20    # last 20
+ *   npm run audit:sweep -- --full    # the COMPLETE 3/3 per ride (also barriers + payout), ~3× slower
  *   npx tsx scripts/audit-sweep.ts --market <id> --n 15 --rpc <url>
  *
  * It's a judge artifact (statistical honesty, not a cherry-picked example) AND a
@@ -99,13 +100,17 @@ async function recentRides(client: SuiJsonRpcClient, market: string, pkg: string
   return out;
 }
 
-/** Run verify-v4 on one ride; true iff it PASSed. */
-function verifyOne(market: string, rideId: string, rpc?: string): boolean {
-  const args = ["tsx", join(here, "verify-v4.ts"), "--market", market, "--ride", rideId];
+/**
+ * Verify one ride. Default: verify-v4 (candles · MARKET HALT · verdict) — fast.
+ * `--full`: the complete 3/3 audit-ride (also barriers + payout) — ~3× slower.
+ */
+function verifyOne(market: string, rideId: string, rpc: string | undefined, full: boolean): boolean {
+  const script = full ? "audit-ride.ts" : "verify-v4.ts";
+  const args = ["tsx", join(here, script), "--market", market, "--ride", rideId];
   if (rpc) args.push("--rpc", rpc);
   try {
     const out = execFileSync("npx", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], cwd: REPO_ROOT });
-    return /\bPASS\b/.test(out);
+    return full ? /COMPLETE AUDIT PASS/.test(out) : /\bPASS\b/.test(out);
   } catch {
     return false;
   }
@@ -127,14 +132,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`audit-sweep — verifying the last ${rides.length} closed rides on`);
+  const full = process.argv.includes("--full");
+  const depth = full
+    ? "the COMPLETE audit (barriers · candles · halt · verdict · payout)"
+    : "candles · MARKET HALT · verdict (pass --full for barriers + payout too)";
+  console.log(`audit-sweep — verifying the last ${rides.length} closed rides — ${depth} — on`);
   console.log(`  ${market}\n`);
 
   let pass = 0;
   const failed: string[] = [];
   const byKind: Record<number, number> = {};
   rides.forEach((r, idx) => {
-    const ok = verifyOne(market, r.rideId, rpc);
+    const ok = verifyOne(market, r.rideId, rpc, full);
     byKind[r.kind] = (byKind[r.kind] ?? 0) + 1;
     const tag = (KIND_NAME[r.kind] ?? `K${r.kind}`).padEnd(13);
     if (ok) {
@@ -152,7 +161,10 @@ async function main(): Promise<void> {
   console.log(`\n  outcome mix: ${mix}`);
   console.log("  ──────────────────────────────────────────────────────────");
   if (failed.length === 0) {
-    console.log(`  \x1b[1;32m✅ ${pass}/${rides.length} real rides PROVABLY HONEST\x1b[0m — candles reproduce, verdicts match, every MARKET HALT an honest roll. Not one cherry-picked example.`);
+    const claim = full
+      ? "every dimension — barriers, candles, halt, verdict, AND payout — re-derived from the chain"
+      : "candles reproduce, verdicts match, every MARKET HALT an honest roll";
+    console.log(`  \x1b[1;32m✅ ${pass}/${rides.length} real rides PROVABLY HONEST\x1b[0m — ${claim}. Not one cherry-picked example.`);
     process.exitCode = 0;
   } else {
     console.log(`  \x1b[1;31m❌ ${failed.length}/${rides.length} FAILED\x1b[0m: ${failed.join(", ")}`);
