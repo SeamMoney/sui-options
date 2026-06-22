@@ -433,6 +433,31 @@ fun close_ride_against_foreign_oracle_aborts() {
     sc.end();
 }
 
+// Safety: no NEW ride can open on a market the vault has marked aborted →
+// EMarketAborted (riders can't pile into a market that's already winding down).
+#[test]
+#[expected_failure(abort_code = rp::EMarketAborted)]
+fun open_ride_on_aborted_market_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut vault, vcap, mut caps, rcap, bots, bcap,
+         upo_obj, pcap, mut wts, wcap, mut pool, scap, clk) = mk_world(&mut sc);
+
+    // The caps' market id is the vault's id; mark THAT market aborted in the vault.
+    let vid = object::id(&vault);
+    mv::test_deposit_open(&mut vault, mint_sui(1_000, &mut sc), &clk, sc.ctx());
+    mv::test_reserve_for_market(&mut vault, vid, 700);
+    mv::test_route_lock_to_abort_refund(&mut vault, vid);
+
+    let escrow = mint_sui(100_000, &mut sc);
+    let ride = rp::open_ride<SUI>(
+        &mut caps, &path, &mut vault, &bots,
+        1_000_000, escrow, &clk, sc.ctx(),
+    );
+    test_utils::destroy(ride); // unreachable
+    teardown_world(oracle, rw, path, vault, vcap, caps, rcap, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
 #[test]
 #[expected_failure(abort_code = rp::ETouchedMustSelfClose)]
 fun crank_when_touched_aborts() {
