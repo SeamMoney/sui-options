@@ -65,7 +65,7 @@ async function sha256Hex(str) {
 document.getElementById("go").addEventListener("click", async () => {
   const commit = document.getElementById("commit").value.trim().toLowerCase();
   const seed = document.getElementById("seed").value.trim();
-  const params = document.getElementById("params").value;
+  const params = document.getElementById("params").value.trim();
   const out = document.getElementById("out");
   const verdict = out.querySelector(".verdict");
   if (!/^[0-9a-f]{64}$/.test(commit)) { out.className = "bad"; verdict.innerHTML = '<span class="bad-v">✗ commit must be 64 hex chars</span>'; out.querySelector(".rc").textContent = ""; out.querySelector(".pc").textContent = commit || "(empty)"; return; }

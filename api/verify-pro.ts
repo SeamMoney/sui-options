@@ -65,7 +65,10 @@ export function handle(rawBody: unknown): JsonResponse {
     return { status: 400, body: { error: "paramsJson too large (max 8192 chars; a real round's is ~200)" } };
   }
 
-  const recomputed = commitOf(seedNum, paramsJson);
+  // Trim like the commit/seed inputs: the engine's paramsJson is compact JSON
+  // (no surrounding whitespace), so a trailing newline from a line-copy must not
+  // false-MISMATCH. Internal differences (a real tamper) are untouched.
+  const recomputed = commitOf(seedNum, paramsJson.trim());
   return {
     status: 200,
     body: {
@@ -108,7 +111,7 @@ and tells you whether the path was fixed before you bet.</p>
 <p class="n">Trust-minimized: SHA-256 runs client-side via <code>crypto.subtle</code> — no server, no network. Same guarantee as
 <code>npm run verify:pro-fairness</code> and the SDK's <code>verifyProRound()</code>.</p></div>
 <script>async function h(x){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(x));return[...new Uint8Array(b)].map(n=>n.toString(16).padStart(2,"0")).join("")}
-document.getElementById("g").onclick=async()=>{const c=document.getElementById("c").value.trim().toLowerCase(),s=document.getElementById("s").value.trim(),p=document.getElementById("p").value,o=document.getElementById("o"),v=o.querySelector(".v");
+document.getElementById("g").onclick=async()=>{const c=document.getElementById("c").value.trim().toLowerCase(),s=document.getElementById("s").value.trim(),p=document.getElementById("p").value.trim(),o=document.getElementById("o"),v=o.querySelector(".v");
 if(!/^[0-9a-f]{64}$/.test(c)){o.className="bad";v.innerHTML='<span class="badv">✗ commit must be 64 hex chars</span>';o.querySelector(".rc").textContent="";o.querySelector(".pc").textContent=c||"(empty)";return}
 if(!/^-?\\d+$/.test(s)){o.className="bad";v.innerHTML='<span class="badv">✗ seed must be a whole number</span>';o.querySelector(".rc").textContent="";o.querySelector(".pc").textContent=c;return}
 const r=await h(s+":"+p),ok=r===c;o.className=ok?"ok":"bad";v.innerHTML=ok?'<span class="okv">✓ HONEST — the revealed seed+params hash to the published commit. The path was fixed before you bet.</span>':'<span class="badv">✗ MISMATCH — these values do NOT hash to the published commit.</span>';
