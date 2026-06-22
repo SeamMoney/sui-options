@@ -581,6 +581,18 @@ async function main(): Promise<boolean> {
       if (cashoutExact !== closed.payout) {
         errs.push(`CASHOUT payout ${closed.payout} != re-derived Bachelier ${cashoutExact}`);
       }
+    } else if (closed.stakePaid > 0n) {
+      // Fail CLOSED: the EXACT Bachelier re-derivation is the ONLY check on a
+      // stake-bearing cashout's AMOUNT (checkPayoutIdentity only bounds it to
+      // (0, stake_paid]). If we couldn't read the close spot (segment pruned, or
+      // an RPC returned the object envelope without content), we have NOT proven
+      // the amount — so we must not print an unqualified PASS. A 0-stake cashout
+      // legitimately pays 0 and is fully covered by the bounds check, so it is
+      // exempt (cashoutExact stays null and that's fine).
+      errs.push(
+        `CASHOUT close spot (segment ${nextAtClose - 1n}) unavailable — cannot re-derive the EXACT Bachelier payout, so the amount is UNPROVEN. ` +
+          `Re-run before the round is pruned, or against an archival --rpc that still serves the segment.`,
+      );
     }
   }
 
@@ -593,9 +605,13 @@ async function main(): Promise<boolean> {
   } else if (closed.settlementKind === 2) {
     if (cashoutExact !== null) {
       console.log(`✓ CASHOUT: re-derived the EXACT Bachelier payout ${cashoutExact} == chain ${closed.payout} (spot/σ/time → factor → ×stake −spread); forfeit = stake_paid − payout`);
-    } else {
-      console.log(`✓ CASHOUT: payout ${closed.payout} within (0, stake_paid ${closed.stakePaid}]; forfeit = stake_paid − payout (segment state_after unavailable — bound-checked only)`);
+    } else if (closed.stakePaid === 0n) {
+      // 0-stake quick cashout: nothing accrued, so the honest payout is exactly
+      // 0 and the bounds check fully covers it (no spot to re-derive).
+      console.log(`✓ CASHOUT: 0-segment quick cashout — stake_paid 0, payout ${closed.payout}, full escrow refunded 1:1`);
     }
+    // NOTE: a stake-bearing cashout we couldn't re-derive pushed an error above
+    // and falls through to the FAIL block — never printed as a ✓ here.
   } else if (closed.settlementKind === 4) {
     console.log(`✓ ABORTED_REFUND: escrow refunded 1:1, no stake consumed`);
   }
