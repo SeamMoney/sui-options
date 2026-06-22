@@ -121,7 +121,7 @@ async function readState(client: ResilientClient, tableId: string, k: bigint): P
 interface RideBarriers { marketId: string; round: bigint; upper: bigint; lower: bigint }
 
 /** Compare Sui object ids tolerant of 0x-prefix / case / leading-zero noise. */
-function sameId(a: string, b: string): boolean {
+export function sameId(a: string, b: string): boolean {
   const norm = (s: string) => s.replace(/^0x/, "").replace(/^0+/, "").toLowerCase();
   return norm(a) === norm(b);
 }

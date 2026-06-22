@@ -10,7 +10,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { barriersFromSpot, roundRollSpotSource } from "./verify-barriers.js";
+import { barriersFromSpot, roundRollSpotSource, sameId } from "./verify-barriers.js";
 
 test("reproduces real on-chain barriers (golden vectors, ±10% / 1000bps)", () => {
   // round 17, spot @ round-roll = state_after(1274).price
@@ -57,4 +57,14 @@ test("roundRollSpotSource picks the right on-chain value (round-0 home vs round-
   assert.deepEqual(roundRollSpotSource(17n, 75n), { segment: 1274n, field: "price" });
   assert.deepEqual(roundRollSpotSource(1n, 75n), { segment: 74n, field: "price" });
   assert.deepEqual(roundRollSpotSource(5n, 4n), { segment: 19n, field: "price" });
+});
+
+test("sameId normalizes 0x-prefix / case / leading-zero padding (the ride∈market guard)", () => {
+  // Same id, different surface forms — all equal (so the guard never false-FAILs a real pair).
+  assert.ok(sameId("0xAbC123", "abc123"));
+  assert.ok(sameId("0x00ab", "0xAB"));
+  assert.ok(sameId("0x0000000000000000000000000000000000000000000000000000000000000008", "0x8"));
+  // Genuinely different ids stay different (so a mismatched --market/--ride IS caught).
+  assert.ok(!sameId("0xabc", "0xabd"));
+  assert.ok(!sameId("0x54e915", "0xa72a36"));
 });
