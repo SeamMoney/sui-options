@@ -174,6 +174,36 @@ fun cannot_open_after_expiry() {
     sc.end();
 }
 
+// Safety: a touch/no-touch position must be funded — opening with a zero
+// stake aborts EZeroStake (no free positions on the book).
+#[test]
+#[expected_failure(abort_code = market::EZeroStake)]
+fun cannot_open_with_zero_stake() {
+    let mut sc = ts::begin(ALICE);
+    let (oracle, rw, path, mut mkt, mut vault, vcap, rconf, rcap, mut reg, regcap, frtr, frcap, mut clk) =
+        h::setup_full_world(&mut sc);
+    h::seed_vault(&mut vault, POOL_SEED, &clk, &mut sc);
+    let bundle = h::setup_c35_bundle(&mut sc, &clk);
+
+    // Within expiry, active market, valid side — only the stake is bad.
+    let stake = h::mint_sui(0, &mut sc);
+    let pos = h::open_with_bundle(
+        &mut mkt, &mut vault, &rconf, &mut reg, &bundle, &path,
+        market::side_touch(), stake, SPOT, &clk, sc.ctx(),
+    );
+
+    test_utils::destroy(pos); // unreachable
+    test_utils::destroy(oracle); test_utils::destroy(rw); test_utils::destroy(path);
+    test_utils::destroy(vault); test_utils::destroy(vcap);
+    test_utils::destroy(rconf); test_utils::destroy(rcap);
+    test_utils::destroy(reg); test_utils::destroy(regcap);
+    test_utils::destroy(frtr); test_utils::destroy(frcap);
+    h::destroy_c35_bundle(bundle);
+    market::destroy_for_testing(mkt);
+    clk.destroy_for_testing();
+    sc.end();
+}
+
 #[test]
 #[expected_failure(abort_code = market::EStillActive)]
 fun cannot_redeem_when_active() {
