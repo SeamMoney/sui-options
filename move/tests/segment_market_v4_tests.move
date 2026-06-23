@@ -601,13 +601,51 @@ fun rugged_ride_cannot_escape_via_in_round_touch_held_cross_round() {
     sc.end();
 }
 
-/// Regression (v4.27) — the durable rug read must NOT over-rug: a ride opened
-/// AFTER the rug segment (entry > rug_seg) is an honest post-rug bet and keeps
-/// its win, even with the durable history present and even closing cross-round.
-/// Complement to `rugged_ride_cannot_escape_via_in_round_touch_held_cross_round`
-/// (entry ≤ rug_seg → rugged); together they pin the entry boundary under the
-/// durable read. Here the rug fired at segment 2 but the ride opened at segment
-/// 5 (> 2), touches in-round, and is closed cross-round → TOUCH_WIN.
+/// CRITICAL (v4.27 economic audit) — opening into an ALREADY-RUGGED round must
+/// abort. The rug is the ENTIRE house edge; once it has fired this round there is
+/// ZERO remaining rug risk, so a ride opened at entry > rug_seg settles rug-free
+/// and the touch bet is player-positive (payout > escrow) — a vault drain an
+/// attacker triggers by watching RugFiredV4 and opening max-stake post-rug.
+/// `open_segment_ride_v4` guards this with `EMarketRugged`.
+#[test]
+#[expected_failure(abort_code = sm4::EMarketRugged, location = wick::segment_market_v4)]
+fun open_into_an_already_rugged_round_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+    sm4::enable_rug<SUI>(&mut market, 150);
+    let seed = mint_sui(10_000_000_000, &mut sc);
+    mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
+
+    // Round 0 has ALREADY rugged at segment 2 — the live `rugged_at_segment` flag
+    // is set, exactly as roll_rug sets it when segment 2 records. The attacker now
+    // opens at entry 5 (> 2): a post-rug bet carrying the full touch upside with
+    // NO rug downside. The open MUST abort EMarketRugged.
+    sm4::test_only_bump_segment_index<SUI>(&mut market, 5);
+    sm4::test_only_set_rugged_at_segment<SUI>(&mut market, 2);
+
+    let stake = 1_000u64;
+    let r = sm4::open_segment_ride_v4<SUI>(
+        &mut market, &mut vault, &bots,
+        stake, mint_sui(stake * ROUND_DURATION, &mut sc), &clk, sc.ctx(),
+    ); // ← aborts EMarketRugged
+
+    // Unreached.
+    sm4::test_only_destroy_ride(r);
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+/// Defense-in-depth complement to the guard above — `decide_settlement`'s durable
+/// read is EXACT at the entry boundary. This constructs a post-rug ride
+/// ARTIFICIALLY (the rug is recorded into the durable history AFTER the open, so
+/// `is_rugged` is false at open and the EMarketRugged guard doesn't fire) purely
+/// to pin that a ride at entry > rug_seg is NOT over-rugged by the settlement
+/// math: it settles on its true outcome (here an in-round touch → TOUCH_WIN), not
+/// a false EXPIRED_LOSS. The open guard — not this path — is what blocks the drain
+/// in production; its mirror
+/// `rugged_ride_cannot_escape_via_in_round_touch_held_cross_round`
+/// (entry ≤ rug_seg → rugged) pins the other side.
 #[test]
 fun post_rug_open_keeps_its_win_under_the_durable_read() {
     let mut sc = ts::begin(ALICE);
