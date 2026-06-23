@@ -451,7 +451,11 @@ export function useSegmentRideV4(
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  const busyRef = useRef(false);
+  const busyRef = useRef(false); // OPEN single-flight only
+  // CLOSE single-flight — SEPARATE from busyRef so a close that's still
+  // settling on-chain (its crank+close txs, ~2-4s on testnet) never blocks a
+  // fresh open(). This is the "can't tap for a few seconds after cashout" fix.
+  const closeBusyRef = useRef(false);
   const closeQueuedRef = useRef(false);
   // Ref-mirror of `positionId` so close() reads it synchronously without
   // waiting for React to rebuild the useCallback closure. Fixes the
@@ -783,8 +787,22 @@ export function useSegmentRideV4(
       setPhase("idle");
       return;
     }
-    busyRef.current = true;
-    // OPTIMISTIC: phase=idle immediately, not "closing".
+    // A previous close is still settling on-chain. Don't run a second close
+    // concurrently (gas/shared-object contention). The ride stays open; the
+    // sentinel cranker + orphan-sweep settle it. Rare: only if you re-open AND
+    // re-release inside the prior ~2-4s close window.
+    if (closeBusyRef.current) {
+      setPhase("idle");
+      return;
+    }
+    closeBusyRef.current = true;
+    // OPTIMISTIC: phase=idle immediately, not "closing". Clear the position id
+    // RIGHT NOW — close already captured livePositionId locally — so open()'s
+    // guard (busyRef || positionIdRef) passes and you can start a new ride
+    // INSTANTLY. The new open's tx retries through the brief gas-coin lock
+    // while this close confirms in the background.
+    positionIdRef.current = null;
+    setPositionId(null);
     setPhase("idle");
 
     void (async () => {
@@ -917,8 +935,12 @@ export function useSegmentRideV4(
               ...(payoutRaw !== undefined ? { payoutRaw } : {}),
             });
             setLastError(null);
-            positionIdRef.current = null;
-            setPositionId(null);
+            // Only clear if it's still OUR ride — a fast re-open may have set a
+            // new positionId; clearing unconditionally would orphan it.
+            if (positionIdRef.current === livePositionId) {
+              positionIdRef.current = null;
+              setPositionId(null);
+            }
             // Phase already "idle" from the optimistic flip above.
             onBalanceChanged?.();
             return;
@@ -935,8 +957,10 @@ export function useSegmentRideV4(
             if (lastErr.message && /abort code:\s*1\b/i.test(lastErr.message)) {
               setLastSettlement({ kind: -1, label: "already settled", digest: "" });
               setLastError(null);
-              positionIdRef.current = null;
-              setPositionId(null);
+              if (positionIdRef.current === livePositionId) {
+                positionIdRef.current = null;
+                setPositionId(null);
+              }
               // Phase already "idle".
               onBalanceChanged?.();
               return;
@@ -958,7 +982,7 @@ export function useSegmentRideV4(
         setLastError(humanizeChainError(msg));
         console.warn("[useSegmentRideV4] close failed after retries:", msg.slice(0, 200));
       } finally {
-        busyRef.current = false;
+        closeBusyRef.current = false;
       }
     })();
   }, [
