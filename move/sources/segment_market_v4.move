@@ -117,6 +117,9 @@ const EArchiveAlreadyRecorded: u64 = 24;
 /// the live rugged state with a fresh `option::none()` which is unsafe
 /// mid-round. Re-disable would need its own entry.
 const ERugAlreadyEnabled: u64 = 25;
+/// open_segment_ride_v4 refused: this round already rugged (MARKET HALT). Opening
+/// post-rug would settle on the rug-free, player-positive path — a vault drain.
+const EMarketRugged: u64 = 26;
 
 // === Settlement kinds === (unchanged from v3)
 const SETTLEMENT_OPEN: u8 = 0;
@@ -881,6 +884,17 @@ public fun open_segment_ride_v4<C>(
     assert!(market.vault_id == object::id(vault), EWrongMarket);
     // 2. Lazy-roll the round if needed
     ensure_round_current(market);
+    // 2b. Refuse opens into an ALREADY-RUGGED round. The rug is the ENTIRE house
+    // edge — the touch payout against ±barriers over a full round is player-positive
+    // WITHOUT it (touch ~79% vs ~57% break-even). A round rugs at most once; after
+    // RugFiredV4 fires there is ZERO remaining rug risk, and a ride opened at
+    // entry_segment > rugged_seg settles on the rug-free path (it isn't <= rugged_seg,
+    // so decide_settlement won't route it to EXPIRED_LOSS) — carrying positive player
+    // EV: a vault drain an attacker triggers by watching RugFiredV4. The round is
+    // HALTED after a rug; opens resume next round (ensure_round_current clears
+    // rugged_at_segment on the roll). The frontend already blocks this; this closes
+    // the direct-MoveCall / modified-client bypass.
+    assert!(!is_rugged(market), EMarketRugged);
     // 3. (v4: NO open-window assert — every segment in the round is open)
     // 4. Stake range
     assert!(
