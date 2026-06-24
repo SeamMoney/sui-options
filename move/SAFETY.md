@@ -13,7 +13,7 @@ immutable-config rules, and determinism — each mapped to the named test(s) (or
 compile-time guarantee) that prove it, so an auditor or judge can run a specific
 test rather than take the claim on faith.
 
-Run the whole suite: `sui move test` (from `move/`) — **695/695 passing**.
+Run the whole suite: `sui move test` (from `move/`) — **696/696 passing**.
 Run one property: `sui move test <test_name>` (substring match on the function).
 
 ## The collateral invariant — load-bearing
