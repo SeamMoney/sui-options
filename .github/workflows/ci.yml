@@ -8,6 +8,11 @@ name: CI
 #   - move:  install a pinned Sui CLI and run the full Move test suite, which
 #            includes the seeded_path conformance vectors (Move <-> TS).
 on:
+  # Manual trigger — re-run CI on demand, e.g. to re-green the README badge after a
+  # docs-only Move-test-count sync. Such a sync touches only *.md (paths-ignored
+  # below), so it can't re-green the badge on its own when a prior code push went
+  # red on the count drift: `gh workflow run ci.yml --ref main` after the sync.
+  workflow_dispatch:
   # Skip CI for docs-only changes — markdown / docs touch no build, test, or
   # Move output, and the fleet ships a lot of them. This conserves the private
   # repo's metered Actions minutes (a day of doc PRs was burning ~6 min each
