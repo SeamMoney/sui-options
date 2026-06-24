@@ -3,7 +3,13 @@ name = "wick"
 edition = "2024"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+# Pinned to a specific framework COMMIT (was rev = "framework/testnet", a MOVING
+# branch). On 2026-06-24 a bad commit landed on framework/testnet that dropped
+# 0x2::rangeproofs, breaking `sui move test` in CI (which fetches the branch fresh)
+# while local dev kept passing from its cached copy. This is the known-good commit
+# local dev resolved via Move.lock (Move 697/697). A pinned rev is reproducible —
+# no moving-branch surprises; bump it deliberately when updating the toolchain.
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "ff1fe0ec455153707136cffd0dc77dfb77ba9ad5" }
 
 [addresses]
 wick = "0x0"
