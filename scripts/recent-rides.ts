@@ -107,6 +107,11 @@ async function main() {
   // distinctly so a judge can pick the headline outcome. verify-v4 confirms.
   // round key → the segment the rug fired at (the FIRST qualifying segment in
   // that round; RugFiredV4 fires once per round).
+  // Interactive progress: the two descending-event scans below can run tens of
+  // seconds on a busy/aged market; show a heartbeat so the wait doesn't look hung.
+  // stderr + isTTY ⇒ interactive only; piped stdout (the ride list) stays clean.
+  const tick = (m: string) => { if (process.stderr.isTTY) process.stderr.write(`\r  ${m}`.padEnd(72)); };
+  const clearTick = () => { if (process.stderr.isTTY) process.stderr.write("\r".padEnd(74) + "\r"); };
   const rugSegByRound = new Map<string, bigint>();
   {
     // RugFiredV4 was ADDED in the v4.26 upgrade, so its event type is tagged
@@ -115,6 +120,7 @@ async function main() {
     const rugType = rugFiredV4EventType(D.package_id as string);
     let c: unknown = null;
     for (let page = 0; page < 20; page++) {
+      tick(`scanning recent market-halts… page ${page + 1}`);
       const res = await queryResilient(primary, archival, {
         query: { MoveEventType: rugType },
         cursor: c,
@@ -161,6 +167,7 @@ async function main() {
   const wantedMarkets = new Set(markets.map((m) => m.market));
   let cursor: unknown = null;
   for (let page = 0; page < 30; page++) {
+    tick(`scanning recent closed rides… page ${page + 1}`);
     const res = await queryResilient(primary, archival, {
       query: { MoveEventType: rideClosedV4EventType(pkg) },
       cursor,
@@ -191,6 +198,7 @@ async function main() {
     if (enough || !res.hasNextPage || !res.nextCursor) break;
     cursor = res.nextCursor;
   }
+  clearTick();
 
   const order = [1, 2, 5, 3, 4];
   let total = 0;
