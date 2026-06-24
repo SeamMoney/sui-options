@@ -60,7 +60,7 @@
     "test:audit-ride": "tsx --test scripts/audit-ride.test.ts",
     "test:chart-live": "tsx --test scripts/check-chart-live.test.ts",
     "test:faucet-runway": "tsx --test scripts/check-faucet-runway.test.ts",
-    "verify:offline": "npm run verify:pro-fairness && npm run verify:fairness && npm -w @wick/sdk test && npm -w @wick/api test && npm -w wick-keeper test && npm -w wick-bots test && npm run test:pro-options && npm run test:candle-vision && npm run test:verify-v4 && npm run test:audit-rugs && npm run test:rug-roll && npm run test:verify-payout && npm run test:verify-barriers && npm run test:vault-solvency && npm run test:verify-randomness && npm run test:audit-deployment && npm run test:gas-report && npm run test:live-verify && npm run test:audit-ride && npm run test:chart-live && npm run test:faucet-runway && npm run test:verify-replay && npm run test:greeks-display && npm run test:safety",
+    "verify:offline": "npm run verify:pro-fairness && npm run verify:fairness && npm run test:offline",
     "check:treasury": "tsx scripts/treasury-health.ts",
     "check:chart-live": "tsx scripts/check-chart-live.ts",
     "check:faucet-runway": "tsx scripts/check-faucet-runway.ts",
