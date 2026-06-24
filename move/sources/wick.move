@@ -643,9 +643,10 @@ public entry fun bootstrap_segment_market_v4<C>(
 ///   - `sm4::EInvalidConfig` (15) if `rug_chance_bps > 10_000`.
 public entry fun enable_rug<C>(
     market: &mut SegmentMarketV4<C>,
+    cap: &VaultAdminCap,
     rug_chance_bps: u64,
 ) {
-    sm4::enable_rug<C>(market, rug_chance_bps);
+    sm4::enable_rug<C>(market, cap, rug_chance_bps);
 }
 
 /// Permissionless v4 cranker entry — `record_segment` on a v4 market.

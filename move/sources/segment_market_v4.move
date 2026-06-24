@@ -70,7 +70,7 @@ use sui::hash;
 use sui::random::{Self as random, Random};
 use sui::table::{Self, Table};
 use wick::bot_registry::{Self as br, BotRegistry};
-use wick::martingaler_vault::{Self as mv, MartingalerVault};
+use wick::martingaler_vault::{Self as mv, MartingalerVault, VaultAdminCap};
 use wick::ride_pricing;
 use wick::seeded_path::{Self as sp, WalkState};
 use wick::usd_price_oracle::{Self as upo, UsdPriceOracle};
@@ -120,6 +120,10 @@ const ERugAlreadyEnabled: u64 = 25;
 /// open_segment_ride_v4 refused: this round already rugged (MARKET HALT). Opening
 /// post-rug would settle on the rug-free, player-positive path — a vault drain.
 const EMarketRugged: u64 = 26;
+/// enable_rug refused: the caller's VaultAdminCap is not for this market's backing
+/// vault. Gates the rug bootstrap so a testnet watcher can't front-run it (enable_rug
+/// is a separate tx after market create — see the v4.26 deploy runbook front-run note).
+const ENotVaultAdmin: u64 = 27;
 
 // === Settlement kinds === (unchanged from v3)
 const SETTLEMENT_OPEN: u8 = 0;
@@ -720,8 +724,14 @@ public entry fun share_segment_market_v4<C>(market: SegmentMarketV4<C>) {
 ///   - `EInvalidConfig` if `rug_chance_bps > BPS_DENOMINATOR` (10_000).
 public entry fun enable_rug<C>(
     market: &mut SegmentMarketV4<C>,
+    cap: &VaultAdminCap,
     rug_chance_bps: u64,
 ) {
+    // Authorize: only the holder of the admin cap for THIS market's backing vault
+    // may enable the rug. Closes the bootstrap front-run window — enable_rug runs in
+    // a separate tx after market create, so without this gate a watcher could
+    // front-run it with rug_chance_bps=10000 and lock the new market at 100% rug.
+    assert!(mv::cap_vault_id(cap) == market.vault_id, ENotVaultAdmin);
     assert!(!rug_enabled(market), ERugAlreadyEnabled);
     assert!(rug_chance_bps <= BPS_DENOMINATOR, EInvalidConfig);
     dynamic_field::add<vector<u8>, RugConfig>(
