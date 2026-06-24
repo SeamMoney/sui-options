@@ -34,6 +34,9 @@ PKG=$(jq -r '.package_id' "$DEPLOYMENT_PATH")
 PUBLISHER=$(jq -r '.publisher' "$DEPLOYMENT_PATH")
 TUSD_TYPE=$(jq -r '.tusd.coin_type' "$DEPLOYMENT_PATH")
 VAULT_TUSD=$(jq -r '.vault_tusd' "$DEPLOYMENT_PATH")
+# v4.27: enable_rug is gated on the backing vault's admin cap (closes the rug
+# bootstrap front-run window). The publisher owns this cap.
+VAULT_ADMIN_CAP_TUSD=$(jq -r '.vault_admin_cap_tusd' "$DEPLOYMENT_PATH")
 
 CLOCK_ID="0x6"
 
@@ -119,7 +122,7 @@ sui client call \
   --module wick \
   --function enable_rug \
   --type-args "$TUSD_TYPE" \
-  --args "$MARKET_ID" "$RUG_CHANCE_BPS" \
+  --args "$MARKET_ID" "$VAULT_ADMIN_CAP_TUSD" "$RUG_CHANCE_BPS" \
   --gas-budget 20000000 \
   --json > /dev/null
 echo "    ✓ Rug enabled on market $MARKET_ID"

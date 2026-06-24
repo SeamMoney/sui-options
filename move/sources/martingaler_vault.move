@@ -88,6 +88,11 @@ public struct VaultAdminCap has key, store {
     vault_id: ID,
 }
 
+/// The vault this admin cap authorizes. Lets other modules (e.g.
+/// `segment_market_v4::enable_rug`) gate a market action on the caller holding
+/// the admin cap for the market's backing vault.
+public fun cap_vault_id(cap: &VaultAdminCap): ID { cap.vault_id }
+
 // === Events ===
 
 public struct VaultInitialized has copy, drop {

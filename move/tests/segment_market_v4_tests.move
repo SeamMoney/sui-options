@@ -552,7 +552,7 @@ fun rugged_ride_cannot_escape_via_in_round_touch_held_cross_round() {
     let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
         mk_full_world(&mut sc);
 
-    sm4::enable_rug<SUI>(&mut market, 150);
+    sm4::enable_rug<SUI>(&mut market, &vcap,150);
 
     let seed = mint_sui(10_000_000_000, &mut sc);
     mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
@@ -613,7 +613,7 @@ fun open_into_an_already_rugged_round_aborts() {
     let mut sc = ts::begin(ALICE);
     let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
         mk_full_world(&mut sc);
-    sm4::enable_rug<SUI>(&mut market, 150);
+    sm4::enable_rug<SUI>(&mut market, &vcap,150);
     let seed = mint_sui(10_000_000_000, &mut sc);
     mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
 
@@ -652,7 +652,7 @@ fun post_rug_open_keeps_its_win_under_the_durable_read() {
     let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
         mk_full_world(&mut sc);
 
-    sm4::enable_rug<SUI>(&mut market, 150);
+    sm4::enable_rug<SUI>(&mut market, &vcap,150);
 
     let seed = mint_sui(10_000_000_000, &mut sc);
     mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
@@ -712,7 +712,7 @@ fun rug_history_entry_dropped_when_round_fully_settles() {
     let (mut vault, vcap, mut market, bots, bcap, upo_obj, pcap, mut wts, wcap, mut pool, scap, mut clk) =
         mk_full_world(&mut sc);
 
-    sm4::enable_rug<SUI>(&mut market, 150);
+    sm4::enable_rug<SUI>(&mut market, &vcap,150);
 
     let seed = mint_sui(10_000_000_000, &mut sc);
     mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
@@ -1868,9 +1868,30 @@ fun enable_rug_twice_rejected() {
     let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
         mk_full_world(&mut sc);
 
-    sm4::enable_rug<SUI>(&mut market, ALICE_RUG_BPS);
-    sm4::enable_rug<SUI>(&mut market, ALICE_RUG_BPS); // second call aborts 25
+    sm4::enable_rug<SUI>(&mut market, &vcap,ALICE_RUG_BPS);
+    sm4::enable_rug<SUI>(&mut market, &vcap,ALICE_RUG_BPS); // second call aborts 25
 
+    teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
+    sc.end();
+}
+
+/// Front-run defense (v4.27) — `enable_rug` is gated on the admin cap for the
+/// market's BACKING vault. A foreign cap (minted for a different vault) is
+/// rejected with `ENotVaultAdmin`, so a testnet watcher can't front-run the rug
+/// bootstrap (a separate tx after market create) and lock the market at 100% rug.
+#[test]
+#[expected_failure(abort_code = sm4::ENotVaultAdmin, location = wick::segment_market_v4)]
+fun enable_rug_with_a_foreign_vault_cap_aborts() {
+    let mut sc = ts::begin(ALICE);
+    let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
+        mk_full_world(&mut sc);
+    // A cap minted for a DIFFERENT vault — not this market's backing vault.
+    let (vault2, vcap2) = mv::init_for_testing<SUI>(sc.ctx());
+    sm4::enable_rug<SUI>(&mut market, &vcap2, 150); // ← aborts ENotVaultAdmin
+
+    // Unreached.
+    test_utils::destroy(vault2);
+    test_utils::destroy(vcap2);
     teardown_world(vault, vcap, market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk);
     sc.end();
 }
@@ -1884,7 +1905,7 @@ fun rug_chance_zero_is_disabled() {
     let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
         mk_full_world(&mut sc);
 
-    sm4::enable_rug<SUI>(&mut market, 0);
+    sm4::enable_rug<SUI>(&mut market, &vcap,0);
     assert!(sm4::rug_enabled<SUI>(&market), 0);
     assert!(sm4::rug_chance_bps<SUI>(&market) == 0, 1);
     assert!(!sm4::is_rugged<SUI>(&market), 2);
@@ -1910,7 +1931,7 @@ fun rug_settles_ride_as_loss() {
     let seed = mint_sui(10_000_000_000, &mut sc);
     mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
 
-    sm4::enable_rug<SUI>(&mut market, ALICE_RUG_BPS);
+    sm4::enable_rug<SUI>(&mut market, &vcap,ALICE_RUG_BPS);
 
     let stake = 1_000u64;
     let escrow_amt = stake * ROUND_DURATION;
@@ -1979,7 +2000,7 @@ fun rug_does_not_double_fire_per_round() {
         stake, escrow, &clk, sc.ctx(),
     );
 
-    sm4::enable_rug<SUI>(&mut market, ALICE_RUG_BPS);
+    sm4::enable_rug<SUI>(&mut market, &vcap,ALICE_RUG_BPS);
     // Pretend a rug fired at segment 0.
     sm4::test_only_set_rugged_at_segment<SUI>(&mut market, 0);
     let opt_before = sm4::rugged_at_segment<SUI>(&market);
@@ -2018,7 +2039,7 @@ fun round_roll_clears_rug() {
     let (vault, vcap, mut market, bots, bcap, upo_obj, pcap, wts, wcap, pool, scap, clk) =
         mk_full_world(&mut sc);
 
-    sm4::enable_rug<SUI>(&mut market, ALICE_RUG_BPS);
+    sm4::enable_rug<SUI>(&mut market, &vcap,ALICE_RUG_BPS);
     sm4::test_only_set_rugged_at_segment<SUI>(&mut market, 5);
     assert!(sm4::is_rugged<SUI>(&market), 0);
 
@@ -2049,7 +2070,7 @@ fun close_after_rug_settles_as_loss_even_on_touch() {
     let seed = mint_sui(10_000_000_000, &mut sc);
     mv::test_deposit_ride_escrow<SUI>(&mut vault, seed);
 
-    sm4::enable_rug<SUI>(&mut market, ALICE_RUG_BPS);
+    sm4::enable_rug<SUI>(&mut market, &vcap,ALICE_RUG_BPS);
 
     let stake = 1_000u64;
     let escrow_amt = stake * ROUND_DURATION;
@@ -2108,7 +2129,7 @@ fun rug_fires_at_expected_rate() {
         mk_full_world(&mut sc);
 
     // 15% per segment — should land ~38/256 fires.
-    sm4::enable_rug<SUI>(&mut market, 1_500);
+    sm4::enable_rug<SUI>(&mut market, &vcap,1_500);
 
     let mut fires: u64 = 0;
     let mut i: u64 = 0;
