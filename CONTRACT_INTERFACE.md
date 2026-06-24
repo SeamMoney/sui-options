@@ -166,7 +166,7 @@ public entry fun bootstrap_segment_market_v4<C>(home_price, vol_regime_init,
   min_stake_per_segment, max_stake_per_segment, max_concurrent_rides,
   max_rides_per_user, vault, clock, ctx)
 public entry fun record_segment_v4<C>(market, r: &Random, clock, ctx)  // permissionless cranker
-public entry fun enable_rug<C>(market, rug_chance_bps)                 // v4.26 house edge (opt-in)
+public entry fun enable_rug<C>(market, cap: &VaultAdminCap, rug_chance_bps)  // v4.27: cap-gated (#767); pass the vault admin cap
 public fun open_segment_ride_v4<C>(market, vault, bot_registry,
   stake_per_segment, escrow: Coin<C>, clock, ctx): SegmentRidePositionV4  // touch EITHER barrier
 public fun close_segment_ride_v4<C>(ride, market, vault, price_oracle,
