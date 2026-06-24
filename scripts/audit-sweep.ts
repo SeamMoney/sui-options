@@ -123,7 +123,15 @@ async function recentRides(client: ListRpc, market: string, pkg: string, n: numb
   type Cursor = { txDigest: string; eventSeq: string } | null;
   let cursor: Cursor = null;
   const out: RideRow[] = [];
+  // The find can take a while on a busy/aged market: RideClosedV4 events span
+  // ALL markets, so we page descending and keep only this market's — sparse
+  // recent closes ⇒ many pages. Show progress so the wait doesn't look hung.
+  // stderr + isTTY ⇒ interactive only; piped stdout (the audit output) stays clean.
+  const tick = (msg: string) => {
+    if (process.stderr.isTTY) process.stderr.write(`\r  ${msg}`.padEnd(72));
+  };
   for (let page = 0; page < 20 && out.length < n; page++) {
+    tick(`finding the last ${n} closed ride(s)… scanned ${page * 50} events, found ${out.length}/${n}`);
     const res = (await client.queryEvents({
       query: { MoveEventType: rideClosedV4EventType(pkg) },
       cursor,
@@ -139,6 +147,7 @@ async function recentRides(client: ListRpc, market: string, pkg: string, n: numb
     if (!res.hasNextPage || !res.nextCursor) break;
     cursor = res.nextCursor;
   }
+  if (process.stderr.isTTY) process.stderr.write("\r".padEnd(74) + "\r"); // clear the progress line
   return out;
 }
 
