@@ -121,9 +121,14 @@ jobs:
     name: Move — sui move test
     runs-on: ubuntu-latest
     env:
-      # Pin the Sui CLI to the testnet release the package is developed against
-      # (local dev is sui 1.73.x). Bump in lockstep with the toolchain.
-      SUI_VERSION: testnet-v1.73.1
+      # Pin the Sui CLI to the version local dev builds against (sui 1.73.2, which
+      # passes 697/697 locally). testnet-v1.73.1 began failing `sui move test` with
+      # MISSING_DEPENDENCY 0x2::rangeproofs on 2026-06-24 (its release asset's bundled
+      # framework regressed — it was green hours earlier); testnet-v1.73.2 has no
+      # release, so use the mainnet channel's 1.73.2 — identical framework at that
+      # version, and the channel is irrelevant to the offline in-memory `sui move
+      # test`. Bump in lockstep with local dev.
+      SUI_VERSION: mainnet-v1.73.2
     steps:
       - uses: actions/checkout@v4
 
