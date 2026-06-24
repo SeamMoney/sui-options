@@ -36,3 +36,21 @@ test("every test:* leaf is in the cold gate (test:offline)", () => {
       `the cold gate (test:live is a no-op placeholder; see #519/#522/#529/#564).`,
   );
 });
+
+// verify:offline is the judge-facing zero-network proof command (DEMO.md +
+// DEMO-RUNBOOK.md). It used to carry its OWN hand-maintained test list that
+// drifted stale, silently skipping the /pro fairness proofs (#765 made it
+// delegate to test:offline so it can't fall behind). That fix is one package.json
+// line — exactly the kind a stale-base --admin merge silently reverts (cf. the
+// #752 revert). The leaf-coverage test above can't catch that (verify:offline is
+// not a test:* leaf), so guard the delegation directly.
+test("verify:offline delegates to the cold gate (no parallel test list that drifts)", () => {
+  const vo = scripts["verify:offline"] ?? "";
+  assert.ok(
+    vo.includes("run test:offline"),
+    `verify:offline must delegate to test:offline ('... && npm run test:offline'), not carry a ` +
+      `parallel hand-maintained test list. A hand-list drifted stale once and silently dropped the ` +
+      `/pro fairness proofs from the judge-facing zero-network command (#765); delegation keeps it ` +
+      `complete by construction. Current value: ${vo || "(unset)"}`,
+  );
+});
