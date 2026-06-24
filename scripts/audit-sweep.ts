@@ -175,6 +175,14 @@ async function main(): Promise<void> {
 
   const client = makeResilientClient([rpc ?? "", ...FALLBACK_RPCS]);
   const pkg = await typePackage(client, market);
+  // Set the wait expectation BEFORE the scan: the find pages the descending
+  // on-chain event tape (closed rides are sparse on a busy/aged market, so it's
+  // a few minutes; recentRides shows live progress). Point a judge who just
+  // wants a quick check at the instant single-ride audit instead.
+  console.log(
+    `audit-sweep — scanning the on-chain tape for the last ${n} closed rides… ` +
+      "(a few minutes on a busy market; `npm run audit:latest` is the instant single-ride check)",
+  );
   const rides = await recentRides(client, market, pkg, n);
 
   if (rides.length === 0) {
