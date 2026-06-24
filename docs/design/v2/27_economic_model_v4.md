@@ -161,7 +161,7 @@ mechanism — a rug-pull event vs a multiplier crash — is novel for the
 | Walk seed prediction attack | `record_segment_v4` consumes `sui::random` under the PTB-Random structural rule. Attackers can't grind seeds. The rug roll uses `keccak256(segment_key)` — derived from the random output, not predictable. |
 | Vault bank-run | Bounded by per-round payout cap. Worst-case 1 round can pay 500 TUSD. Vault has 100M seed = 200K rounds of max-cap exposure before drain. |
 | Concentrated whale exposure | `max_payout_per_round` and per-side aggregates cap protocol exposure regardless of single-ride stake size. |
-| RugConfig dynamic field tampering | Only the operator (via `enable_rug`) can attach RugConfig. `ERugAlreadyEnabled` prevents accidental double-enable. |
+| RugConfig dynamic field tampering | `enable_rug` is gated on the backing vault's admin cap (asserts `cap.vault_id == market.vault_id`, else `ENotVaultAdmin` — #767), so only the operator can attach RugConfig — including closing the bootstrap front-run window (create + enable are separate txs). `ERugAlreadyEnabled` prevents accidental double-enable. |
 | Rug fires too frequently → bad UX | 1.5% per segment is the MC-calibrated sweet spot. Higher rates trigger user frustration; lower rates erode house edge. Configurable per-market at bootstrap. |
 
 ## 9. What changes for production
