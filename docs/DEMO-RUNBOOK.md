@@ -22,7 +22,7 @@ a phone-sized browser on **`/pro`** and a terminal in the repo.
    engine. The number I'm watching is the number I'll be paid."*
 3. Tap **CLOSE** (or let it auto-settle). The settled figure equals the last live
    number. Say: *"Settlement-consistent — watch == paid, by construction."*
-4. Toggle **BTC** (XBTC/USDC ~$64k) to show it's multi-asset and really live.
+4. Toggle **BTC** (XBTC/USDC) to show it's multi-asset and really live.
 
 ## Act 2 — the depth (45s) · `/coach`
 
