@@ -35,3 +35,5 @@ deployments/archive/
 .claude/
 *.local
 *.key
+
+# ops: redeploy trigger — production was serving 404 on all routes/assets (stale/failed deploy); local build green. Harmless comment to trigger a fresh Vercel auto-deploy.
