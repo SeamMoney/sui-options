@@ -25,6 +25,16 @@ for path in "/" "/pro" "/ride" "/coach" "/verify"; do
   [ "$code" = "200" ] && ok "GET $path → 200" || bad "GET $path → $code"
 done
 
+# ...but a 200 SPA shell isn't enough: a wrong/stale deploy (e.g. an old 'deepwap'
+# build) ALSO serves a 200 shell, so the code check above can't catch it. This
+# exact regression 404'd/wrong-served the submission and needed a redeploy (#781).
+# Assert the shell is the WICK build via a title marker in the HTML.
+shell=$(curl -s -m 20 "$BASE/pro")
+case "$shell" in
+  *"Wick Markets"*) ok "SPA shell is the Wick build ('Wick Markets' title present)";;
+  *)               bad "SPA shell is NOT the Wick build (no 'Wick Markets' title — wrong/stale deploy)";;
+esac
+
 # Faucet endpoints: 200 (dripped) or 429 (cooldown) both prove configured+alive.
 # The faucet wallet has a single gas coin, so concurrent requests occasionally
 # lose a coin-version race and 500 (~10-20%); that's a transient a real user just
